@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>이츠페이 관리자 시스템 v4</title>
+<script>
+const CONFIG = {
+  serviceName:"이츠페이", serviceNameEn:"eats PAY", companyName:"에이빅스 주식회사",
+  csPhone:"1566-3558", csHours:"평일 10:00~18:00",
+  menu:{
+    dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
+    settlements:"대리점 정산", franchises:"가맹점 목록", accounts:"출금계좌 목록",
+    agencies:"대리점 관리", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
+    banners:"배너 관리", faqs:"FAQ 관리", installments:"무이자 할부",
+    pg:"PG사 관리", fees:"수수료율 설정", admins:"관리자 계정",
+    notices:"공지사항", guides:"이용가이드",
+  },
+  roles:[
+    {name:"총괄 관리자",desc:"모든 기능 + 관리자 계정 생성/삭제",color:"#EF4444"},
+    {name:"운영 관리자",desc:"가맹점 승인, 대리점 관리, 운영 메뉴",color:"#F59E0B"},
+    {name:"정산 관리자",desc:"결제 내역, PG정산 확인, 정산 조회",color:"#3B82F6"},
+    {name:"고객 관리자",desc:"공지사항, FAQ, 이용가이드 작성/수정",color:"#3D9B35"},
+  ],
+  pgProviders:[
+    {name:"넥스트페이 (NextPay)",mid:"MID_NP_001",apiKey:"np_live_****",callbackUrl:"https://eatspay.co.kr/callback/np",status:"활성",note:"메인 PG사"},
+    {name:"클라우드페이 (CloudPay)",mid:"MID_CP_001",apiKey:"cp_live_****",callbackUrl:"https://eatspay.co.kr/callback/cp",status:"준비중",note:"2차 연동 예정"},
+  ],
+};
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;background:#F1F5F1;height:100vh;overflow:hidden;font-size:13px}
+.app{display:flex;height:100vh}
+.sb{width:190px;background:#152A15;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:#fff;border-bottom:1px solid #D1E8D1;padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ct{flex:1;overflow-y:auto;padding:20px}
+.logo{padding:13px 14px;background:#3D9B35;display:flex;align-items:center;gap:3px;flex-shrink:0}
+.logo-t,.logo-s{font-weight:700;font-size:17px}
+.logo-t{color:#fff}.logo-s{color:#DCFCE7}
+.role-tog{margin:8px;display:flex;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.15)}
+.rtb{flex:1;padding:5px 0;font-size:10px;font-weight:600;text-align:center;cursor:pointer;border:none;color:rgba(255,255,255,.4);background:transparent}
+.rtb.on{background:#3D9B35;color:#fff}
+.ns{padding:8px 10px 2px;font-size:9px;font-weight:700;color:rgba(255,255,255,.3);letter-spacing:.8px;text-transform:uppercase;margin-top:4px}
+.ni{padding:7px 14px;cursor:pointer;font-size:11px;color:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-between;border-left:3px solid transparent;transition:.12s}
+.ni:hover{color:rgba(255,255,255,.9);background:rgba(255,255,255,.05)}
+.ni.on{background:#3D9B35;color:#fff;border-left-color:#DCFCE7}
+.ni.sub{padding-left:24px;font-size:10.5px}
+.nb{background:#EF4444;color:#fff;font-size:8px;padding:1px 5px;border-radius:10px}
+.sb-ft{margin-top:auto;padding:10px;border-top:1px solid rgba(255,255,255,.08);font-size:9.5px;color:rgba(255,255,255,.25);text-align:center}
+.ptitle{font-size:16px;font-weight:700;color:#1A2E1A}
+.tbr{display:flex;align-items:center;gap:10px;font-size:11px;color:#6B7280}
+.rpill{padding:3px 9px;border-radius:12px;font-weight:700;font-size:10px}
+.card{background:#fff;border:1px solid #D1E8D1;border-radius:8px;margin-bottom:14px}
+.ch{padding:12px 16px;border-bottom:1px solid #D1E8D1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.kgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid #D1E8D1;border-radius:8px;padding:14px;border-left:4px solid #3D9B35}
+.kl{font-size:10px;color:#6B7280;margin-bottom:4px}
+.kv{font-size:17px;font-weight:700;color:#1A2E1A;word-break:break-all}
+.ks{font-size:10px;color:#9CA3AF;margin-top:3px}
+table{width:100%;border-collapse:collapse}
+th{background:#F0FAF0;padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:#1A2E1A;border-bottom:2px solid #D1E8D1;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid #D1E8D1;font-size:11.5px;color:#1A2E1A;vertical-align:middle}
+tr:hover td{background:#FAFFFE}
+.tw{overflow-x:auto}
+.bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.bg{background:#DCFCE7;color:#166534}.by{background:#FEF3C7;color:#92400E}
+.br{background:#FEE2E2;color:#991B1B}.bb{background:#DBEAFE;color:#1E40AF}.bgr{background:#F3F4F6;color:#4B5563}
+.bpu{background:#F3E8FF;color:#6B21A8}.bor{background:#FEF3C7;color:#92400E}
+.btn{padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:5px;transition:.12s;white-space:nowrap}
+.bg2{background:#3D9B35;color:#fff}.bg2:hover{background:#2d7a26}
+.bo{background:#fff;color:#1A2E1A;border:1px solid #D1E8D1}.bo:hover{background:#F9FAFB}
+.bd{background:#FEE2E2;color:#991B1B;border:1px solid #FECACA}
+.bor2{background:#FEF3C7;color:#92400E;border:1px solid #FDE68A}
+.sm{padding:4px 10px;font-size:11px}.xs{padding:2px 7px;font-size:10px}
+.fg{margin-bottom:12px}
+.fl{display:block;font-size:11px;font-weight:700;color:#1A2E1A;margin-bottom:3px}
+.fi,.fs,.fta{width:100%;padding:7px 10px;border:1px solid #D1E8D1;border-radius:6px;font-size:12px;outline:none;font-family:inherit;background:#fff}
+.fi:focus,.fs:focus,.fta:focus{border-color:#3D9B35;box-shadow:0 0 0 2px rgba(61,155,53,.1)}
+.fi:disabled,.fs:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
+.fta{resize:vertical;min-height:80px}
+.fr2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;display:flex;align-items:center;justify-content:center}
+.mbox{background:#fff;border-radius:12px;width:580px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mh{padding:14px 18px;border-bottom:1px solid #D1E8D1;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1}
+.mt{font-weight:700;font-size:15px;color:#1A2E1A}
+.mb2{padding:18px}
+.mf{padding:12px 18px;border-top:1px solid #D1E8D1;display:flex;justify-content:flex-end;gap:8px}
+.mc{background:none;border:none;cursor:pointer;font-size:18px;color:#6B7280}
+.sb2{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.si{flex:1;min-width:150px;padding:7px 12px;border:1px solid #D1E8D1;border-radius:6px;font-size:12px;outline:none;font-family:inherit}
+.si:focus{border-color:#3D9B35}
+.aw{padding:9px 14px;border-radius:6px;font-size:11.5px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px}
+.aw-w{background:#FEF3C7;color:#92400E;border:1px solid #FDE68A}
+.aw-g{background:#DCFCE7;color:#166534;border:1px solid #BBF7D0}
+.aw-b{background:#DBEAFE;color:#1E40AF;border:1px solid #BFDBFE}
+.tabs{display:flex;border-bottom:2px solid #D1E8D1;margin-bottom:14px;flex-wrap:wrap}
+.tab{padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab.on{color:#3D9B35;border-bottom-color:#3D9B35}
+.da-row{display:grid;grid-template-columns:160px 1fr 1fr 32px;gap:8px;margin-bottom:6px;align-items:center}
+.da-del{background:#FEE2E2;border:1px solid #FECACA;border-radius:4px;cursor:pointer;padding:4px 7px;font-size:12px;color:#991B1B;font-weight:700}
+.da-ro{display:grid;grid-template-columns:160px 1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center;padding:8px;background:#F9FAFB;border-radius:6px}
+.role-card{border-radius:8px;overflow:hidden;border:1px solid #E5E7EB}
+.role-head{padding:8px 12px;font-size:11px;font-weight:700;color:#fff}
+.role-body{padding:10px 12px;font-size:10.5px;color:#6B7280}
+.inst-grid{display:grid;grid-template-columns:120px repeat(3,1fr);border:1px solid #D1E8D1;border-radius:8px;overflow:hidden}
+.inst-hdr{background:#F0FAF0;padding:8px 12px;font-size:11px;font-weight:700;color:#1A2E1A;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;text-align:center}
+.inst-hdr:last-child{border-right:none}
+.inst-cell{padding:8px 12px;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.inst-cell:last-child{border-right:none}
+.ci{display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px}
+.ci input{accent-color:#3D9B35;width:14px;height:14px}
+.fcalc{background:#E8F5E3;border:1px solid #D1E8D1;border-radius:8px;padding:14px}
+.fcr{font-size:22px;font-weight:700;color:#3D9B35;margin-top:6px}
+.toast{position:fixed;bottom:20px;right:20px;background:#152A15;color:#fff;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:600;z-index:2000;animation:si .3s ease}
+@keyframes si{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.emp{text-align:center;padding:36px;color:#9CA3AF}
+.tg{color:#3D9B35;font-weight:700}.tr{color:#991B1B}
+.ab{display:flex;gap:5px;flex-wrap:wrap}
+.dv{height:1px;background:#D1E8D1;margin:12px 0}
+.pend-card{background:#FFF7ED;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-bottom:8px}
+.pend-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px}
+.pend-info{font-size:11px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+.pend-label{font-weight:700;color:#92400E}
+.receipt{max-width:340px;margin:0 auto;border:1px solid #D1E8D1;border-radius:8px;overflow:hidden;font-size:12px}
+.receipt-hd{background:#3D9B35;padding:16px;text-align:center;color:#fff}
+.receipt-body{padding:16px}
+.receipt-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F0FAF0}
+.receipt-total{display:flex;justify-content:space-between;padding:8px;background:#F0FAF0;border-radius:6px;margin-top:8px;font-weight:700}
+.settle-detail{background:#F9FAFB;padding:10px;border-radius:6px;margin-top:6px;font-size:11px}
+.status-sel{padding:4px 8px;border:1px solid #D1E8D1;border-radius:6px;font-size:11px;background:#fff;cursor:pointer;outline:none}
+.da-inactive{text-decoration:line-through;opacity:.5}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="sb" id="sb">
+  <div class="logo"><span class="logo-t">eats </span><span class="logo-s">PAY</span></div>
+  <div class="role-tog">
+    <button class="rtb on" id="btn-hq"    onclick="setRole('hq')">본사</button>
+    <button class="rtb"    id="btn-agent" onclick="setRole('agent')">대리점</button>
+  </div>
+  <div id="nav"></div>
+  <div class="sb-ft">에이빅스 주식회사<br>Admin v4.0</div>
+</div>
+<div class="main">
+  <div class="topbar">
+    <div class="ptitle" id="ptitle">대시보드</div>
+    <div class="tbr">
+      <span class="rpill" id="rlabel" style="background:#DCFCE7;color:#166534">본사 관리자</span>
+      <span>관리자</span>
+      <span style="color:#ccc">|</span>
+      <span style="cursor:pointer;color:#EF4444;font-size:11px" onclick="resetData()">데이터 초기화</span>
+    </div>
+  </div>
+  <div class="ct" id="ct"></div>
+</div>
+</div>
+<div class="mo" id="mo" style="display:none" onclick="closeMO(event)">
+  <div class="mbox">
+    <div class="mh"><span class="mt" id="mti"></span><button class="mc" onclick="closeM()">✕</button></div>
+    <div class="mb2" id="mbd"></div>
+    <div class="mf" id="mft"></div>
+  </div>
+</div>
+<div id="toast" style="display:none" class="toast"></div>
+<script>
+// ═══════════════════════════════
+// 데이터
+// ═══════════════════════════════
+const IDATA = {
+  deliveryAgencyList: [{id:1,name:"생각대로",status:"active"},{id:2,name:"바로고",status:"active"},{id:3,name:"리드콜",status:"active"},{id:4,name:"모아라인",status:"active"},{id:5,name:"딜버",status:"active"},{id:6,name:"만나플러스",status:"active"},{id:7,name:"배달시대",status:"active"},{id:8,name:"제트콜",status:"active"},{id:9,name:"딜리온",status:"active"},{id:10,name:"기타",status:"active"},{id:11,name:"부릉",status:"active"},{id:12,name:"랜(RUN)",status:"active"},{id:13,name:"비욘드딜리버리",status:"active"},{id:14,name:"디플러스",status:"active"},{id:15,name:"에스런",status:"active"},{id:16,name:"알바콜",status:"active"},{id:17,name:"에스콜",status:"active"},{id:18,name:"모이콜",status:"active"},{id:19,name:"마이콜",status:"active"},{id:20,name:"모다자유",status:"active"},{id:21,name:"디지콜",status:"active"},{id:22,name:"타와",status:"active"},{id:23,name:"스피드운산",status:"active"},{id:24,name:"배달본색",status:"active"},{id:25,name:"배달고수",status:"active"},{id:26,name:"오짜콜",status:"active"},{id:27,name:"플고",status:"active"},{id:28,name:"배달이요",status:"active"},{id:29,name:"슈퍼자이로",status:"active"},{id:30,name:"라이딩",status:"active"},{id:31,name:"다배달",status:"active"},{id:32,name:"FM",status:"active"},{id:33,name:"날바람",status:"active"},{id:34,name:"배달전설",status:"active"},{id:35,name:"VIP",status:"active"},{id:36,name:"화파",status:"active"},{id:37,name:"비트",status:"active"},{id:38,name:"국가대표",status:"active"},{id:39,name:"스타딜리버리",status:"active"},{id:40,name:"오케이콜",status:"active"},{id:41,name:"토마토스포트",status:"active"},{id:42,name:"나르디",status:"active"},{id:43,name:"위드톡",status:"active"},{id:44,name:"푸드뱅크",status:"active"},{id:45,name:"칸",status:"active"},{id:46,name:"날라가",status:"active"},{id:47,name:"가유류",status:"active"},{id:48,name:"토마토플러스",status:"active"},{id:49,name:"콜플레이",status:"active"},{id:50,name:"논스톱",status:"active"},{id:51,name:"콜25",status:"active"},{id:52,name:"배달그수",status:"active"},{id:53,name:"위드런",status:"active"},{id:54,name:"두바위",status:"active"},{id:55,name:"푸드라인",status:"active"},{id:56,name:"이초런",status:"active"},{id:57,name:"매피콜",status:"active"},{id:58,name:"하이브",status:"active"},{id:59,name:"바른콜",status:"active"},{id:60,name:"드림",status:"active"},{id:61,name:"Korea delivery",status:"active"},{id:62,name:"젠딜리",status:"active"},{id:63,name:"공유다",status:"active"},{id:64,name:"배달요",status:"active"},{id:65,name:"국민배달",status:"active"},{id:66,name:"뉴트랙",status:"active"},{id:67,name:"배고파",status:"active"},{id:68,name:"배민상회",status:"active"},{id:69,name:"로드보이",status:"active"},{id:70,name:"pfc",status:"active"},{id:71,name:"로드파이터",status:"active"},{id:72,name:"에이스콜",status:"active"},{id:73,name:"플라이",status:"active"},{id:74,name:"독독",status:"active"},{id:75,name:"모두의콜",status:"active"},{id:76,name:"배태랑",status:"active"},{id:77,name:"크리오",status:"active"},{id:78,name:"인프라",status:"active"},{id:79,name:"Z",status:"active"},{id:80,name:"청초고",status:"active"},{id:81,name:"나이스",status:"active"},{id:82,name:"연범",status:"active"},{id:83,name:"국민라이더스",status:"active"},{id:84,name:"IM극속전설",status:"active"},{id:85,name:"런두유",status:"active"},{id:86,name:"상인회",status:"active"},{id:87,name:"토마토동동",status:"active"},{id:88,name:"온나",status:"active"},{id:89,name:"스피드딜리버리",status:"active"},{id:90,name:"닭아콜",status:"active"},{id:91,name:"링그",status:"active"},{id:92,name:"푸드바이크",status:"active"},{id:93,name:"군보이",status:"active"},{id:94,name:"해피고2",status:"active"},{id:95,name:"번개G",status:"active"},{id:96,name:"타이밍",status:"active"},{id:97,name:"배달하이로",status:"active"},{id:98,name:"link",status:"active"},{id:99,name:"푸드파일럿",status:"active"},{id:100,name:"스타콜",status:"active"},{id:101,name:"뭐하코리아",status:"active"},{id:102,name:"런다콜",status:"active"},{id:103,name:"배달의컨설",status:"active"},{id:104,name:"바람처럼",status:"active"},{id:105,name:"나르자",status:"active"},{id:106,name:"카카오콜",status:"active"},{id:107,name:"별리와",status:"active"},{id:108,name:"팀릭스",status:"active"},{id:109,name:"유니온go",status:"active"},{id:110,name:"순간이등",status:"active"},{id:111,name:"슈파맨",status:"active"},{id:112,name:"다드림",status:"active"},{id:113,name:"세이프",status:"active"},{id:114,name:"UFO",status:"active"},{id:115,name:"국도타이다스",status:"active"},{id:116,name:"밍동",status:"active"},{id:117,name:"가자이",status:"active"},{id:118,name:"파랑무드릭",status:"active"},{id:119,name:"파징F&S",status:"active"},{id:120,name:"전플런",status:"active"}],
+  franchises:[
+    {id:1,name:"이주커치킨 미평점",   agency:"에이빅스 직영팀",  owner:"최민수",phone:"0616-525592",  bizNo:"123-45-67890",joinDate:"2026-05-16",lastPaymentDate:"2026-05-18",status:"정상 승인",note:"",
+     deliveryAgencies:[{agency:"딜버",    accountNo:"790230190530",fileName:"딜버_계좌.jpg",    accountStatus:"승인완료",reqDate:"2026-05-16"}]},
+    {id:2,name:"프랭크버거 군산조촌점",agency:"에이빅스 직영팀",  owner:"김도현",phone:"0637311009",  bizNo:"234-56-78901",joinDate:"2026-05-15",lastPaymentDate:"2026-05-18",status:"정상 승인",note:"",
+     deliveryAgencies:[{agency:"바로고",  accountNo:"066431542737",fileName:"바로고_계좌.jpg",  accountStatus:"승인완료",reqDate:"2026-05-15"}]},
+    {id:3,name:"수숯불꼬치",           agency:"에이빅스 직영팀",  owner:"박서진",phone:"010-8567-1999",bizNo:"345-67-89012",joinDate:"2026-05-14",lastPaymentDate:"",          status:"승인 대기",note:"",
+     deliveryAgencies:[{agency:"생각대로",accountNo:"701680093324",fileName:"생각대로_계좌.jpg",accountStatus:"승인대기",reqDate:"2026-05-14"}]},
+    {id:4,name:"푸줏간",               agency:"에이빅스 직영팀",  owner:"이준혁",phone:"010-5090-0464",bizNo:"456-78-90123",joinDate:"2026-05-14",lastPaymentDate:"",          status:"승인 대기",note:"",
+     deliveryAgencies:[]},
+    {id:5,name:"칠암상희",             agency:"에이빅스 직영팀",  owner:"정수빈",phone:"0557478259",  bizNo:"567-89-01234",joinDate:"2026-05-11",lastPaymentDate:"2026-05-17",status:"정상 승인",note:"",
+     deliveryAgencies:[{agency:"생각대로",accountNo:"701680093324",fileName:"생각대로_계좌.jpg",accountStatus:"승인완료",reqDate:"2026-05-11"},{agency:"딜버",accountNo:"196490781834",fileName:"딜버_계좌2.jpg",accountStatus:"승인완료",reqDate:"2026-05-11"}]},
+    {id:6,name:"지코바 함안점",         agency:"강남영업소",       owner:"한지민",phone:"010-8720-3171",bizNo:"678-90-12345",joinDate:"2026-05-09",lastPaymentDate:"",          status:"승인 대기",note:"",
+     deliveryAgencies:[{agency:"모아라인",accountNo:"119868836100",fileName:"모아라인_계좌.jpg",accountStatus:"승인대기",reqDate:"2026-05-09"}]},
+  ],
+  agencies:[
+    {id:1,level:2,region:"",            name:"에이빅스 직영팀",loginId:"agency-01",owner:"김운영",phone:"010-1111-1111",feeRate:3.80,deliveryNote:"생각대로, 바로고, 딜버 운영"},
+    {id:2,level:3,region:"서울 강남구",  name:"강남영업소",     loginId:"agency-02",owner:"이지사",phone:"010-2222-2222",feeRate:4.20,deliveryNote:"바로고, 모아라인 운영"},
+    {id:3,level:4,region:"경기 수원시",  name:"수원지점",       loginId:"agency-03",owner:"박지점",phone:"010-3333-3333",feeRate:4.20,deliveryNote:"생각대로 운영"},
+    {id:4,level:4,region:"부산 해운대구",name:"부산해운대지점",  loginId:"agency-04",owner:"최해운",phone:"010-4444-4444",feeRate:4.20,deliveryNote:"딜버, 만나플러스 운영"},
+  ],
+  payments:[
+    {id:1,date:"2026-05-18 12:53",approvalNo:"52592018",agency:"에이빅스 직영팀",franchise:"이주커치킨 미평점",  type:"충전",amount:313808, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:2,date:"2026-05-18 12:27",approvalNo:"00185381",agency:"에이빅스 직영팀",franchise:"프랭크버거 군산점",  type:"충전",amount:523013, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:3,date:"2026-05-18 12:09",approvalNo:"52331020",agency:"에이빅스 직영팀",franchise:"칠암상희",           type:"충전",amount:200000, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:4,date:"2026-05-18 11:27",approvalNo:"81937561",agency:"에이빅스 직영팀",franchise:"지코바1호점",        type:"충전",amount:1046025,installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:5,date:"2026-05-18 11:14",approvalNo:"00758411",agency:"강남영업소",      franchise:"호식이두마리치킨",  type:"충전",amount:1046025,installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:2},
+    {id:6,date:"2026-05-17 14:30",approvalNo:"30014609",agency:"에이빅스 직영팀",franchise:"이주커치킨 미평점",  type:"충전",amount:523013, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:7,date:"2026-05-17 13:15",approvalNo:"97727913",agency:"에이빅스 직영팀",franchise:"칠암상희",           type:"충전",amount:313808, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:8,date:"2026-05-16 11:00",approvalNo:"10766405",agency:"에이빅스 직영팀",franchise:"프랭크버거 군산점",  type:"충전",amount:1046025,installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:9,date:"2026-05-15 15:45",approvalNo:"00935627",agency:"에이빅스 직영팀",franchise:"지코바1호점",        type:"충전",amount:200000, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+    {id:10,date:"2026-05-14 10:30",approvalNo:"05131432",agency:"에이빅스 직영팀",franchise:"호식이두마리치킨",  type:"충전",amount:523013, installment:"일시불",status:"결제완료",pg:"넥스트페이",agencyId:1},
+  ],
+  pgSettlements:[
+    {id:1,date:"2026-05-18 13:01",approvalNo:"52592018",pg:"넥스트페이",franchise:"이주커치킨 미평점",  paymentAmt:313808, svcFee:13808,netAmt:300000, deliveryAgency:"딜버",   status:"정산완료",note:""},
+    {id:2,date:"2026-05-18 12:34",approvalNo:"00185381",pg:"넥스트페이",franchise:"프랭크버거 군산점",  paymentAmt:523013, svcFee:23013,netAmt:500000, deliveryAgency:"바로고",  status:"정산완료",note:""},
+    {id:3,date:"2026-05-18 12:16",approvalNo:"52331020",pg:"넥스트페이",franchise:"칠암상희",           paymentAmt:200000, svcFee:8800, netAmt:191200, deliveryAgency:"딜버",   status:"정산완료",note:""},
+    {id:4,date:"2026-05-18 11:33",approvalNo:"81937561",pg:"넥스트페이",franchise:"지코바1호점",        paymentAmt:1046025,svcFee:46025,netAmt:1000000,deliveryAgency:"생각대로",status:"정산완료",note:""},
+    {id:5,date:"2026-05-18 11:21",approvalNo:"00758411",pg:"넥스트페이",franchise:"호식이두마리치킨",   paymentAmt:1046025,svcFee:46025,netAmt:1000000,deliveryAgency:"생각대로",status:"정산완료",note:""},
+  ],
+  faqs:[
+    {id:1,category:"서비스 안내",question:"이츠페이는 어떤 서비스인가요?",answer:"이츠페이(eats PAY)는 배달대행비를 신용카드로 결제할 수 있는 배달대행비 카드결제 중개 솔루션입니다."},
+    {id:2,category:"서비스 안내",question:"이용 수수료는 얼마인가요?",answer:"수수료 4.4%는 결제금액에서 차감 후 입금되는 방식입니다. 예) 100만원 입금 목표 → 카드 청구 1,046,025원 → 수수료 46,025원 차감 → 1,000,000원 입금"},
+    {id:3,category:"결제",question:"결제하면 바로 충전되나요?",answer:"결제 승인 후 3~10분 이내에 등록하신 배달대행사 가상계좌로 즉시 입금됩니다."},
+    {id:4,category:"회원가입",question:"가입 후 바로 서비스를 이용할 수 있나요?",answer:"가입 신청 후 담당자 심사를 거쳐 승인이 완료된 이후 이용 가능합니다. 심사는 평균 영업일 기준 10분 내외로 처리됩니다."},
+  ],
+  notices:[
+    {id:1,title:"2026년 설 연휴 휴무일 안내",author:"운영팀",date:"2026-02-10",content:"설 연휴 기간 안내드립니다.\n\n· 휴무: 2026.01.27(화) ~ 01.29(목)\n· 정상 운영 재개: 2026.01.30(금)"},
+    {id:2,title:"2025년 연말 단축 근무 안내",author:"운영팀",date:"2025-12-30",content:"2025년 12월 31일(수) 오후 3시 이후 단축 근무 안내드립니다."},
+  ],
+  guides:[
+    {id:1,title:"마이페이지_회원정보 수정 방법",author:"CS팀",date:"2024-04-15",content:"회원정보 수정 방법을 안내합니다."},
+    {id:2,title:"충전화면_충전계좌 등록 방법",  author:"CS팀",date:"2024-04-08",content:"충전 계좌 등록 및 변경 방법을 안내합니다."},
+  ],
+  admins:[
+    {id:1,loginId:"admin001",name:"김민준",role:"총괄 관리자",lastLogin:"2026-05-18"},
+    {id:2,loginId:"admin002",name:"이서연",role:"운영 관리자",lastLogin:"2026-05-17"},
+    {id:3,loginId:"admin003",name:"박지훈",role:"정산 관리자",lastLogin:"2026-05-16"},
+    {id:4,loginId:"admin004",name:"최유진",role:"고객 관리자",lastLogin:"2026-05-15"},
+  ],
+  pgProviders: JSON.parse(JSON.stringify(CONFIG.pgProviders)),
+  agencyFeeRates:{},
+  defaultFeeRate:4.4,
+  installments:{
+    "비씨카드":{prev:[2,3,4,5],curr:[2,3,4,5],next:[2,3,4,5]},
+    "신한카드":{prev:[2,3],    curr:[2,3],    next:[2,3]},
+    "삼성카드":{prev:[2,3],    curr:[2,3],    next:[2,3,4]},
+    "현대카드":{prev:[2,3],    curr:[2,3],    next:[2,3]},
+    "롯데카드":{prev:[2,3,4,5],curr:[2,3,4,5],next:[2,3,4,5]},
+    "국민카드":{prev:[2,3],    curr:[2,3],    next:[2,3]},
+    "우리카드":{prev:[2,3,4,5],curr:[2,3,4,5],next:[2,3,4,5]},
+    "수협카드":{prev:[],       curr:[],       next:[]},
+    "농협카드":{prev:[2,3,4,5,6],curr:[2,3,4,5,6],next:[2,3,4,5,6]},
+    "하나카드":{prev:[2,3],    curr:[2,3],    next:[2,3]},
+  },
+  inquiries:[
+    {id:1,name:"정민우",phone:"01026341450",deliveryAgency:"유",region:"경주시 안강읍",handler:"이서연",status:"상담 완료",date:"2026-02-25"},
+    {id:2,name:"김하은",phone:"01056899079",deliveryAgency:"무",region:"안산",         handler:"박지훈",status:"상담 완료",date:"2026-02-25"},
+    {id:3,name:"이재원",phone:"01057193651",deliveryAgency:"유",region:"춘천",         handler:"",      status:"상담 대기",date:"2026-02-13"},
+  ],
+  banners:[
+    {id:1,type:"메인",title:"홈택스",   url:"https://hometax.go.kr",   order:1},
+    {id:2,type:"메인",title:"소상공인", url:"https://www.semas.or.kr", order:2},
+    {id:3,type:"결제",title:"이용안내", url:"https://eatspay.co.kr",   order:1},
+  ],
+  customRoles:null,
+  nextId:400
+};
+
+// ═══ 상태 ═══
+let D, page='dashboard', role='hq';
+let faqTab='서비스 안내', bannerTab='메인';
+let editingAgencies=[];
+
+function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
+function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
+function save(){try{localStorage.setItem('ep4',JSON.stringify(D));}catch(e){}}
+function load(){try{const s=localStorage.getItem('ep4');if(s)D=JSON.parse(s);else{D=JSON.parse(JSON.stringify(IDATA));}}catch(e){D=JSON.parse(JSON.stringify(IDATA));}}
+function resetData(){if(!confirm('모든 데이터를 초기화할까요? (CONFIG 설정 유지)'))return;localStorage.removeItem('ep4');D=JSON.parse(JSON.stringify(IDATA));render();toast('초기화 완료');}
+
+function getActiveDA(){return D.deliveryAgencyList.filter(a=>a.status==='active').map(a=>a.name);}
+function getAllDA(){return D.deliveryAgencyList.filter(a=>a.status!=='deleted');}
+function getPending(){const r=[];D.franchises.forEach(f=>{(f.deliveryAgencies||[]).forEach((da,i)=>{if(da.accountStatus==='승인대기')r.push({fid:f.id,fname:f.name,idx:i,...da});});});return r;}
+
+// ═══ 내비게이션 ═══
+const HQ_NAV=[
+  {s:'대시보드'},{id:'dashboard'},
+  {s:'결제'},{id:'payments',sub:1},{id:'pgsettle',sub:1},{id:'settlements',sub:1},
+  {s:'가맹점'},{id:'franchises',sub:1},{id:'accounts',sub:1},
+  {s:'대리점'},{id:'agencies'},
+  {s:'운영'},{id:'deliveryMgmt',sub:1,nw:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
+  {s:'게시판'},{id:'notices',sub:1},{id:'guides',sub:1},
+];
+const AG_NAV=[
+  {s:'대시보드'},{id:'dashboard'},
+  {s:'결제'},{id:'payments',sub:1},
+  {s:'가맹점'},{id:'franchises',sub:1},
+  {s:'정산'},{id:'settlements',sub:1},
+];
+function ml(id){return CONFIG.menu[id]||id;}
+function setRole(r){role=r;document.getElementById('btn-hq').className='rtb'+(r==='hq'?' on':'');document.getElementById('btn-agent').className='rtb'+(r==='agent'?' on':'');document.getElementById('rlabel').textContent=r==='hq'?'본사 관리자':'영업대리점';page='dashboard';renderNav();renderPage();}
+function nav(p){page=p;renderNav();renderPage();}
+function renderNav(){
+  const items=role==='hq'?HQ_NAV:AG_NAV;
+  const pc=getPending().length;
+  let h='';
+  items.forEach(i=>{
+    if(i.s){h+=`<div class="ns">${i.s}</div>`;return;}
+    const a=page===i.id?' on':'',s=i.sub?' sub':'';
+    const nb=i.nw?'<span class="nb">NEW</span>':'';
+    const pb=(i.id==='dashboard'&&pc>0)?`<span class="nb">${pc}</span>`:'';
+    h+=`<div class="ni${a}${s}" onclick="nav('${i.id}')">${ml(i.id)}${nb}${pb}</div>`;
+  });
+  document.getElementById('nav').innerHTML=h;
+  document.getElementById('ptitle').textContent=ml(page);
+}
+
+// ═══ 헬퍼 ═══
+function fmt(n){return Number(n).toLocaleString()+'원';}
+function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','롤백':'bor2','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[t]||'bgr'}">${t}</span>`;}
+function nid(){return++D.nextId;}
+function today(){return new Date().toISOString().slice(0,10);}
+function v(id){const el=document.getElementById(id);return el?el.value:'';}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
+function openM(title,body,foot){document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';}
+function closeM(){document.getElementById('mo').style.display='none';}
+function closeMO(e){if(e.target===document.getElementById('mo'))closeM();}
+
+// ═══ 계좌 팝업 ═══
+function showAccountDetail(fid,idx){
+  const f=D.franchises.find(x=>x.id===fid);
+  const da=f.deliveryAgencies[idx];
+  openM(`계좌 등록 확인 — ${f.name}`,`
+    <div class="pend-info" style="margin-bottom:14px;font-size:12px">
+      <span class="pend-label">가맹점</span><span>${f.name}</span>
+      <span class="pend-label">배달대행사</span><span>${da.agency}</span>
+      <span class="pend-label">가상계좌번호</span><span style="font-family:monospace;font-weight:700">${da.accountNo||'미입력'}</span>
+      <span class="pend-label">증빙 파일명</span><span>${da.fileName||'파일 미첨부'}</span>
+      <span class="pend-label">요청일</span><span>${da.reqDate||'-'}</span>
+      <span class="pend-label">현재 상태</span><span>${bdg(da.accountStatus)}</span>
+    </div>
+    <div style="border:2px dashed #D1E8D1;border-radius:8px;padding:28px;text-align:center;background:#F9FAFB">
+      <div style="font-size:32px;margin-bottom:8px">📎</div>
+      <div style="font-weight:700;color:#1A2E1A">${da.fileName||'파일 없음'}</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:6px">실제 이미지는 서버에 저장됩니다<br>(개발 시 파일 서버 연동 필요)</div>
+    </div>
+    ${da.rejectReason?`<div class="aw aw-w" style="margin-top:12px">반려 사유: ${da.rejectReason}</div>`:''}`,
+  `${da.accountStatus!=='승인완료'?`<button class="btn bg2" onclick="approveAccount(${fid},${idx});closeM()">승인</button>`:''}
+   ${da.accountStatus!=='반려'?`<button class="btn bd" onclick="rejectAccount(${fid},${idx});closeM()">반려</button>`:''}
+   <button class="btn bo" onclick="closeM()">닫기</button>`);
+}
+
+function approveAccount(fid,idx){
+  const f=D.franchises.find(x=>x.id===fid);
+  if(!confirm(`'${f.name}'의 ${f.deliveryAgencies[idx].agency} 계좌를 승인하시겠습니까?`))return;
+  f.deliveryAgencies[idx].accountStatus='승인완료';
+  if(f.status==='승인 대기')f.status='정상 승인';
+  save();render();toast(`${f.name} 계좌 승인 완료`);
+}
+function rejectAccount(fid,idx){
+  const f=D.franchises.find(x=>x.id===fid);
+  const r=prompt('반려 사유를 입력하세요:','');if(r===null)return;
+  f.deliveryAgencies[idx].accountStatus='반려';
+  f.deliveryAgencies[idx].rejectReason=r;
+  save();render();toast(`${f.name} 계좌 반려`);
+}
+
+// ═══ 전표 팝업 ═══
+function showReceipt(id){
+  const p=D.payments.find(x=>x.id===id);
+  const svcFee=Math.round(p.amount*0.044);
+  const deposit=p.amount-svcFee;
+  openM('결제 전표',`
+    <div class="receipt">
+      <div class="receipt-hd">
+        <div style="font-size:16px;font-weight:700">eats PAY 결제 전표</div>
+        <div style="font-size:10px;opacity:.8;margin-top:3px">에이빅스 주식회사 | ${CONFIG.csPhone}</div>
+      </div>
+      <div class="receipt-body">
+        <div class="receipt-row"><span style="color:#6B7280">거래일시</span><span style="font-weight:600">${p.date}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">승인번호</span><span style="font-weight:600;font-family:monospace">${p.approvalNo}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">가맹점</span><span style="font-weight:600">${p.franchise}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">대리점</span><span>${p.agency}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">PG사</span><span>${p.pg}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">할부</span><span>${p.installment}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">결제 구분</span><span>${p.type}</span></div>
+        <div style="height:1px;background:#D1E8D1;margin:8px 0"></div>
+        <div class="receipt-row"><span style="color:#6B7280">결제금액</span><span style="font-weight:600">${fmt(p.amount)}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">서비스 수수료 (4.4%)</span><span style="color:#EF4444;font-weight:600">- ${fmt(svcFee)}</span></div>
+        <div class="receipt-total"><span>배달대행사 입금액</span><span style="color:#3D9B35;font-size:15px">${fmt(deposit)}</span></div>
+        <div style="text-align:center;font-size:10px;color:#9CA3AF;margin-top:12px">
+          고객센터 ${CONFIG.csPhone} | ${CONFIG.csHours}
+        </div>
+      </div>
+    </div>`,
+  `<button class="btn bg2" onclick="closeM()">확인</button>`);
+}
+
+// ═══ 대시보드 ═══
+function pgDash(){
+  const tot=D.payments.reduce((s,p)=>s+p.amount,0);
+  const pf=D.franchises.filter(f=>f.status==='승인 대기').length;
+  const pending=getPending();
+
+  if(role==='agent') return`
+    <div class="kgrid">
+      <div class="kpi"><div class="kl">내 가맹점 (누적)</div><div class="kv">${D.franchises.length}개</div></div>
+      <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">결제 총액 (샘플)</div><div class="kv">${fmt(tot)}</div></div>
+      <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">영업 지급예정</div><div class="kv">${fmt(Math.round(tot*0.003*0.967))}</div><div class="ks">거래금액×0.3%×0.967</div></div>
+      <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div></div>
+    </div>
+    <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 가맹점 현황</span></div>
+    <div class="tw"><table><thead><tr><th>상점명</th><th>가입일</th><th>마지막 결제일</th><th>상태</th></tr></thead><tbody>
+    ${D.franchises.slice(0,5).map(f=>`<tr><td>${f.name}</td><td>${f.joinDate}</td><td>${f.lastPaymentDate||'-'}</td><td>${bdg(f.status)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+
+  return`
+  <div class="kgrid">
+    <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('accounts')">출금계좌 목록 →</div></div>
+    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 승인 대기</div><div class="kv">${pf}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('franchises')">가맹점 목록 →</div></div>
+    <div class="kpi"><div class="kl">전체 가맹점</div><div class="kv">${D.franchises.length}개</div><div class="ks">정상: ${D.franchises.filter(f=>f.status==='정상 승인').length}개</div></div>
+    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액 (샘플)</div><div class="kv">${fmt(tot)}</div></div>
+  </div>
+  ${pending.length?`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span><span style="font-size:11px;color:#6B7280">항목 클릭 시 상세 확인 가능</span></div><div style="padding:12px 16px">
+  ${pending.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
+    <div class="pend-hd">
+      <div><div style="font-weight:700;font-size:13px">${p.fname} <span style="font-size:11px;color:#6B7280">▶ 클릭하여 상세 확인</span></div><div style="font-size:11px;color:#6B7280;margin-top:2px">요청일: ${p.reqDate||'-'}</div></div>
+      <div class="ab" onclick="event.stopPropagation()">
+        <button class="btn bg2 xs" onclick="approveAccount(${p.fid},${p.idx})">승인</button>
+        <button class="btn bd xs" onclick="rejectAccount(${p.fid},${p.idx})">반려</button>
+      </div>
+    </div>
+    <div class="pend-info"><span class="pend-label">배달대행사</span><span>${p.agency}</span><span class="pend-label">가상계좌번호</span><span style="font-family:monospace">${p.accountNo||'미입력'}</span><span class="pend-label">증빙 파일명</span><span>${p.fileName||'미첨부'}</span></div>
+  </div>`).join('')}</div></div>`:''}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 결제 현황</span><button class="btn bo sm" onclick="nav('payments')">전체보기</button></div>
+    <div class="tw"><table><thead><tr><th>가맹점</th><th>금액</th><th>승인번호</th><th>상태</th></tr></thead><tbody>
+    ${D.payments.slice(0,4).map(p=>`<tr><td>${p.franchise}</td><td class="tg">${fmt(p.amount)}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${bdg(p.status)}</td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 PG 정산</span><button class="btn bo sm" onclick="nav('pgsettle')">전체보기</button></div>
+    <div class="tw"><table><thead><tr><th>가맹점</th><th>입금액</th><th>상태</th></tr></thead><tbody>
+    ${D.pgSettlements.slice(0,4).map(s=>`<tr><td>${s.franchise}</td><td class="tg">${fmt(s.netAmt)}</td><td>${bdg(s.status)}</td></tr>`).join('')}
+    </tbody></table></div></div>
+  </div>`;
+}
+
+// ═══ 결제 내역 ═══
+function pgPay(){const tot=D.payments.reduce((s,p)=>s+p.amount,0);return`
+  <div class="aw aw-w">⚠️ 조회 전용. 승인번호 클릭 시 전표 확인 가능.</div>
+  <div class="sb2">
+    <input class="si" id="ps" placeholder="가맹점명 검색..." oninput="rPay()">
+    <input class="si" id="pan" placeholder="승인번호..." oninput="rPay()" style="max-width:150px">
+    <input class="si" id="psd" type="date" oninput="rPay()" style="max-width:135px">
+    <span style="color:#6B7280;font-size:11px">~</span>
+    <input class="si" id="ped" type="date" oninput="rPay()" style="max-width:135px">
+    <select class="fs" style="width:120px" id="pst" onchange="rPay()"><option value="">전체 상태</option><option>결제완료</option><option>취소</option></select>
+    <button class="btn bo sm" onclick="clearPS()">초기화</button>
+  </div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg">${fmt(tot)}</span></span></div>
+  <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>대리점</th><th>가맹점명</th><th>구분</th><th>금액</th><th>할부</th><th>상태</th><th>PG</th></tr></thead><tbody id="pb"></tbody></table></div></div>`;}
+function clearPS(){['ps','pan','psd','ped'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pst').value='';rPay();}
+function rPay(){
+  const q=v('ps'),an=v('pan'),sd=v('psd'),ed=v('ped'),st=v('pst');
+  const el=document.getElementById('pb');if(!el)return;
+  const rows=D.payments.filter(p=>{
+    if(q&&!p.franchise.toLowerCase().includes(q.toLowerCase()))return false;
+    if(an&&!p.approvalNo.includes(an))return false;
+    if(st&&p.status!==st)return false;
+    if(sd&&p.date<sd)return false;
+    if(ed&&p.date>ed+' 23:59')return false;
+    return true;
+  });
+  el.innerHTML=rows.map(p=>`<tr><td>${p.date}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px;text-decoration:underline" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${p.agency}</td><td>${p.franchise}</td><td>${p.type}</td><td class="tg">${fmt(p.amount)}</td><td>${p.installment}</td><td>${bdg(p.status)}</td><td>${p.pg}</td></tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
+}
+
+// ═══ PG 정산 확인 ═══
+function pgPGSettle(){const tot=D.pgSettlements.reduce((s,p)=>s+p.netAmt,0);return`
+  <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 롤백 처리. 정산 행 클릭 시 상세 확인 가능.</div>
+  <div class="sb2">
+    <input class="si" id="gss" placeholder="가맹점명 또는 승인번호..." oninput="rGS()">
+    <input class="si" id="gsd" type="date" oninput="rGS()" style="max-width:135px">
+    <span style="color:#6B7280;font-size:11px">~</span>
+    <input class="si" id="ged" type="date" oninput="rGS()" style="max-width:135px">
+    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>롤백</option></select>
+  </div>
+  <div class="card"><div class="ch">
+    <span style="font-weight:700;font-size:14px">정산 합계 <span class="tg">${fmt(tot)}</span></span>
+    <button class="btn bo sm" onclick="toast('정산용 엑셀 다운로드 (서버 연동 필요)')">📥 다운로드</button>
+  </div>
+  <div class="tw"><table><thead><tr><th>정산일시</th><th>승인번호</th><th>PG사</th><th>가맹점</th><th>배달대행사</th><th>결제금액</th><th>수수료(4.4%)</th><th>입금액</th><th>상태</th><th>처리</th></tr></thead><tbody id="gsb"></tbody></table></div></div>`;}
+function rGS(){
+  const q=v('gss'),sd=v('gsd'),ed=v('ged'),st=v('gsst');
+  const el=document.getElementById('gsb');if(!el)return;
+  const rows=D.pgSettlements.filter(s=>{
+    if(q&&!s.franchise.includes(q)&&!s.approvalNo.includes(q))return false;
+    if(st&&s.status!==st)return false;
+    if(sd&&s.date<sd)return false;
+    if(ed&&s.date>ed+' 23:59')return false;
+    return true;
+  });
+  el.innerHTML=rows.map(s=>`<tr style="cursor:pointer" onclick="showSettleDetail(${s.id})">
+    <td>${s.date}</td>
+    <td style="font-family:monospace;font-size:11px;color:#3B82F6">${s.approvalNo}</td>
+    <td style="font-size:11px">${s.pg}</td>
+    <td>${s.franchise}</td>
+    <td>${s.deliveryAgency}</td>
+    <td>${fmt(s.paymentAmt)}</td>
+    <td style="color:#EF4444">${fmt(s.svcFee)}</td>
+    <td class="tg">${fmt(s.netAmt)}</td>
+    <td>${bdg(s.status)}</td>
+    <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">롤백</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
+  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
+}
+function showSettleDetail(id){
+  const s=D.pgSettlements.find(x=>x.id===id);
+  openM('PG 정산 상세',`
+    <div class="receipt">
+      <div class="receipt-hd"><div style="font-size:16px;font-weight:700">PG 정산 내역</div><div style="font-size:10px;opacity:.8;margin-top:3px">${s.pg}</div></div>
+      <div class="receipt-body">
+        <div class="receipt-row"><span style="color:#6B7280">정산일시</span><span style="font-weight:600">${s.date}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">승인번호</span><span style="font-family:monospace;font-weight:600">${s.approvalNo}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">PG사</span><span style="font-weight:600">${s.pg}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">가맹점</span><span style="font-weight:600">${s.franchise}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">배달대행사</span><span>${s.deliveryAgency}</span></div>
+        <div style="height:1px;background:#D1E8D1;margin:8px 0"></div>
+        <div class="receipt-row"><span style="color:#6B7280">결제금액</span><span style="font-weight:600">${fmt(s.paymentAmt)}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">서비스 수수료 (4.4%)</span><span style="color:#EF4444;font-weight:600">- ${fmt(s.svcFee)}</span></div>
+        <div class="receipt-total"><span>배달대행사 입금액</span><span style="color:#3D9B35;font-size:15px">${fmt(s.netAmt)}</span></div>
+        <div style="margin-top:10px;text-align:center">${bdg(s.status)}</div>
+        ${s.note?`<div class="aw aw-w" style="margin-top:8px">${s.note}</div>`:''}
+      </div>
+    </div>`,
+  `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">롤백 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
+}
+function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm(`승인번호 ${s.approvalNo} 정산을 롤백(고객 취소 처리)하시겠습니까?`))return;s.status='롤백';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 롤백`);}
+function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm('롤백된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
+
+// ═══ 대리점 정산 ═══
+function pgSettle(){
+  const r=D.defaultFeeRate/100;
+  const agPayments={};
+  D.payments.forEach(p=>{if(!agPayments[p.agencyId])agPayments[p.agencyId]=[];agPayments[p.agencyId].push(p);});
+  return`
+  <div class="aw aw-w">📊 영업 지급예정 = 거래금액 × 0.3% × 0.967 (3.3% 세금 공제 후). 대리점명 클릭 시 결제 건별 상세 조회.</div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <button class="btn bo" onclick="toast('정산용 엑셀 다운로드 (서버 연동 필요)')">📥 정산용 엑셀 다운로드</button>
+  </div>
+  <div class="card"><div class="tw"><table><thead><tr><th>지점명</th><th>수수료율</th><th>전체건</th><th>전체금액</th><th>가맹입금액 (×0.956)</th><th>서비스수수료 (×0.044)</th><th>영업수수료 (×0.3%)</th><th>영업 지급예정 (세후)</th></tr></thead><tbody>
+  ${D.agencies.map(ag=>{
+    const pays=agPayments[ag.id]||[];
+    const amt=pays.reduce((s,p)=>s+p.amount,0);
+    const fee=Math.round(amt*r);
+    const net=amt-fee;
+    const agFee=Math.round(amt*0.003);
+    const agNet=Math.round(agFee*0.967);
+    const er=getEffRate(ag);
+    return`<tr style="cursor:pointer" onclick="showAgencyPayments(${ag.id},'${ag.name}')">
+      <td style="font-weight:600;color:#3B82F6;text-decoration:underline">${ag.name} <span style="font-size:10px;color:#9CA3AF">▶ 상세</span></td>
+      <td class="tg">${er.toFixed(2)}%</td>
+      <td>${pays.length}건</td>
+      <td class="tg">${fmt(amt)}</td>
+      <td>${fmt(net)}</td>
+      <td style="color:#EF4444">${fmt(fee)}</td>
+      <td>${fmt(agFee)}</td>
+      <td class="tg">${fmt(agNet)}</td>
+    </tr>`;
+  }).join('')}
+  </tbody></table></div></div>`;
+}
+function showAgencyPayments(agId,agName){
+  const pays=D.payments.filter(p=>p.agencyId===agId);
+  if(!pays.length){toast('결제 내역이 없습니다');return;}
+  const tot=pays.reduce((s,p)=>s+p.amount,0);
+  const svcFee=Math.round(tot*0.044);
+  const agFee=Math.round(tot*0.003);
+  const agNet=Math.round(agFee*0.967);
+  openM(`대리점 정산 상세 — ${agName}`,`
+    <div class="aw aw-b" style="margin-bottom:12px">
+      <div style="font-size:11px">
+        전체건: <strong>${pays.length}건</strong> &nbsp;|&nbsp;
+        전체금액: <strong class="tg">${fmt(tot)}</strong> &nbsp;|&nbsp;
+        서비스수수료: <strong style="color:#EF4444">${fmt(svcFee)}</strong> &nbsp;|&nbsp;
+        영업 지급예정: <strong class="tg">${fmt(agNet)}</strong>
+      </div>
+    </div>
+    <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
+    ${pays.map(p=>{const fee=Math.round(p.amount*0.044);const net=p.amount-fee;return`<tr><td style="font-size:11px">${p.date}</td><td style="font-family:monospace;font-size:10px">${p.approvalNo}</td><td>${p.franchise}</td><td class="tg">${fmt(p.amount)}</td><td>${fmt(net)}</td><td style="color:#EF4444">${fmt(fee)}</td></tr>`;}).join('')}
+    <tr style="background:#F0FAF0;font-weight:700"><td colspan="3">합계</td><td class="tg">${fmt(tot)}</td><td>${fmt(tot-svcFee)}</td><td style="color:#EF4444">${fmt(svcFee)}</td></tr>
+    </tbody></table></div>`,
+  `<button class="btn bg2" onclick="closeM()">닫기</button>`);
+}
+
+// ═══ 가맹점 목록 ═══
+function pgFr(){return`
+  ${role==='hq'?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
+  <div class="sb2">
+    <input class="si" id="fs" placeholder="가맹점명 · 대표자 · 연락처 통합검색..." oninput="rFr()">
+    <select class="fs" style="width:130px" id="fst2" onchange="rFr()"><option value="">전체 상태</option><option>정상 승인</option><option>승인 대기</option><option>승인 거절</option></select>
+  </div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">전체 <span class="tg">${D.franchises.length}개</span></span></div>
+  <div class="tw"><table><thead><tr><th>IDX</th><th>상점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>가입일시</th><th>마지막 결제일</th><th>상태 변경</th><th>수정</th></tr></thead><tbody id="fb"></tbody></table></div></div>`;}
+function rFr(){
+  const q=v('fs').toLowerCase(),st=v('fst2');
+  const el=document.getElementById('fb');if(!el)return;
+  const rows=D.franchises.filter(f=>{
+    if(st&&f.status!==st)return false;
+    if(!q)return true;
+    return f.name.toLowerCase().includes(q)||f.phone.includes(q)||f.owner.toLowerCase().includes(q);
+  });
+  el.innerHTML=rows.map(f=>`<tr>
+    <td style="color:#9CA3AF;font-size:11px">${f.id}</td>
+    <td style="font-weight:600">${f.name}</td>
+    <td>${f.agency}</td><td>${f.owner}</td><td>${f.phone}</td>
+    <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${a.agency}&nbsp;${bdg(a.accountStatus)}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
+    <td style="font-size:11px">${f.joinDate}</td>
+    <td style="font-size:11px">${f.lastPaymentDate||'-'}</td>
+    <td>${role==='hq'?`<select class="status-sel" onchange="changeFrStatus(${f.id},this.value,this)">
+      <option ${f.status==='정상 승인'?'selected':''} value="정상 승인">정상 승인</option>
+      <option ${f.status==='승인 대기'?'selected':''} value="승인 대기">승인 대기</option>
+      <option ${f.status==='승인 거절'?'selected':''} value="승인 거절">승인 거절</option>
+    </select>`:bdg(f.status)}</td>
+    <td><div class="ab">
+      <button class="btn bo xs" onclick="edF(${f.id})">수정</button>
+      ${role==='hq'?`<button class="btn bd xs" onclick="delF(${f.id})">삭제</button>`:''}
+    </div></td>
+  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
+}
+function changeFrStatus(id,newStatus,selectEl){
+  const f=D.franchises.find(x=>x.id===id);
+  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+    selectEl.value=f.status;return;
+  }
+  f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
+  // 테이블 새로고침
+  setTimeout(rFr,30);
+}
+
+// 가맹점 배달대행사 폼
+function getAvailDA(idx){
+  const sel=editingAgencies.map((a,i)=>i!==idx?a.agency:null).filter(Boolean);
+  return getAllDA().filter(a=>!sel.includes(a.name));
+}
+function renderDARows(readonly){
+  const el=document.getElementById('da-rows');if(!el)return;
+  if(!editingAgencies.length){el.innerHTML=`<div style="color:#9CA3AF;font-size:11px;padding:8px">${readonly?'등록된 배달대행사 없음':'아래 버튼으로 추가하세요.'}</div>`;return;}
+  if(readonly){
+    el.innerHTML=editingAgencies.map(a=>`<div class="da-ro"><span style="font-weight:600;font-size:11px">${a.agency}</span><span style="font-size:11px;color:#6B7280">${a.accountNo||'미입력'}</span><span style="font-size:11px;color:#6B7280">${a.fileName||'미첨부'}</span><span>${bdg(a.accountStatus)}</span></div>`).join('');
+  }else{
+    el.innerHTML=editingAgencies.map((a,i)=>{
+      const avail=getAvailDA(i);
+      const opts=[...new Set([a.agency,...avail.map(x=>x.name)])];
+      return`<div class="da-row">
+        <select class="fs" style="padding:5px 8px;font-size:11px" onchange="editingAgencies[${i}].agency=this.value;renderDARows(false)">
+          ${opts.map(opt=>{const da=D.deliveryAgencyList.find(x=>x.name===opt);const inactive=da&&da.status==='inactive';return`<option value="${opt}" ${opt===a.agency?'selected':''} ${inactive?'disabled':''} style="${inactive?'color:#9CA3AF':''}">${opt}${inactive?' (비활성-고객센터문의)':''}</option>`;}).join('')}
+        </select>
+        <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="가상계좌번호" value="${a.accountNo||''}" oninput="editingAgencies[${i}].accountNo=this.value">
+        <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="파일명(예:계좌증빙.jpg)" value="${a.fileName||''}" oninput="editingAgencies[${i}].fileName=this.value">
+        <button class="da-del" onclick="if(confirm('삭제할까요?'))editingAgencies.splice(${i},1);renderDARows(false)">✕</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:0 2px">
+        <span style="font-size:10px;color:#6B7280">계좌 상태:</span>
+        <select style="padding:3px 6px;border:1px solid #D1E8D1;border-radius:4px;font-size:10px" onchange="editingAgencies[${i}].accountStatus=this.value">
+          <option ${a.accountStatus==='승인대기'?'selected':''}>승인대기</option>
+          <option ${a.accountStatus==='승인완료'?'selected':''}>승인완료</option>
+          <option ${a.accountStatus==='반려'?'selected':''}>반려</option>
+        </select>
+      </div>`;
+    }).join('');
+  }
+}
+function addDARow(){const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
+function franchiseForm(f={},roDA){return`
+  <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">전화번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대리점명</label><input class="fi" id="fa" value="${f.agency||CONFIG.companyName}"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
+  <div class="dv"></div>
+  <div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <label class="fl" style="margin:0">배달대행사 &amp; 가상계좌${roDA?'&nbsp;<span style="font-size:10px;color:#EF4444">(영업대리점 수정 불가)</span>':''}</label>
+    ${!roDA?`<button class="btn bo xs" onclick="addDARow()">+ 추가</button>`:''}
+  </div>
+  ${!roDA?`<div style="display:grid;grid-template-columns:160px 1fr 1fr 32px;gap:8px;margin-bottom:5px"><span style="font-size:10px;font-weight:700;color:#6B7280">배달대행사</span><span style="font-size:10px;font-weight:700;color:#6B7280">가상계좌번호</span><span style="font-size:10px;font-weight:700;color:#6B7280">계좌증빙 파일명</span><span></span></div>`:''}
+  <div id="da-rows"></div>
+  ${!roDA?`<div style="font-size:10px;color:#9CA3AF;margin-top:4px">※ 파일명만 입력. 실제 파일은 서버에 별도 업로드 (개발 시 연동)</div>`:''}
+  </div>`;}
+function addF(){editingAgencies=[];openM('가맹점 추가',franchiseForm({},false),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF()">저장</button>`);setTimeout(()=>renderDARows(false),20);}
+function edF(id){const f=D.franchises.find(x=>x.id===id);editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
+function savF(id){const n=v('fn');if(!n.trim()){alert('상점명을 입력하세요');return;}const data={name:n.trim(),owner:v('fo'),phone:v('fp'),bizNo:v('fb2'),agency:v('fa'),note:v('fnt'),deliveryAgencies:JSON.parse(JSON.stringify(editingAgencies))};if(id){Object.assign(D.franchises.find(x=>x.id===id),data);toast('수정');}else{D.franchises.unshift({id:nid(),...data,status:'승인 대기',joinDate:today(),lastPaymentDate:''});toast('가맹점 추가');}save();closeM();renderPage();setTimeout(rFr,50);}
+function delF(id){const f=D.franchises.find(x=>x.id===id);if(!confirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
+
+// ═══ 출금계좌 목록 ═══
+function pgAccounts(){return`
+  <div class="aw aw-b">계좌 승인은 이 화면과 대시보드 어디서 처리해도 동일하게 DB에 반영됩니다.</div>
+  <div class="sb2">
+    <input class="si" id="acs" placeholder="가맹점명 · 배달대행사 · 계좌번호 통합검색..." oninput="rAcc()">
+    <select class="fs" style="width:130px" id="acst" onchange="rAcc()"><option value="">전체 상태</option><option>승인대기</option><option>승인완료</option><option>반려</option></select>
+  </div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">출금계좌 목록</span></div>
+  <div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
+function rAcc(){
+  const q=v('acs').toLowerCase(),st=v('acst');
+  const el=document.getElementById('acb');if(!el)return;
+  const rows=[];
+  D.franchises.forEach(f=>{(f.deliveryAgencies||[]).forEach((da,i)=>{if(st&&da.accountStatus!==st)return;if(q&&!f.name.toLowerCase().includes(q)&&!da.agency.toLowerCase().includes(q)&&!(da.accountNo||'').includes(q))return;rows.push({fid:f.id,fname:f.name,fagency:f.agency,idx:i,...da});});});
+  el.innerHTML=rows.map(a=>`<tr>
+    <td style="font-weight:600;cursor:pointer;color:#3B82F6" onclick="showAccountDetail(${a.fid},${a.idx})">${a.fname}</td>
+    <td>${a.fagency}</td><td>${a.agency}</td>
+    <td style="font-family:monospace;font-size:11px">${a.accountNo||'미입력'}</td>
+    <td style="font-size:11px;color:#6B7280">${a.fileName||'미첨부'}</td>
+    <td style="font-size:11px">${a.reqDate||'-'}</td>
+    <td>${bdg(a.accountStatus)}</td>
+    <td><div class="ab">
+      ${a.accountStatus==='승인대기'?`<button class="btn bg2 xs" onclick="approveAccount(${a.fid},${a.idx})">승인</button><button class="btn bd xs" onclick="rejectAccount(${a.fid},${a.idx})">반려</button>`:''}
+      ${a.accountStatus==='반려'?`<button class="btn bo xs" onclick="approveAccount(${a.fid},${a.idx})">재승인</button>`:''}
+    </div></td>
+  </tr>`).join('')||'<tr><td colspan="8" class="emp">검색 결과 없음</td></tr>';
+}
+
+// ═══ 대리점 관리 ═══
+function pgAg(){return`
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addAg()">+ 대리점 생성</button></div>
+  <div class="sb2"><input class="si" id="ags" placeholder="대리점명 · 대표자 · 연락처 통합검색..." oninput="rAg()"></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>단계</th><th>지역</th><th>대리점명</th><th>로그인 ID</th><th>대표자</th><th>연락처</th><th>수수료율</th><th>운영 배달대행 (비고)</th><th>관리</th></tr></thead><tbody id="agb"></tbody></table></div></div>
+  <div class="card"><div style="padding:14px;display:flex;gap:8px;flex-wrap:wrap">
+  ${['1단계: 최상위 영업본부','2단계: 광역 영업본부','3단계: 지역 지사','4단계: 개별 지점'].map((t,i)=>`<span style="background:${['#3D9B35','#3B82F6','#F59E0B','#8B5CF6'][i]};color:#fff;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700">${t}</span>`).join('')}
+  </div></div>`;}
+function rAg(){
+  const q=v('ags').toLowerCase();
+  const el=document.getElementById('agb');if(!el)return;
+  const rows=D.agencies.filter(a=>!q||a.name.toLowerCase().includes(q)||a.owner.toLowerCase().includes(q)||a.phone.includes(q));
+  el.innerHTML=rows.map(a=>`<tr>
+    <td>${bdg(a.level+'단계')}</td>
+    <td style="color:#6B7280;font-size:11px">${a.region||'-'}</td>
+    <td style="font-weight:600">${a.name}</td>
+    <td style="font-size:11px;color:#9CA3AF">${a.loginId}</td>
+    <td>${a.owner}</td><td>${a.phone}</td>
+    <td class="tg">${getEffRate(a).toFixed(2)}%</td>
+    <td style="font-size:11px;color:#6B7280">${a.deliveryNote||'-'}</td>
+    <td><div class="ab"><button class="btn bo xs" onclick="edAg(${a.id})">수정</button><button class="btn bd xs" onclick="delAg(${a.id})">삭제</button></div></td>
+  </tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
+}
+function agForm(a={}){return`
+  <div class="fr2"><div class="fg"><label class="fl">대리점명 *</label><input class="fi" id="an" value="${a.name||''}" placeholder="예: 강남지사"></div><div class="fg"><label class="fl">로그인 ID</label><input class="fi" id="ai" value="${a.loginId||''}" placeholder="agency-xxx"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">단계</label><select class="fs" id="al">${[1,2,3,4].map(n=>`<option value="${n}" ${a.level===n?'selected':''}>${n}단계</option>`).join('')}</select></div><div class="fg"><label class="fl">지역</label><input class="fi" id="ar" value="${a.region||''}" placeholder="예: 서울 강남구"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${a.owner||''}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${a.phone||''}" placeholder="010-1234-5678"></div></div>
+  <div class="fg"><label class="fl">수수료율 (%)</label><input class="fi" id="af" type="number" step="0.01" value="${a.feeRate||4.2}"></div>
+  <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="adn" value="${a.deliveryNote||''}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>`;}
+function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);}
+function edAg(id){const a=D.agencies.find(x=>x.id===id);openM('대리점 수정',agForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${id})">저장</button>`);}
+function savAg(id){const n=v('an');if(!n.trim()){alert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn')};if(id){Object.assign(D.agencies.find(x=>x.id===id),data);toast('수정');}else{D.agencies.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();setTimeout(rAg,30);}
+function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!confirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ 배달대행사 관리 ═══
+function pgDeliveryMgmt(){
+  const list=getAllDA();
+  const aCnt=list.filter(a=>a.status==='active').length;
+  const iCnt=list.filter(a=>a.status==='inactive').length;
+  return`
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;gap:10px;font-size:12px">
+      <span style="background:#DCFCE7;color:#166534;padding:4px 12px;border-radius:12px;font-weight:700">🟢 가입 가능 ${aCnt}개</span>
+      <span style="background:#FEF3C7;color:#92400E;padding:4px 12px;border-radius:12px;font-weight:700">🔶 가입 불가 ${iCnt}개</span>
+    </div>
+    <button class="btn bg2" onclick="addDA()">+ 배달대행사 추가</button>
+  </div>
+  <div class="aw aw-b" style="margin-bottom:14px">
+    🟢 <strong>가입 가능</strong>: 가맹점이 계좌 등록 시 선택 가능 &nbsp;|&nbsp;
+    🔶 <strong>가입 불가</strong>: 선택 시 "고객센터 문의" 안내 표시 &nbsp;|&nbsp;
+    ❌ <strong>삭제</strong>: 목록에서 제거 (기존 계좌 데이터 유지)
+  </div>
+  <div class="card"><div class="tw"><table>
+    <thead><tr><th>배달대행사명</th><th style="text-align:center">현재 상태</th><th>이용 가맹점 수</th><th>상태 변경</th><th>삭제</th></tr></thead>
+    <tbody>${list.map(a=>{
+      const cnt=D.franchises.filter(f=>f.deliveryAgencies.some(da=>da.agency===a.name)).length;
+      const isActive=a.status==='active';
+      return`<tr>
+        <td style="font-weight:600">${a.name}</td>
+        <td style="text-align:center">
+          ${isActive
+            ?`<span style="background:#DCFCE7;color:#166534;padding:4px 14px;border-radius:12px;font-size:11px;font-weight:700;display:inline-block">🟢 가입 가능</span>`
+            :`<span style="background:#FEF3C7;color:#92400E;padding:4px 14px;border-radius:12px;font-size:11px;font-weight:700;display:inline-block">🔶 가입 불가</span>`}
+        </td>
+        <td style="font-size:11px;color:#6B7280">${cnt > 0 ? cnt+'개 가맹점' : '-'}</td>
+        <td>
+          ${isActive
+            ?`<button class="btn bor2 xs" onclick="deactivateDA(${a.id})" title="클릭 시 → 가입 불가 상태로 전환">가입 불가로 전환 →</button>`
+            :`<button class="btn bg2 xs" onclick="activateDA(${a.id})" title="클릭 시 → 가입 가능 상태로 전환">← 가입 가능으로 전환</button>`}
+        </td>
+        <td><button class="btn bd xs" onclick="deleteDA(${a.id})">삭제</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div></div>`;}
+function addDA(){const n=prompt('새 배달대행사 이름:','');if(!n||!n.trim())return;if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){alert('이미 존재하는 배달대행사 이름입니다');return;}D.deliveryAgencyList.push({id:nid(),name:n.trim(),status:'active'});save();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);}
+function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;a.status='inactive';save();renderPage();toast(`'${a.name}' → 가입 불가 상태로 전환`);}
+function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;a.status='active';save();renderPage();toast(`'${a.name}' → 가입 가능 상태로 전환`);}
+function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n\u26a0\ufe0f \ud604재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!confirm(msg))return;a.status='deleted';save();renderPage();toast("'"+a.name+"' 삭제");}
+
+// ═══ 영업대리점 개설문의 ═══
+function pgInquiries(){return`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점 개설문의 <span class="tg">${D.inquiries.length}건</span></span><button class="btn bg2 sm" onclick="addInquiry()">+ 문의 등록</button></div>
+  <div class="tw"><table><thead><tr><th>상태</th><th>이름</th><th>휴대폰번호</th><th>배달대행사</th><th>희망지역</th><th>담당자</th><th>접수일시</th><th>처리</th></tr></thead><tbody>
+  ${D.inquiries.map(i=>`<tr><td>${bdg(i.status)}</td><td style="font-weight:600">${i.name}</td><td>${i.phone}</td><td>${i.deliveryAgency}</td><td>${i.region}</td><td>${i.handler||'<span style="color:#9CA3AF">미배정</span>'}</td><td>${i.date}</td>
+  <td><div class="ab">
+    ${i.status==='상담 대기'?`<button class="btn bg2 xs" onclick="cmpI(${i.id})">완료</button>`:''}
+    <button class="btn bo xs" onclick="edInquiry(${i.id})">수정</button>
+    <button class="btn bd xs" onclick="delI(${i.id})">삭제</button>
+  </div></td></tr>`).join('')}
+  </tbody></table></div></div>`;}
+function inquiryForm(i={}){return`
+  <div class="fr2"><div class="fg"><label class="fl">이름 *</label><input class="fi" id="iqn" value="${i.name||''}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="iqp" value="${i.phone||''}" placeholder="010-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">배달대행사 이용</label><select class="fs" id="iqdp"><option ${(i.deliveryAgency||'')==='유'?'selected':''} value="유">유</option><option ${i.deliveryAgency==='무'?'selected':''} value="무">무</option></select></div><div class="fg"><label class="fl">희망지역</label><input class="fi" id="iqr" value="${i.region||''}" placeholder="예: 서울 강남구"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">담당자</label><input class="fi" id="iqh" value="${i.handler||''}" placeholder="담당자명 입력"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
+function addInquiry(){openM('문의 등록',inquiryForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry()">저장</button>`);}
+function edInquiry(id){const i=D.inquiries.find(x=>x.id===id);openM('문의 수정',inquiryForm(i),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry(${id})">저장</button>`);}
+function savInquiry(id){const n=v('iqn');if(!n.trim()){alert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
+function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
+function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ FAQ ═══
+function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&cats.length)faqTab=cats[0];return`
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div class="tabs" style="margin-bottom:0">${cats.map(c=>`<div class="tab ${faqTab===c?'on':''}" onclick="faqTab='${c}';rFAQ()">${c}</div>`).join('')}<div class="tab" onclick="addFaqCat()" style="color:#3D9B35">+ 추가</div></div>
+    <button class="btn bg2" onclick="addFQ()">+ FAQ 추가</button>
+  </div><div id="fql"></div>`;}
+function rFAQ(){const el=document.getElementById('fql');if(!el)return;const items=D.faqs.filter(f=>f.category===faqTab);el.innerHTML=items.map(f=>`<div class="card" style="margin-bottom:8px"><div class="ch" style="padding:10px 14px"><span style="font-weight:700;color:#3D9B35">Q</span><span style="font-weight:600;margin-left:6px">${f.question}</span><div class="ab" style="margin-left:auto"><button class="btn bo xs" onclick="edFQ(${f.id})">수정</button><button class="btn bd xs" onclick="delFQ(${f.id})">삭제</button></div></div><div style="padding:10px 14px;color:#6B7280;font-size:12px"><span style="color:#3D9B35;font-weight:700">A</span>&nbsp;${f.answer}</div></div>`).join('')||'<div class="card"><div class="emp">FAQ가 없습니다.</div></div>';}
+function addFaqCat(){const n=prompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
+function fqForm(f={}){const cats=[...new Set(D.faqs.map(x=>x.category))];return`<div class="fg"><label class="fl">카테고리</label><select class="fs" id="fqc">${cats.map(c=>`<option ${c===(f.category||faqTab)?'selected':''}>${c}</option>`).join('')}</select></div><div class="fg"><label class="fl">질문 *</label><input class="fi" id="fqq" value="${f.question||''}" placeholder="자주 묻는 질문"></div><div class="fg"><label class="fl">답변 *</label><textarea class="fta" id="fqa" rows="5">${f.answer||''}</textarea></div>`;}
+function addFQ(){openM('FAQ 추가',fqForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ()">저장</button>`);}
+function edFQ(id){const f=D.faqs.find(x=>x.id===id);openM('FAQ 수정',fqForm(f),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ(${id})">저장</button>`);}
+function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){alert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
+function delFQ(id){if(!confirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
+
+// ═══ 게시판 ═══
+function pgNotices(){return pgBoard('notices');}
+function pgGuides(){return pgBoard('guides');}
+function pgBoard(t){return`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addPost('${t}')">+ 게시글 작성</button></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>제목</th><th>작성자</th><th>작성일시</th><th>관리</th></tr></thead><tbody>
+  ${D[t].map(n=>`<tr><td><span style="cursor:pointer;font-weight:600;color:#3B82F6" onclick="viewPost('${t}',${n.id})">${n.title}</span></td><td>${n.author}</td><td>${n.date}</td><td><div class="ab"><button class="btn bo xs" onclick="edPost('${t}',${n.id})">수정</button><button class="btn bd xs" onclick="delPost('${t}',${n.id})">삭제</button></div></td></tr>`).join('')||`<tr><td colspan="4" class="emp">게시글 없음</td></tr>`}
+  </tbody></table></div></div>`;}
+function viewPost(t,id){const n=D[t].find(x=>x.id===id);openM(n.title,`<div style="font-size:11px;color:#6B7280;margin-bottom:10px">${n.author} | ${n.date}</div><div style="line-height:1.8;white-space:pre-wrap;font-size:12px">${n.content}</div>`,`<button class="btn bo" onclick="edPost('${t}',${id});closeM()">수정</button><button class="btn bg2" onclick="closeM()">확인</button>`);}
+function pForm(n={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="pt" value="${n.title||''}" placeholder="제목 입력"></div><div class="fg"><label class="fl">작성자</label><input class="fi" id="pa" value="${n.author||'운영팀'}"></div><div class="fg"><label class="fl">내용 *</label><textarea class="fta" id="pc" rows="6" placeholder="내용 입력">${n.content||''}</textarea></div>`;}
+function addPost(t){openM('게시글 작성',pForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}')">저장</button>`);}
+function edPost(t,id){const n=D[t].find(x=>x.id===id);openM('게시글 수정',pForm(n),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}',${id})">저장</button>`);}
+function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){alert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
+function delPost(t,id){if(!confirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ 관리자 ═══
+function pgAdmins(){const roles=getRoles();return`
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addAdm()">+ 관리자 생성</button></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>아이디</th><th>이름</th><th>권한 레벨</th><th>마지막 로그인</th><th>관리</th></tr></thead><tbody>
+  ${D.admins.map(a=>`<tr><td style="font-family:monospace;font-size:11px">${a.loginId}</td><td style="font-weight:600">${a.name}</td><td>${bdg(a.role)}</td><td style="color:#9CA3AF">${a.lastLogin}</td><td><div class="ab"><button class="btn bo xs" onclick="edAdm(${a.id})">수정</button><button class="btn bd xs" onclick="delAdm(${a.id})">삭제</button></div></td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">권한 레벨 정의 &amp; 이름 수정</span><button class="btn bg2 sm" onclick="edRoles()">이름 수정</button></div>
+  <div style="padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+  ${roles.map(r=>`<div class="role-card"><div class="role-head" style="background:${r.color}">${r.name}</div><div class="role-body">${r.desc}</div></div>`).join('')}
+  </div></div>`;}
+function edRoles(){const roles=getRoles();openM('권한 이름 수정',`<div class="aw aw-w">권한 이름을 바꾸면 기존 관리자의 권한도 함께 변경됩니다.</div>${roles.map((r,i)=>`<div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin:0"><label class="fl">권한명 ${i+1}</label><input class="fi" id="rn-${i}" value="${r.name}"></div><div class="fg" style="margin:0"><label class="fl">설명</label><input class="fi" id="rd-${i}" value="${r.desc}"></div></div>`).join('')}`,`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savRoles()">저장</button>`);}
+function savRoles(){const roles=getRoles();const nr=roles.map((r,i)=>({...r,name:document.getElementById(`rn-${i}`).value.trim()||r.name,desc:document.getElementById(`rd-${i}`).value||r.desc}));nr.forEach((n,i)=>{if(n.name!==roles[i].name)D.admins.forEach(a=>{if(a.role===roles[i].name)a.role=n.name;});});D.customRoles=nr;save();closeM();renderPage();toast('권한 이름 수정 완료');}
+function adForm(a={}){const roles=getRoles();return`<div class="fr2"><div class="fg"><label class="fl">로그인 아이디 *</label><input class="fi" id="adi" value="${a.loginId||''}" placeholder="admin001"></div><div class="fg"><label class="fl">이름 *</label><input class="fi" id="adn" value="${a.name||''}" placeholder="홍길동"></div></div><div class="fg"><label class="fl">권한 레벨</label><select class="fs" id="adr">${roles.map(r=>`<option ${r.name===(a.role||roles[1].name)?'selected':''}>${r.name}</option>`).join('')}</select></div>${!a.id?`<div class="fr2"><div class="fg"><label class="fl">비밀번호 *</label><input class="fi" id="adp" type="password"></div><div class="fg"><label class="fl">비밀번호 확인</label><input class="fi" id="adp2" type="password"></div></div>`:''}`;}
+function addAdm(){openM('관리자 생성',adForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm()">생성</button>`);}
+function edAdm(id){const a=D.admins.find(x=>x.id===id);openM('관리자 수정',adForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm(${id})">저장</button>`);}
+function savAdm(id){const n=v('adn');if(!n){alert('이름 필요');return;}if(!id){const p=v('adp'),p2=v('adp2');if(p!==p2){alert('비밀번호 불일치');return;}}const data={loginId:v('adi'),name:n,role:v('adr')};if(id){Object.assign(D.admins.find(x=>x.id===id),data);toast('수정');}else{D.admins.push({id:nid(),...data,lastLogin:'-'});toast('생성');}save();closeM();renderPage();}
+function delAdm(id){if(D.admins.length<=1){alert('최소 1명 필요');return;}if(!confirm('이 관리자 계정을 삭제하시겠습니까?'))return;D.admins=D.admins.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ PG사 관리 ═══
+function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addPG()">+ PG사 추가</button></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>PG사명</th><th>MID</th><th>API Key</th><th>콜백 URL</th><th>상태</th><th>비고</th><th>관리</th></tr></thead><tbody>
+  ${D.pgProviders.map(p=>`<tr><td style="font-weight:700">${p.name}</td><td style="font-family:monospace;font-size:11px">${p.mid}</td><td style="font-family:monospace;font-size:11px">${p.apiKey}</td><td style="font-size:10px;color:#6B7280">${p.callbackUrl}</td><td>${bdg(p.status)}</td><td style="font-size:11px;color:#6B7280">${p.note||''}</td><td><div class="ab"><button class="btn bo xs" onclick="edPG(${p.id})">수정</button><button class="btn bd xs" onclick="delPG(${p.id})">삭제</button></div></td></tr>`).join('')}
+  </tbody></table></div></div>`;}
+function pgF2(p={}){return`<div class="fg"><label class="fl">PG사명 *</label><input class="fi" id="pgn" value="${p.name||''}" placeholder="예: 스마트페이 (SmartPay)"></div><div class="fr2"><div class="fg"><label class="fl">MID</label><input class="fi" id="pgm" value="${p.mid||''}" placeholder="MID_XXX_001"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="pgs"><option ${(p.status||'')==='활성'?'selected':''}>활성</option><option ${p.status==='준비중'?'selected':''}>준비중</option><option ${p.status==='비활성'?'selected':''}>비활성</option></select></div></div><div class="fg"><label class="fl">API Key</label><input class="fi" id="pgk" value="${p.apiKey||''}" placeholder="live_key_****"></div><div class="fg"><label class="fl">콜백 URL</label><input class="fi" id="pgu" value="${p.callbackUrl||''}" placeholder="https://eatspay.co.kr/callback/pg"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="pgo" value="${p.note||''}" placeholder="메인 PG사, 2차 연동 등"></div>`;}
+function addPG(){openM('PG사 추가',pgF2(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG()">저장</button>`);}
+function edPG(id){const p=D.pgProviders.find(x=>x.id===id);openM('PG사 수정',pgF2(p),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG(${id})">저장</button>`);}
+function savPG(id){const n=v('pgn');if(!n){alert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+function delPG(id){if(!confirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ 수수료율 설정 (본사 전용) ═══
+function pgFees(){
+  if(role==='agent')return`<div class="aw aw-w" style="margin-top:20px">⛔ 수수료율 설정은 본사 관리자만 접근 가능합니다.</div>`;
+  return`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div><div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">기준 수수료율</span></div><div style="padding:16px">
+    <div class="fg"><label class="fl">서비스 기본 수수료율 (%)</label><div style="display:flex;gap:8px"><input class="fi" id="dfr" type="number" step="0.01" value="${D.defaultFeeRate}" style="width:120px"><button class="btn bg2" onclick="savDfr()">저장</button></div><div style="font-size:11px;color:#9CA3AF;margin-top:4px">결제금액에서 역산 차감 방식 (÷0.956). 예) 입금 100만원 → 카드 1,046,025원 청구</div></div>
+    <div class="dv"></div>
+    <div class="fcalc"><div style="font-size:11px;font-weight:700;margin-bottom:8px">💡 역산 계산기</div>
+      <div class="fg" style="margin-bottom:6px"><label class="fl">입금 목표 금액 (원)</label><input class="fi" id="ca" placeholder="1000000" oninput="calcF()"></div>
+      <div style="font-size:11px;color:#6B7280">→ 카드 청구금액</div>
+      <div class="fcr" id="cr">—</div>
+      <div style="font-size:10px;color:#6B7280;margin-top:4px" id="cf"></div>
+    </div>
+  </div></div></div>
+  <div><div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점별 수수료율</span></div><div style="padding:14px">
+    <div class="aw aw-w">※ 영업대리점은 영업수수료 외 별도 수수료 수취 불가. 본사에서만 설정합니다.</div>
+    ${D.agencies.map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:8px;background:#F9FAFB;border-radius:6px;margin-bottom:6px">
+      <span style="flex:1;font-weight:600;font-size:11px">${a.name}</span>
+      <input class="fi" type="number" step="0.01" value="${getEffRate(a)}" style="width:80px;padding:5px 8px;font-size:11px" onchange="savAgF(${a.id},this.value)">
+      <span style="font-size:11px;color:#6B7280">%</span>
+    </div>`).join('')}
+  </div></div></div>
+  </div>`;}
+function savDfr(){const val=parseFloat(v('dfr'));if(isNaN(val)||val<=0||val>=100){alert('올바른 수수료율 입력');return;}D.defaultFeeRate=val;save();toast(`기본 수수료율 ${val}%로 저장`);}
+function savAgF(id,val){D.agencyFeeRates[id]=parseFloat(val)||4.2;save();toast('대리점 수수료율 저장 완료');}
+function calcF(){const a=parseFloat((v('ca')||'').replace(/[^0-9.]/g,''))||0;if(!a){document.getElementById('cr').textContent='—';document.getElementById('cf').textContent='';return;}const r=D.defaultFeeRate/100;const ch=Math.round(a/(1-r));document.getElementById('cr').textContent=ch.toLocaleString()+'원';document.getElementById('cf').textContent='수수료: '+(ch-a).toLocaleString()+'원 ('+D.defaultFeeRate+'%)';}
+
+// ═══ 무이자 할부 ═══
+function pgInst(){
+  const months=[2,3,4,5,6];
+  const now=new Date();
+  const labels={prev:`전월 (${now.getMonth()}월)`,curr:`금월 (${now.getMonth()+1}월)`,next:`익월 (${now.getMonth()+2}월)`};
+  return`
+  <div class="aw aw-w">💡 각 월별로 무이자 할부 개월 수를 설정할 수 있습니다.</div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">카드사별 무이자 할부 설정</span><button class="btn bg2 sm" onclick="savInst()">전체 저장</button></div>
+  <div style="padding:14px;overflow-x:auto">
+    <div class="inst-grid" style="min-width:600px">
+      <div class="inst-hdr" style="text-align:left">카드사</div>
+      <div class="inst-hdr">${labels.prev}</div>
+      <div class="inst-hdr">${labels.curr}</div>
+      <div class="inst-hdr">${labels.next}</div>
+      ${Object.entries(D.installments).map(([card,data])=>`
+        <div class="inst-cell" style="font-weight:600;font-size:12px">${card}</div>
+        ${['prev','curr','next'].map(m=>`<div class="inst-cell">${months.map(mo=>`<label class="ci"><input type="checkbox" id="ci-${m}-${card.replace(/[^a-zA-Z0-9]/g,'_')}-${mo}" ${(data[m]||[]).includes(mo)?'checked':''}>${mo}개</label>`).join('')}</div>`).join('')}
+      `).join('')}
+    </div>
+  </div></div>`;}
+function savInst(){const months=[2,3,4,5,6];Object.keys(D.installments).forEach(card=>{const key=card.replace(/[^a-zA-Z0-9]/g,'_');['prev','curr','next'].forEach(m=>{D.installments[card][m]=months.filter(mo=>{const el=document.getElementById(`ci-${m}-${key}-${mo}`);return el&&el.checked;});});});save();toast('무이자 할부 설정 저장');}
+
+// ═══ 배너 ═══
+function pgBanners(){const fl=D.banners.filter(b=>b.type===bannerTab);return`
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div class="tabs" style="margin-bottom:0">${['메인','결제'].map(t=>`<div class="tab ${bannerTab===t?'on':''}" onclick="bannerTab='${t}';renderPage()">${t}</div>`).join('')}</div>
+    <button class="btn bg2" onclick="addBn()">+ 배너 추가</button>
+  </div>
+  <div class="card"><div class="tw"><table><thead><tr><th>순서</th><th>제목</th><th>URL</th><th>관리</th></tr></thead><tbody>
+  ${fl.map(b=>`<tr><td style="color:#9CA3AF">${b.order}</td><td style="font-weight:600">${b.title}</td><td style="font-size:11px;color:#3B82F6">${b.url}</td><td><div class="ab"><button class="btn bo xs" onclick="edBn(${b.id})">수정</button><button class="btn bd xs" onclick="delBn(${b.id})">삭제</button></div></td></tr>`).join('')||`<tr><td colspan="4" class="emp">배너 없음</td></tr>`}
+  </tbody></table></div></div>`;}
+function bnF(b={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="bnt" value="${b.title||''}" placeholder="배너 제목"></div><div class="fg"><label class="fl">링크 URL</label><input class="fi" id="bnu" value="${b.url||''}" placeholder="https://..."></div><div class="fr2"><div class="fg"><label class="fl">위치</label><select class="fs" id="bntp"><option ${(b.type||bannerTab)==='메인'?'selected':''}>메인</option><option ${b.type==='결제'?'selected':''}>결제</option></select></div><div class="fg"><label class="fl">순서</label><input class="fi" id="bno" type="number" value="${b.order||1}"></div></div>`;}
+function addBn(){openM('배너 추가',bnF(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn()">저장</button>`);}
+function edBn(id){const b=D.banners.find(x=>x.id===id);openM('배너 수정',bnF(b),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn(${id})">저장</button>`);}
+function savBn(id){const t=v('bnt');if(!t){alert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+function delBn(id){if(!confirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+
+// ═══ 렌더 ═══
+function renderPage(){
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,accounts:pgAccounts,agencies:pgAg,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,inquiries:pgInquiries,banners:pgBanners};
+  document.getElementById('ct').innerHTML=(m[page]||pgDash)();
+  if(page==='payments')   setTimeout(rPay,30);
+  if(page==='pgsettle')   setTimeout(rGS,30);
+  if(page==='franchises') setTimeout(rFr,30);
+  if(page==='accounts')   setTimeout(rAcc,30);
+  if(page==='agencies')   setTimeout(rAg,30);
+  if(page==='faqs')       setTimeout(rFAQ,30);
+}
+function render(){renderNav();renderPage();}
+async function syncBackendFranchises() {
+  try {
+    const res = await fetch('/api/admin/franchises', {
+      headers: { 'Authorization': 'Bearer mocked_admin_token' }
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    const items = json.data || [];
+    items.forEach(item => {
+      const idx = D.franchises.findIndex(f => f.email === item.email || (f.bizNo === item.bizNo && f.name === item.name));
+      if (idx !== -1) {
+        D.franchises[idx].status = item.status;
+      } else {
+        D.franchises.unshift(item);
+      }
+    });
+    save();
+    renderPage();
+  } catch (e) {
+    console.error("Failed to sync backend franchises:", e);
+  }
+}
+
+async function syncBackendAccounts() {
+  try {
+    const res = await fetch('/api/admin/accounts', {
+      headers: { 'Authorization': 'Bearer mocked_admin_token' }
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    const reqs = json.data || [];
+    reqs.forEach(req => {
+      const f = D.franchises.find(x => x.bizNo === req.businessNumber || x.name === req.franchiseName);
+      if (f) {
+        if (!f.deliveryAgencies) f.deliveryAgencies = [];
+        const exists = f.deliveryAgencies.some(da => da.accountNo === req.assignedVirtualAccount?.accountNumber || da.agency === (req.bankCode === '088' ? '신한은행' : '우리은행'));
+        if (!exists) {
+          f.deliveryAgencies.push({
+            agency: req.bankCode === '088' ? '신한은행' : '우리은행',
+            accountNo: req.assignedVirtualAccount?.accountNumber || '대기중',
+            fileName: req.documentUrl.split('/').pop(),
+            accountStatus: req.status === 'PENDING' ? '승인대기' : (req.status === 'APPROVED' ? '승인완료' : '반려'),
+            reqDate: req.submittedAt.slice(0, 10),
+            requestId: req.requestId
+          });
+        }
+      }
+    });
+    save();
+    renderPage();
+  } catch (e) {
+    console.error("Failed to sync backend accounts:", e);
+  }
+}
+
+async function changeFrStatus(id,newStatus,selectEl){
+  const f=D.franchises.find(x=>x.id===id);
+  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+    selectEl.value=f.status;return;
+  }
+
+  // Update backend if it has an email
+  if (f.email) {
+    try {
+      const res = await fetch('/api/admin/franchise/approve', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer mocked_admin_token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: f.email,
+          action: newStatus === '정상 승인' ? 'APPROVED' : 'REJECTED'
+        })
+      });
+      if (!res.ok) {
+        alert('백엔드 상태 변경 전송 실패');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
+  // 테이블 새로고침
+  setTimeout(rFr,30);
+}
+
+async function approveAccount(fid,idx){
+  const f=D.franchises.find(x=>x.id===fid);
+  const da=f.deliveryAgencies[idx];
+  if(!confirm(`'${f.name}'의 ${da.agency} 계좌를 승인하시겠습니까?`))return;
+
+  if (da.requestId) {
+    try {
+      await fetch('/api/admin/accounts/approve', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer mocked_admin_token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requestId: da.requestId,
+          action: 'APPROVED',
+          assignedVirtualAccount: {
+            bankCode: da.agency === '신한은행' ? '088' : '020',
+            bankName: da.agency,
+            accountNumber: '562-901-' + Math.floor(100000 + Math.random() * 900000),
+            accountHolder: `(주)이츠페이_${f.name}`
+          }
+        })
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  da.accountStatus='승인완료';
+  if(f.status==='승인 대기')f.status='정상 승인';
+  save();render();toast(`${f.name} 계좌 승인 완료`);
+}
+
+async function rejectAccount(fid,idx){
+  const f=D.franchises.find(x=>x.id===fid);
+  const da=f.deliveryAgencies[idx];
+  const r=prompt('반려 사유를 입력하세요:','');if(r===null)return;
+
+  if (da.requestId) {
+    try {
+      await fetch('/api/admin/accounts/approve', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer mocked_admin_token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requestId: da.requestId,
+          action: 'REJECTED',
+          rejectionReason: r
+        })
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  da.accountStatus='반려';
+  da.rejectReason=r;
+  save();render();toast(`${f.name} 계좌 반려`);
+}
+
+load();render();
+syncBackendTransactions();
+syncBackendFranchises();
+syncBackendAccounts();
+</script>
+</body>
+</html>
