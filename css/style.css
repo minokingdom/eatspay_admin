@@ -90,6 +90,14 @@ html, body {
 }
 
 /* === App Shell === */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 #app-shell {
   position: fixed;
   inset: 0;
@@ -97,11 +105,12 @@ html, body {
   justify-content: center;
   align-items: center;
   background: #d0d0d0;
+  z-index: 0;
 }
 
 .phone-frame {
   width: 390px;
-  height: 844px;
+  height: min(844px, 100vh);
   background: var(--bg-white);
   border-radius: 40px;
   box-shadow: 0 30px 80px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(0,0,0,0.15);
@@ -109,6 +118,7 @@ html, body {
   position: relative;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 }
 
 /* Status bar */
@@ -1189,17 +1199,6 @@ html, body {
 /* ==========================================
    RESPONSIVE (Full screen on small devices)
    ========================================== */
-@media (max-height: 860px) {
-  .phone-frame {
-    height: 100vh;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  #app-shell {
-    background: var(--bg-white);
-  }
-}
 
 /* 모바일 기기에서는 완전히 전체화면으로 */
 @media (max-width: 480px) {
@@ -1212,6 +1211,8 @@ html, body {
 
   .phone-frame {
     width: 100vw;
+    width: 100dvw;
+    height: 100vh;
     height: 100dvh;
     border-radius: 0;
     box-shadow: none;
