@@ -1201,6 +1201,23 @@ html, body {
   }
 }
 
+/* 모바일 기기에서는 완전히 전체화면으로 */
+@media (max-width: 480px) {
+  #app-shell {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-white);
+    display: block;
+  }
+
+  .phone-frame {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
 /* ==========================================
    SPLASH PREMIUM ANIMATIONS
    ========================================== */
