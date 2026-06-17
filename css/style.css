@@ -846,7 +846,18 @@ html.native-app .screen-container {
   box-shadow: 0 0 0 1000px var(--bg-white) inset;
 }
 
-.form-input::placeholder { color: var(--text-light); }
+.form-input::placeholder {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+  opacity: 1;
+}
+
+#login-pw::placeholder {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+  letter-spacing: 0;
+  text-shadow: none;
+}
 
 .form-input:focus {
   border-color: var(--green-primary);
