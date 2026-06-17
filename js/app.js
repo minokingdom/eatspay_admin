@@ -1684,16 +1684,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  $('#login-pw-toggle')?.addEventListener('click', () => {
-    const pwInput = $('#login-pw');
-    const toggle = $('#login-pw-toggle');
+  const bindPasswordToggle = (inputId, toggleId) => {
+    const pwInput = $(inputId);
+    const toggle = $(toggleId);
     if (!pwInput || !toggle) return;
-    const show = pwInput.type === 'password';
-    pwInput.type = show ? 'text' : 'password';
-    toggle.textContent = show ? '숨김' : '보기';
-    toggle.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
-    pwInput.focus();
-  });
+    toggle.addEventListener('click', () => {
+      const show = pwInput.type === 'password';
+      pwInput.type = show ? 'text' : 'password';
+      toggle.textContent = show ? '숨김' : '보기';
+      toggle.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
+      pwInput.focus();
+    });
+  };
+
+  bindPasswordToggle('#login-pw', '#login-pw-toggle');
+  bindPasswordToggle('#reg-pw', '#reg-pw-toggle');
 
   // --------- SOCIAL LOGINS ---------
   const handleSocialLogin = (btnId, name) => {

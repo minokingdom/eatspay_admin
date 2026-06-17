@@ -877,16 +877,13 @@ html.native-app .screen-container {
   color: #111827 !important;
   -webkit-text-fill-color: #111827 !important;
   caret-color: #111827 !important;
-  letter-spacing: 2px;
-  text-shadow: 0 0 0 #111827;
-  font-family: var(--font) !important;
+  font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif !important;
 }
 
 .form-input[type="password"]::placeholder {
   color: #9ca3af;
   -webkit-text-fill-color: #9ca3af !important;
-  letter-spacing: 0;
-  text-shadow: none;
+  font-family: var(--font) !important;
 }
 
 .form-input:focus {
