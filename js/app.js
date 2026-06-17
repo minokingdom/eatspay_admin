@@ -102,6 +102,7 @@ const API_ERROR_MESSAGES = {
   GH_PAYMENTS_CARD_REGISTRATION_FAILED: '카드 등록을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
   GH_PAYMENTS_BILLING_PAY_FAILED: '결제를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
   ACCOUNT_NOT_FOUND: '가상계좌 정보를 찾을 수 없습니다.',
+  ACCOUNT_LIMIT_EXCEEDED: '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.',
   DOCUMENT_FILE_REQUIRED: '포스 사진을 첨부해 주세요.',
   MISSING_FIELDS: '필수 항목을 모두 입력해 주세요.',
   INVALID_CURRENT_PASSWORD: '현재 비밀번호가 일치하지 않습니다.'
@@ -2608,6 +2609,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = getSessionUser();
 
     if (!isAuthenticated() || !user) { showToast('로그인이 필요합니다.'); navigate('login'); return; }
+    try {
+      const accounts = await fetchVaccountsFromDb();
+      if (accounts.length >= 2) {
+        await showAppAlert('가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다. 기존 계좌를 삭제한 뒤 다시 등록해 주세요.', '계좌 등록 제한');
+        navigate('vaccount-list');
+        return;
+      }
+    } catch (error) {
+      console.warn('Failed to check account count before submit:', error);
+    }
     if (!bank) { showToast('은행을 선택해주세요.'); return; }
     if (!accountNum || accountNum.length < 8) { showToast('가상계좌번호를 올바르게 입력해주세요.'); return; }
     if (!selectedAgency) { showToast('배달대행사를 선택해주세요.'); return; }

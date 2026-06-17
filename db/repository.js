@@ -728,6 +728,16 @@ function createRepository(pool) {
       return result.rows.map(toDeliveryAccount);
     },
 
+    async countAccountsByFranchise(franchiseId) {
+      const result = await pool.query(
+        `SELECT
+          (SELECT count(*)::int FROM account_requests WHERE franchise_id = $1) +
+          (SELECT count(*)::int FROM delivery_accounts WHERE franchise_id = $1) AS total`,
+        [franchiseId]
+      );
+      return Number(result.rows[0]?.total || 0);
+    },
+
     async deleteDeliveryAccountByFranchise(id, franchiseId) {
       const result = await pool.query(
         'DELETE FROM delivery_accounts WHERE id = $1 AND franchise_id = $2 RETURNING *',

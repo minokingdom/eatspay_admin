@@ -22,6 +22,7 @@ const PORT = Number(process.env.PORT || 3000);
 const pool = createPool();
 const repo = createRepository(pool);
 const DEFAULT_AGENCY_NAME = '이츠페이 본사';
+const MAX_ACCOUNTS_PER_FRANCHISE = 2;
 const DEFAULT_DELIVERY_AGENCIES = [
   '생각대로',
   '바로고',
@@ -498,6 +499,10 @@ app.post('/api/franchise/accounts', authenticate, (req, res) => {
       if (!req.file) {
         return sendError(res, 400, 'DOCUMENT_FILE_REQUIRED', 'A POS photo attachment is required.');
       }
+      const currentAccountCount = await repo.countAccountsByFranchise(req.user.franchiseId);
+      if (currentAccountCount >= MAX_ACCOUNTS_PER_FRANCHISE) {
+        return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
+      }
 
       const uploadedFile = await persistUpload(req.file, req.user.id);
       const request = await repo.createAccountRequest({
@@ -760,6 +765,7 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
   });
   const historyItems = items.map(item => ({
     ...item,
+    statusLabel: item.status === 'SUCCESS' ? '결제완료' : item.status === 'ROLLED_BACK' ? '취소' : item.status,
     paymentDate: formatKstDateTime(item.createdAt)
   }));
 
@@ -1053,6 +1059,10 @@ app.post('/api/franchise/:id/delivery-accounts', authenticateAdmin, singleUpload
   if (!agencyName || !bankName || !accountHolder || !accountNo) {
     return sendError(res, 400, 'MISSING_FIELDS', 'agencyName, bankName, accountHolder, and accountNo are required.');
   }
+  const currentAccountCount = await repo.countAccountsByFranchise(franchiseId);
+  if (currentAccountCount >= MAX_ACCOUNTS_PER_FRANCHISE) {
+    return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
+  }
 
   const file = req.file ? await persistUpload(req.file, req.user.id) : null;
   const account = await repo.addDeliveryAccount({
@@ -1242,6 +1252,13 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   if (businessNumber.length !== 10) {
     return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
   }
+  const validDeliveryAccounts = deliveryAccounts.filter(account => (
+    String(account.agencyName || account.deliveryAgencyName || '').trim() &&
+    String(account.accountNo || '').trim()
+  ));
+  if (validDeliveryAccounts.length > MAX_ACCOUNTS_PER_FRANCHISE) {
+    return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
+  }
   if (await repo.findUserByEmail(email)) {
     return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
   }
@@ -1262,7 +1279,7 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     agencyId: Number.isFinite(agencyId) ? agencyId : (defaultAgency?.id || null)
   });
 
-  for (const account of deliveryAccounts) {
+  for (const account of validDeliveryAccounts) {
     const agencyName = String(account.agencyName || account.deliveryAgencyName || '').trim();
     const accountNo = String(account.accountNo || '').trim();
     if (!agencyName || !accountNo) continue;
@@ -1563,7 +1580,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       fee: feeAmount,
       totalAmount,
       installment: '\uC77C\uC2DC\uBD88',
-      status: tx.status === 'SUCCESS' ? '\uACB0\uC81C\uC644\uB8CC' : tx.status,
+      status: tx.status === 'SUCCESS' ? '\uACB0\uC81C\uC644\uB8CC' : tx.status === 'ROLLED_BACK' ? '\uCDE8\uC18C' : tx.status,
       pg: tx.method || 'PG',
       agencyId
     };
@@ -1580,7 +1597,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     svcFee: Number(item.svcFee),
     netAmt: Number(item.netAmt),
     deliveryAgency: item.deliveryAgency || '',
-    status: item.status === 'ROLLED_BACK' ? '\uB864\uBC31' : '\uC815\uC0B0\uC644\uB8CC',
+    status: item.status === 'ROLLED_BACK' ? '\uCDE8\uC18C' : '\uC815\uC0B0\uC644\uB8CC',
     note: '',
     agencyId: item.agencyId || null,
     pgTxId: item.pgTxId || ''

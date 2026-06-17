@@ -84,6 +84,7 @@ tr:hover td{background:#FAFFFE}
 .fr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .mo{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;display:flex;align-items:center;justify-content:center}
 .mbox{background:#fff;border-radius:12px;width:600px;max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mbox.wide{width:900px}
 .mh{padding:14px 18px;border-bottom:1px solid #D1E8D1;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1}
 .mt{font-weight:700;font-size:15.7px;color:#1A2E1A}
 .mb2{padding:18px}
@@ -132,6 +133,9 @@ tr:hover td{background:#FAFFFE}
 .settle-detail{background:#F9FAFB;padding:10px;border-radius:6px;margin-top:6px;font-size:11px}
 .status-sel{padding:4px 8px;border:1px solid #D1E8D1;border-radius:6px;font-size:11.5px;background:#fff;cursor:pointer;outline:none}
 .da-inactive{text-decoration:line-through;opacity:.5}
+.settlement-detail-scroll{max-height:420px;overflow:auto;border:1px solid #D1E8D1;border-radius:8px}
+.settlement-detail-scroll table th{position:sticky;top:0;z-index:1}
+.accounts-table{table-layout:fixed;min-width:900px}.accounts-table .proof-col{width:118px}.accounts-table .proof-file{display:block;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;font-size:11px}
 body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;-webkit-font-smoothing:auto;text-rendering:optimizeLegibility}
 .ico{display:inline-block;vertical-align:-1px;margin-right:5px;flex-shrink:0}
 .ico-ok{width:9px;height:9px;border-radius:50%;background:#22C55E;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
@@ -258,13 +262,13 @@ function renderNav(){
 
 // ═══ 헬퍼 ═══
 function fmt(n){return Number(n).toLocaleString()+'원';}
-function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','롤백':'bor2','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[t]||'bgr'}">${t}</span>`;}
+function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const label=t==='롤백'||t==='ROLLED_BACK'?'취소':t;const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[label]||'bgr'}">${label}</span>`;}
 function nid(){return++D.nextId;}
 function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
-function openM(title,body,foot){document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';}
-function closeM(){document.getElementById('mo').style.display='none';}
+function openM(title,body,foot){document.querySelector('#mo .mbox')?.classList.remove('wide');document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';}
+function closeM(){document.getElementById('mo').style.display='none';document.querySelector('#mo .mbox')?.classList.remove('wide');}
 function closeMO(e){if(e.target===document.getElementById('mo'))closeM();}
 function adminAlert(message,title='알림'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div style="white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15">${message}</div>`,`<button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
 function adminConfirm(message,title='확인'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div style="white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15">${message}</div>`,`<button class="btn bo" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(false)">취소</button><button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
@@ -454,13 +458,13 @@ function rPay(){
 
 // ═══ PG 정산 확인 ═══
 function pgPGSettle(){const tot=D.pgSettlements.reduce((s,p)=>s+p.netAmt,0);return`
-  <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 롤백 처리. 정산 행 클릭 시 상세 확인 가능.</div>
+  <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 취소 처리. 정산 행 클릭 시 상세 확인 가능.</div>
   <div class="sb2">
     <input class="si" id="gss" placeholder="가맹점명 또는 승인번호..." oninput="rGS()">
     <input class="si" id="gsd" type="date" oninput="rGS()" style="max-width:135px">
     <span style="color:#6B7280;font-size:11px">~</span>
     <input class="si" id="ged" type="date" oninput="rGS()" style="max-width:135px">
-    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>롤백</option></select>
+    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>취소</option></select>
   </div>
   <div class="card"><div class="ch">
     <span style="font-weight:700;font-size:14px">정산 합계 <span class="tg">${fmt(tot)}</span></span>
@@ -487,7 +491,7 @@ function rGS(){
     <td style="color:#EF4444">${fmt(s.svcFee)}</td>
     <td class="tg">${fmt(s.netAmt)}</td>
     <td>${bdg(s.status)}</td>
-    <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">롤백</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
+    <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">취소처리</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
   </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
 function showSettleDetail(id){
@@ -509,10 +513,10 @@ function showSettleDetail(id){
         ${s.note?`<div class="aw aw-w" style="margin-top:8px">${s.note}</div>`:''}
       </div>
     </div>`,
-  `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">롤백 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
+  `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">취소 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
 }
-async function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 롤백(고객 취소 처리)하시겠습니까?`))return;s.status='롤백';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 롤백`);}
-async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm('롤백된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
+async function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 고객 취소 처리하시겠습니까?`))return;s.status='취소';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 취소`);}
+async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm('취소된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
 
 // ═══ 대리점 정산 ═══
 function pgSettle(){
@@ -600,11 +604,12 @@ function showAgencyPayments(agId,agName){
   const agNet=Math.round(agFee*0.967);
   openM(`대리점 정산 상세 - ${agName}`,
     `<div class="aw aw-b" style="margin-bottom:12px"><div style="font-size:11px">전체건: <strong>${pays.length}건</strong> &nbsp;|&nbsp; 전체금액: <strong class="tg">${fmt(tot)}</strong> &nbsp;|&nbsp; 서비스수수료: <strong style="color:#EF4444">${fmt(svcFee)}</strong> &nbsp;|&nbsp; 영업 지급예정: <strong class="tg">${fmt(agNet)}</strong></div></div>
-    <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
+    <div class="settlement-detail-scroll"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
     ${pays.map(p=>{const fee=Math.round(Number(p.amount||0)*0.044);const net=Number(p.amount||0)-fee;return`<tr><td style="font-size:11px">${p.date}</td><td style="font-family:monospace;font-size:10px">${p.approvalNo}</td><td>${paymentFranchiseName(p)}</td><td class="tg">${fmt(p.amount)}</td><td>${fmt(net)}</td><td style="color:#EF4444">${fmt(fee)}</td></tr>`;}).join('')}
     <tr style="background:#F0FAF0;font-weight:700"><td colspan="3">합계</td><td class="tg">${fmt(tot)}</td><td>${fmt(tot-svcFee)}</td><td style="color:#EF4444">${fmt(svcFee)}</td></tr>
     </tbody></table></div>`,
   `<button class="btn bg2" onclick="closeM()">닫기</button>`);
+  document.querySelector('#mo .mbox')?.classList.add('wide');
 }// ═══ 가맹점 목록 ═══
 function pgFr(){return`
   ${role==='hq'?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
@@ -685,7 +690,7 @@ function renderDARows(readonly){
   }
 }
 async function removeDARow(idx){if(!await adminConfirm('삭제할까요?'))return;editingAgencies.splice(idx,1);renderDARows(false);}
-function addDARow(){const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
+function addDARow(){if(editingAgencies.length>=2){toast('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다');return;}const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
 function agencyOptions(selectedId,selectedName){
   const agencies=Array.isArray(D.agencies)?D.agencies:[];
   if(!agencies.length)return`<option value="">${CONFIG.companyName}</option>`;
@@ -717,6 +722,7 @@ async function savF(id){
     accountHolder:v('fo').trim(),
     accountNo:a.accountNo
   })).filter(a=>a.agencyName&&a.accountNo);
+  if(deliveryAccounts.length>2){await adminAlert('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다.');return;}
   const payload={
     email:v('fe').trim(),
     password:v('fpw'),
@@ -762,7 +768,7 @@ function pgAccounts(){return`
     <select class="fs" style="width:130px" id="acst" onchange="rAcc()"><option value="">전체 상태</option><option>승인대기</option><option>승인완료</option><option>반려</option></select>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">출금계좌 목록</span></div>
-  <div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
+  <div class="tw"><table class="accounts-table"><colgroup><col style="width:120px"><col style="width:110px"><col style="width:105px"><col style="width:145px"><col class="proof-col"><col style="width:86px"><col style="width:76px"><col style="width:86px"></colgroup><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
 function rAcc(){
   const q=v('acs').toLowerCase(),st=v('acst');
   const el=document.getElementById('acb');if(!el)return;
@@ -772,7 +778,7 @@ function rAcc(){
     <td style="font-weight:600;cursor:pointer;color:#3B82F6" onclick="showAccountDetail(${a.fid},${a.idx})">${a.fname}</td>
     <td>${a.fagency}</td><td>${a.agency}</td>
     <td style="font-family:monospace;font-size:11px">${a.accountNo||'미입력'}</td>
-    <td style="font-size:11px;color:#6B7280">${a.fileName||'미첨부'}</td>
+    <td><span class="proof-file" title="${a.fileName||'미첨부'}">${a.fileName||'미첨부'}</span></td>
     <td style="font-size:11px">${a.reqDate||'-'}</td>
     <td>${bdg(a.accountStatus)}</td>
     <td><div class="ab">
