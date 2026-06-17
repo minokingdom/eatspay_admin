@@ -1034,6 +1034,13 @@ function normalizeDeliveryAgencyListText() {
   if (navLabels[2]) navLabels[2].textContent = '\uACE0\uAC1D\uC13C\uD130';
 }
 
+function normalizeBackButtons() {
+  $$('.btn-back').forEach(btn => {
+    btn.textContent = '‹ 이전';
+    btn.setAttribute('aria-label', '이전 화면으로 이동');
+  });
+}
+
 function renderDeliveryAgencyList() {
   const container = $('#delivery-agency-list-container');
   if (!container) return;
@@ -1125,6 +1132,7 @@ function navigate(screenId, direction = 'forward') {
   }
 
   state.currentScreen = screenId;
+  normalizeBackButtons();
   if (screenId !== 'card-add') {
     cardEditDraft = null;
   }
@@ -2069,6 +2077,7 @@ document.addEventListener('DOMContentLoaded', () => {
   resetAppToSplash();
   startInitialFlow();
   loadInstallmentBanner();
+  normalizeBackButtons();
   void fetchTalkPosts(5);
 
   // Hardware/Virtual Device back button history bindings

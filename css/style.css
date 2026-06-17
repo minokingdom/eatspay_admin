@@ -684,22 +684,8 @@ html.native-app .screen-container {
   display: inline-flex !important;
   align-items: center !important;
   gap: 4px !important;
-  font-size: 0 !important;
-}
-
-.btn-back::before {
-  content: '‹';
-  font-size: 24px;
-  line-height: 1;
-  font-weight: 900;
-  color: #555;
-}
-
-.btn-back::after {
-  content: '이전';
-  font-size: 13px;
-  font-weight: 800;
-  color: #333;
+  font-size: 13px !important;
+  font-weight: 800 !important;
 }
 
 .bottom-nav {
