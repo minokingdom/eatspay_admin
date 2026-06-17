@@ -22,6 +22,18 @@ const PORT = Number(process.env.PORT || 3000);
 const pool = createPool();
 const repo = createRepository(pool);
 const DEFAULT_AGENCY_NAME = '이츠페이 본사';
+const DEFAULT_DELIVERY_AGENCIES = [
+  '생각대로',
+  '바로고',
+  '부릉',
+  '만나플러스',
+  '딜버',
+  '모아라인',
+  '슈퍼히어로',
+  '제트콜',
+  '배민커넥트',
+  '쿠팡이츠'
+];
 const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ALTER COLUMN franchise_id DROP NOT NULL');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT');
@@ -78,6 +90,7 @@ const dbBootstrapPromise = (async () => {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
+  await repo.ensureDefaultAgency();
   await seedDeliveryAgencies();
 })();
 const uploadDir = path.join(__dirname, 'uploads');
@@ -1085,6 +1098,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       agency: displayAgencyName(user.agencyName),
       owner: user.name,
       phone: user.phone || '',
+      address: user.address || '',
+      tel: user.tel || '',
       bizNo: user.businessNumber || '',
       joinDate: formatDate(user.createdAt),
       lastPaymentDate: '',
@@ -1093,6 +1108,76 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       role: user.role,
       deliveryAgencies: []
     }))
+  });
+}));
+
+app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const password = String(req.body?.password || '');
+  const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
+  const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const address = String(req.body?.address || '').trim();
+  const tel = String(req.body?.tel || '').trim();
+  const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
+  const agencyId = req.body?.agencyId ? Number(req.body.agencyId) : null;
+  const deliveryAccounts = Array.isArray(req.body?.deliveryAccounts) ? req.body.deliveryAccounts : [];
+
+  if (!email || !password || !franchiseName || !ownerName || !businessNumber) {
+    return sendError(res, 400, 'MISSING_FIELDS', 'email, password, franchiseName, ownerName, and businessNumber are required.');
+  }
+  if (password.length < 4) {
+    return sendError(res, 400, 'INVALID_PASSWORD', 'Password must be at least 4 characters.');
+  }
+  if (businessNumber.length !== 10) {
+    return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
+  }
+  if (await repo.findUserByEmail(email)) {
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+  }
+  if (await repo.findUserByBusinessNumber(businessNumber)) {
+    return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
+  }
+
+  const defaultAgency = agencyId ? null : await repo.ensureDefaultAgency();
+  const user = await repo.createUser({
+    email,
+    passwordHash: await hashPassword(password),
+    name: ownerName,
+    franchiseName,
+    phone,
+    address,
+    tel,
+    businessNumber,
+    agencyId: Number.isFinite(agencyId) ? agencyId : (defaultAgency?.id || null)
+  });
+
+  for (const account of deliveryAccounts) {
+    const agencyName = String(account.agencyName || account.deliveryAgencyName || '').trim();
+    const accountNo = String(account.accountNo || '').trim();
+    if (!agencyName || !accountNo) continue;
+    await repo.addDeliveryAccount({
+      franchiseId: user.franchiseId,
+      agencyId: null,
+      agencyName,
+      bankName: String(account.bankName || agencyName).trim(),
+      accountHolder: String(account.accountHolder || ownerName).trim(),
+      accountNo
+    });
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: '가맹점이 생성되었습니다.',
+    data: {
+      id: user.franchiseId,
+      email: user.email,
+      name: user.franchiseName,
+      owner: user.name,
+      phone: user.phone,
+      bizNo: user.businessNumber,
+      role: user.role
+    }
   });
 }));
 
@@ -1157,6 +1242,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
   const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
   const phone = String(req.body?.phone || '').trim();
+  const address = String(req.body?.address || '').trim();
   const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
   const tel = String(req.body?.tel || '').trim();
 
@@ -1174,6 +1260,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     franchiseName,
     ownerName,
     phone,
+    address,
     businessNumber,
     tel
   });
@@ -1189,6 +1276,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
       name: updated.franchiseName,
       owner: updated.name,
       phone: updated.phone,
+      address: updated.address,
       bizNo: updated.businessNumber,
       tel: updated.tel
     }
@@ -1248,6 +1336,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       agency: displayAgencyName(user.agencyName),
       owner: user.name,
       phone: user.phone || '',
+      address: user.address || '',
+      tel: user.tel || '',
       bizNo: user.businessNumber || '',
       joinDate: formatDate(user.createdAt),
       lastPaymentDate: '',
@@ -2011,28 +2101,8 @@ async function seedDeliveryAgencies() {
   const existing = await repo.listDeliveryAgencies();
   if (existing.length) return;
 
-  const adminHtmlPath = path.join(__dirname, '?댁툩?섏씠_愿由ъ옄_?쒖뒪??10.html');
-  if (!fs.existsSync(adminHtmlPath)) return;
-
-  const html = fs.readFileSync(adminHtmlPath, 'utf8');
-  const start = html.indexOf('deliveryAgencyList: [');
-  const end = html.indexOf('],', start);
-  if (start === -1 || end === -1) return;
-
-  const slice = html.slice(start, end);
-  const regex = /\{id:(\d+),name:"([^"]+)",status:"([^"]+)"\}/g;
-  const items = [];
-  let match;
-  while ((match = regex.exec(slice))) {
-    items.push({
-      name: match[2],
-      status: match[3],
-      sortOrder: Number(match[1]) || items.length
-    });
-  }
-
-  for (const item of items) {
-    await repo.createDeliveryAgency(item.name, item.status, item.sortOrder);
+  for (const [index, name] of DEFAULT_DELIVERY_AGENCIES.entries()) {
+    await repo.createDeliveryAgency(name, 'active', index + 1);
   }
 }
 

@@ -375,6 +375,7 @@ function createRepository(pool) {
              phone = $4,
              business_number = NULLIF($5, ''),
              tel = COALESCE($6, tel),
+             address = COALESCE($7, address),
              updated_at = now()
          WHERE franchise_id = $1
            AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
@@ -385,7 +386,8 @@ function createRepository(pool) {
           fields.ownerName,
           fields.phone,
           fields.businessNumber,
-          fields.tel || null
+          fields.tel || null,
+          fields.address || null
         ]
       );
       return toUser(result.rows[0]);

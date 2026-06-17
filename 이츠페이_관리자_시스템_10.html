@@ -676,10 +676,17 @@ function renderDARows(readonly){
 }
 async function removeDARow(idx){if(!await adminConfirm('삭제할까요?'))return;editingAgencies.splice(idx,1);renderDARows(false);}
 function addDARow(){const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
-function franchiseForm(f={},roDA){return`
+function agencyOptions(selectedId,selectedName){
+  const agencies=Array.isArray(D.agencies)?D.agencies:[];
+  if(!agencies.length)return`<option value="">${CONFIG.companyName}</option>`;
+  return agencies.map(a=>`<option value="${a.id}" ${String(selectedId||'')===String(a.id)||(!selectedId&&selectedName===a.name)?'selected':''}>${a.name}</option>`).join('');
+}
+function franchiseForm(f={},roDA){const isNew=!f.id;return`
+  ${isNew?`<div class="fr2"><div class="fg"><label class="fl">로그인 ID *</label><input class="fi" id="fe" value="${f.email||''}" placeholder="예: store@example.com" autocomplete="username"></div><div class="fg"><label class="fl">비밀번호 *</label><input class="fi" id="fpw" type="password" placeholder="초기 비밀번호" autocomplete="new-password"></div></div>`:''}
   <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">전화번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">대리점명</label><input class="fi" id="fa" value="${f.agency||CONFIG.companyName}"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호 *</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">주소</label><input class="fi" id="faddr" value="${f.address||''}" placeholder="사업장 주소"></div><div class="fg"><label class="fl">매장 전화번호</label><input class="fi" id="ftel" value="${f.tel||''}" placeholder="02-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대리점</label><select class="fs" id="fagencyid">${agencyOptions(f.agencyId,f.agency)}</select></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
   <div class="dv"></div>
   <div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
     <label class="fl" style="margin:0">배달대행사 &amp; 가상계좌${roDA?'&nbsp;<span style="font-size:10px;color:#EF4444">(영업대리점 수정 불가)</span>':''}</label>
@@ -694,12 +701,30 @@ async function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));i
 async function savF(id){
   const n=v('fn').trim();
   if(!n){await adminAlert('상점명을 입력하세요.');return;}
-  const payload={name:n,owner:v('fo').trim(),phone:v('fp').trim(),bizNo:v('fb2').trim()};
+  const deliveryAccounts=editingAgencies.map(a=>({
+    agencyName:a.agency,
+    bankName:a.bankName||a.agency,
+    accountHolder:v('fo').trim(),
+    accountNo:a.accountNo
+  })).filter(a=>a.agencyName&&a.accountNo);
+  const payload={
+    email:v('fe').trim(),
+    password:v('fpw'),
+    name:n,
+    owner:v('fo').trim(),
+    phone:v('fp').trim(),
+    bizNo:v('fb2').trim(),
+    address:v('faddr').trim(),
+    tel:v('ftel').trim(),
+    agencyId:v('fagencyid'),
+    deliveryAccounts
+  };
   if(!payload.owner){await adminAlert('대표자명을 입력하세요.');return;}
-  if(!id){await adminAlert('가맹점 추가는 회원가입 또는 서버 등록 API를 통해 진행해주세요.');return;}
+  if(!payload.bizNo){await adminAlert('사업자등록번호를 입력하세요.');return;}
+  if(!id&&(!payload.email||!payload.password)){await adminAlert('로그인 ID와 비밀번호를 입력하세요.');return;}
   try{
-    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}`,{
-      method:'PUT',
+    const res=await fetch(id?`/api/admin/franchises/${encodeURIComponent(id)}`:'/api/admin/franchises',{
+      method:id?'PUT':'POST',
       headers:adminAuthHeaders({'Content-Type':'application/json'}),
       body:JSON.stringify(payload)
     });
@@ -711,10 +736,10 @@ async function savF(id){
     await syncBackendTransactions();
     closeM();
     render();
-    toast('가맹점 정보가 수정되었습니다.');
+    toast(id?'가맹점 정보가 수정되었습니다.':'가맹점이 추가되었습니다.');
   }catch(e){
     console.error(e);
-    await adminAlert(e.message||'가맹점 수정에 실패했습니다.');
+    await adminAlert(e.message||'가맹점 저장에 실패했습니다.');
   }
 }
 async function delF(id){const f=D.franchises.find(x=>x.id===id);if(!f)return;if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
@@ -919,10 +944,26 @@ function pgDeliveryMgmt(){
       </tr>`;
     }).join('')}</tbody>
   </table></div></div>`;}
-async function addDA(){const n=await adminPrompt('새 배달대행사 이름:','');if(!n||!n.trim())return;if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){await adminAlert('이미 존재하는 배달대행사 이름입니다');return;}D.deliveryAgencyList.push({id:nid(),name:n.trim(),status:'active'});save();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);}
-async function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;a.status='inactive';save();renderPage();toast(`'${a.name}' → 가입 불가 상태로 전환`);}
-async function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;a.status='active';save();renderPage();toast(`'${a.name}' → 가입 가능 상태로 전환`);}
-async function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});if(!a)return;var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n\u26a0\ufe0f \ud604재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!await adminConfirm(msg))return;a.status='deleted';save();renderPage();toast("'"+a.name+"' 삭제");}
+async function addDA(){
+  const n=await adminPrompt('새 배달대행사 이름:','');if(!n||!n.trim())return;
+  if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){await adminAlert('이미 존재하는 배달대행사 이름입니다');return;}
+  try{
+    const res=await fetch('/api/admin/delivery-agencies',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({name:n.trim(),status:'active',sortOrder:D.deliveryAgencyList.length+1})});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'배달대행사 추가에 실패했습니다.');}
+    await syncBackendTransactions();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);
+  }catch(e){await adminAlert(e.message||'배달대행사 추가에 실패했습니다.');}
+}
+async function updateDeliveryAgencyStatus(id,status,label){
+  const a=D.deliveryAgencyList.find(x=>String(x.id)===String(id));if(!a)return;
+  try{
+    const res=await fetch(`/api/admin/delivery-agencies/${encodeURIComponent(id)}/status`,{method:'PATCH',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({status})});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'상태 변경에 실패했습니다.');}
+    await syncBackendTransactions();renderPage();toast(`'${a.name}' → ${label}`);
+  }catch(e){await adminAlert(e.message||'상태 변경에 실패했습니다.');}
+}
+async function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;await updateDeliveryAgencyStatus(id,'inactive','가입 불가 상태로 전환');}
+async function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;await updateDeliveryAgencyStatus(id,'active','가입 가능 상태로 전환');}
+async function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});if(!a)return;var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n현재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!await adminConfirm(msg))return;try{const res=await fetch(`/api/admin/delivery-agencies/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'삭제에 실패했습니다.');}await syncBackendTransactions();renderPage();toast("'"+a.name+"' 삭제");}catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}}
 
 // ═══ 영업대리점 개설문의 ═══
 function pgInquiries(){return`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점 개설문의 <span class="tg">${D.inquiries.length}건</span></span><button class="btn bg2 sm" onclick="addInquiry()">+ 문의 등록</button></div>
