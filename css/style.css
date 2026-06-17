@@ -125,7 +125,7 @@ html, body {
 .status-bar {
   height: 44px;
   background: var(--bg-white);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
