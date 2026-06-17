@@ -1547,6 +1547,9 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     const franchise = franchiseById.get(String(tx.franchiseId));
     const agencyId = franchise?.agencyId || defaultAgency?.id || null;
     const agencyName = franchise?.agency || (defaultAgency ? displayAgencyName(defaultAgency.name) : DEFAULT_AGENCY_NAME);
+    const depositAmount = Number(tx.amount || 0);
+    const feeAmount = Number(tx.fee || tx.calculatedFee || 0);
+    const totalAmount = Number(tx.totalAmount || tx.total_amount || (depositAmount + feeAmount));
     return {
       id: tx.transactionId,
       date: formatKstDateTime(tx.createdAt),
@@ -1555,7 +1558,10 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       franchise: franchise?.name || `가맹점 ${tx.franchiseId}`,
       franchiseId: tx.franchiseId,
       type: tx.type === 'CHARGE' ? '\uCDA9\uC804' : tx.type,
-      amount: Number(tx.amount),
+      amount: totalAmount,
+      depositAmount,
+      fee: feeAmount,
+      totalAmount,
       installment: '\uC77C\uC2DC\uBD88',
       status: tx.status === 'SUCCESS' ? '\uACB0\uC81C\uC644\uB8CC' : tx.status,
       pg: tx.method || 'PG',
