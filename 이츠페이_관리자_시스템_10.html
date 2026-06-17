@@ -183,6 +183,8 @@ body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans K
 let D, page='dashboard', role='hq';
 let faqTab='서비스 안내', bannerTab='메인';
 let editingAgencies=[];
+let backendPollTimer=null;
+let backendSnapshot='';
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
 function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
@@ -227,7 +229,7 @@ const HQ_NAV=[
   {s:'결제'},{id:'payments',sub:1},{id:'pgsettle',sub:1},{id:'settlements',sub:1},
   {s:'가맹점'},{id:'franchises',sub:1},{id:'accounts',sub:1},
   {s:'대리점'},{id:'agencies'},
-  {s:'운영'},{id:'deliveryMgmt',sub:1,nw:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
+  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
   {s:'게시판'},{id:'notices',sub:1},{id:'guides',sub:1},
 ];
 const AG_NAV=[
@@ -1174,6 +1176,16 @@ function renderPage(){
   if(page==='faqs')       setTimeout(rFAQ,30);
 }
 function render(){renderNav();renderPage();}
+function makeBackendSnapshot(){
+  return JSON.stringify({
+    franchises:D.franchises,
+    agencies:D.agencies,
+    deliveryAgencyList:D.deliveryAgencyList,
+    installments:D.installments,
+    payments:D.payments,
+    pgSettlements:D.pgSettlements
+  });
+}
 async function syncBackendFranchises() {
   try {
     if(!await ensureAdminLogin())return;
@@ -1192,7 +1204,9 @@ async function syncBackendFranchises() {
   }
 }
 
-async function syncBackendTransactions() {
+async function syncBackendTransactions(options={}) {
+  const forceRender=!!options.forceRender;
+  const silent=!!options.silent;
   try {
     if(!await ensureAdminLogin())return;
     const res = await fetch('/api/admin/bootstrap', {
@@ -1214,7 +1228,14 @@ async function syncBackendTransactions() {
     D.installments = Array.isArray(data.installments) ? data.installments : [];
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
+    const nextSnapshot=makeBackendSnapshot();
+    const changed=nextSnapshot!==backendSnapshot;
+    backendSnapshot=nextSnapshot;
     save();
+    if((changed||forceRender)&&!silent){
+      render();
+    }
+    return changed;
   } catch (e) {
     console.error("Failed to sync backend transactions:", e);
     D.franchises = [];
@@ -1222,6 +1243,17 @@ async function syncBackendTransactions() {
     D.pgSettlements = [];
     save();
   }
+}
+
+function startBackendMonitor(){
+  if(backendPollTimer)clearInterval(backendPollTimer);
+  backendPollTimer=setInterval(async()=>{
+    if(document.hidden)return;
+    await syncBackendTransactions();
+  },5000);
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden)syncBackendTransactions();
+  });
 }
 
 async function syncBackendAccounts() {
@@ -1394,8 +1426,9 @@ async function rejectAccount(fid,idx){
 async function bootAdmin(){
   load();
   await ensureAdminLogin();
-  await syncBackendTransactions();
+  await syncBackendTransactions({silent:true});
   render();
+  startBackendMonitor();
 }
 bootAdmin();
 </script>
