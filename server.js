@@ -449,6 +449,7 @@ app.get('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, r
   if (!chat) {
     return sendError(res, 404, 'TALK_CHAT_NOT_FOUND', '채팅방을 찾을 수 없습니다.');
   }
+  await repo.markTalkMessagesRead(chat.id, req.user.id);
   const messages = await repo.listTalkMessages(chat.id);
   return res.status(200).json({
     success: true,

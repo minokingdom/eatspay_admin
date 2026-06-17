@@ -306,6 +306,19 @@ function createRepository(pool) {
       return result.rows.map(toTalkMessage);
     },
 
+    async markTalkMessagesRead(chatId, readerUserId) {
+      const result = await pool.query(
+        `UPDATE talk_messages
+         SET read_at = now()
+         WHERE chat_id = $1
+           AND sender_user_id IS DISTINCT FROM $2
+           AND read_at IS NULL
+         RETURNING *`,
+        [chatId, readerUserId]
+      );
+      return result.rows.map(toTalkMessage);
+    },
+
     async createTalkMessage({ chatId, senderUserId, message }) {
       const client = await pool.connect();
       try {

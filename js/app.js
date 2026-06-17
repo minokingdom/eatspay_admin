@@ -1036,7 +1036,12 @@ function normalizeDeliveryAgencyListText() {
 
 function normalizeBackButtons() {
   $$('.btn-back').forEach(btn => {
-    btn.textContent = '‹ 이전';
+    btn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6"></path>
+      </svg>
+      <span>이전</span>
+    `;
     btn.setAttribute('aria-label', '이전 화면으로 이동');
   });
 }
@@ -1906,8 +1911,10 @@ async function fetchTalkMessages() {
     if (!wrap) return;
     wrap.innerHTML = messages.map(msg => {
       const mine = String(msg.senderUserId) === String(user?.id);
+      const readLabel = mine ? (msg.readAt ? '읽음' : '안읽음') : '';
       return `
-        <div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};">
+        <div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};align-items:flex-end;gap:5px;">
+          ${mine ? `<span style="font-size:10px;color:var(--text-muted);font-weight:800;margin-bottom:3px;">${readLabel}</span>` : ''}
           <div style="max-width:78%;background:${mine ? 'var(--green-primary)' : '#f1f3f1'};color:${mine ? '#fff' : 'var(--text-primary)'};border-radius:16px;padding:10px 12px;font-size:14px;font-weight:700;line-height:1.45;white-space:pre-wrap;">${escapeHtml(msg.message || '')}</div>
         </div>
       `;
