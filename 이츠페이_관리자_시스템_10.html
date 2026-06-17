@@ -125,6 +125,10 @@ tr:hover td{background:#FAFFFE}
 .pend-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px}
 .pend-info{font-size:11.5px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
 .pend-label{font-weight:700;color:#92400E}
+.pager{display:flex;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:12px}
+.page-btn{min-width:28px;height:28px;border:1px solid #D1E8D1;background:#fff;color:#1A2E1A;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.page-btn.on{background:#3D9B35;border-color:#3D9B35;color:#fff}
+.page-btn:hover{border-color:#3D9B35}
 .receipt{max-width:340px;margin:0 auto;border:1px solid #D1E8D1;border-radius:8px;overflow:hidden;font-size:12.5px}
 .receipt-hd{background:#3D9B35;padding:16px;text-align:center;color:#fff}
 .receipt-body{padding:16px}
@@ -189,6 +193,7 @@ let faqTab='서비스 안내', bannerTab='메인';
 let editingAgencies=[];
 let backendPollTimer=null;
 let backendSnapshot='';
+let pendingAccountPage=1;
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
 function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
@@ -200,6 +205,7 @@ function emptyData(){
     inquiries:[],
     payments:[],
     pgSettlements:[],
+    summary:{},
     pgProviders:[],
     banners:[],
     faqs:[],
@@ -381,8 +387,13 @@ function showReceipt(id){
 // ═══ 대시보드 ═══
 function pgDash(){
   const tot=D.payments.reduce((s,p)=>s+p.amount,0);
+  const todayTotal=Number(D.summary?.todayPaymentTotal||0);
   const pf=D.franchises.filter(f=>f.status==='승인 대기').length;
   const pending=getPending();
+  const pendingTotalPages=Math.max(1,Math.ceil(pending.length/5));
+  pendingAccountPage=Math.min(Math.max(1,pendingAccountPage),pendingTotalPages);
+  const pendingRows=pending.slice((pendingAccountPage-1)*5,pendingAccountPage*5);
+  const pendingPager=pending.length>5?`<div class="pager">${Array.from({length:pendingTotalPages},(_,i)=>`<button class="page-btn ${pendingAccountPage===i+1?'on':''}" onclick="setPendingAccountPage(${i+1})">${i+1}</button>`).join('')}</div>`:'';
 
   if(role==='agent') return`
     <div class="kgrid">
@@ -401,11 +412,11 @@ function pgDash(){
     <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('accounts')">출금계좌 목록 →</div></div>
     <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 승인 대기</div><div class="kv">${pf}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('franchises')">가맹점 목록 →</div></div>
     <div class="kpi"><div class="kl">전체 가맹점</div><div class="kv">${D.franchises.length}개</div><div class="ks">정상: ${D.franchises.filter(f=>f.status==='정상 승인').length}개</div></div>
-    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액</div><div class="kv">${fmt(tot)}</div></div>
+    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액</div><div class="kv">${fmt(todayTotal)}</div></div>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span><span style="font-size:11px;color:#6B7280">항목 클릭 시 상세 확인 가능</span></div><div style="padding:12px 16px">
   ${pending.length?
-  pending.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
+  pendingRows.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
     <div class="pend-hd">
       <div><div style="font-weight:700;font-size:13px">${p.fname} <span style="font-size:11px;color:#6B7280">▶ 클릭하여 상세 확인</span></div><div style="font-size:11px;color:#6B7280;margin-top:2px">요청일: ${p.reqDate||'-'}</div></div>
       <div class="ab">
@@ -414,7 +425,7 @@ function pgDash(){
       </div>
     </div>
     <div class="pend-info"><span class="pend-label">배달대행사</span><span>${p.agency}</span><span class="pend-label">가상계좌번호</span><span style="font-family:monospace">${p.accountNo||'미입력'}</span><span class="pend-label">증빙 파일명</span><span>${p.fileName||'미첨부'}</span></div>
-  </div>`).join(''):`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
+  </div>`).join('')+pendingPager:`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
     <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 결제 현황</span><button class="btn bo sm" onclick="nav('payments')">전체보기</button></div>
     <div class="tw"><table><thead><tr><th>가맹점</th><th>금액</th><th>승인번호</th><th>상태</th></tr></thead><tbody>
@@ -425,6 +436,11 @@ function pgDash(){
     ${D.pgSettlements.length?D.pgSettlements.slice(0,4).map(s=>`<tr><td>${s.franchise}</td><td class="tg">${fmt(s.netAmt)}</td><td>${bdg(s.status)}</td></tr>`).join(''):`<tr><td colspan="3" class="emp">PG 정산 내역이 없습니다.</td></tr>`}
     </tbody></table></div></div>
   </div>`;
+}
+
+function setPendingAccountPage(n){
+  pendingAccountPage=n;
+  renderPage();
 }
 
 // ═══ 결제 내역 ═══
@@ -1192,6 +1208,7 @@ function makeBackendSnapshot(){
     agencies:D.agencies,
     deliveryAgencyList:D.deliveryAgencyList,
     installments:D.installments,
+    summary:D.summary,
     payments:D.payments,
     pgSettlements:D.pgSettlements
   });
@@ -1228,6 +1245,7 @@ async function syncBackendTransactions(options={}) {
       D.franchises = [];
       D.payments = [];
       D.pgSettlements = [];
+      D.summary = {};
       save();
       return;
     }
@@ -1237,6 +1255,7 @@ async function syncBackendTransactions(options={}) {
     D.agencies = Array.isArray(data.agencies) ? data.agencies : D.agencies;
     D.deliveryAgencyList = Array.isArray(data.deliveryAgencies) ? data.deliveryAgencies : D.deliveryAgencyList;
     D.installments = Array.isArray(data.installments) ? data.installments : [];
+    D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
     const nextSnapshot=makeBackendSnapshot();
@@ -1252,6 +1271,7 @@ async function syncBackendTransactions(options={}) {
     D.franchises = [];
     D.payments = [];
     D.pgSettlements = [];
+    D.summary = {};
     save();
   }
 }
