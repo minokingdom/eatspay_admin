@@ -873,9 +873,18 @@ html.native-app .screen-container {
   opacity: 1;
 }
 
-#login-pw::placeholder {
+.form-input[type="password"] {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #111827 !important;
+  letter-spacing: 2px;
+  text-shadow: 0 0 0 #111827;
+  font-family: var(--font) !important;
+}
+
+.form-input[type="password"]::placeholder {
   color: #9ca3af;
-  -webkit-text-fill-color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af !important;
   letter-spacing: 0;
   text-shadow: none;
 }
@@ -891,18 +900,6 @@ html.native-app .screen-container {
 
 .password-field .form-input {
   padding-right: 58px;
-}
-
-#login-pw {
-  color: #111827 !important;
-  -webkit-text-fill-color: #111827 !important;
-  caret-color: #111827 !important;
-  font-family: var(--font) !important;
-}
-
-#login-pw[type="password"] {
-  letter-spacing: 2px;
-  text-shadow: 0 0 0 #111827;
 }
 
 .password-toggle {
