@@ -42,6 +42,10 @@ let installmentBannerTimer = null;
 let daumPostcodeScriptPromise = null;
 let cardEditDraft = null;
 let talkPostCache = [];
+let talkImageFiles = [];
+let selectedTalkPostId = null;
+let selectedTalkChatId = null;
+let talkChatPollTimer = null;
 
 function loadDaumPostcodeScript() {
   if (window.daum?.Postcode) return Promise.resolve();
@@ -1081,7 +1085,7 @@ function renderDeliveryAgencyList() {
 
 // --- Screen Navigation ---
 function navigate(screenId, direction = 'forward') {
-  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge', 'agency', 'talk-write'];
+  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge', 'agency', 'talk-write', 'talk-chats', 'talk-chat'];
   const approvalState = getApprovalState();
 
   if (restrictedScreens.includes(screenId)) {
@@ -1142,6 +1146,22 @@ function navigate(screenId, direction = 'forward') {
   if (screenId === 'talk') {
     renderTalkBoard(talkPostCache);
     void fetchTalkPosts(20);
+  }
+  if (screenId === 'talk-detail') {
+    renderTalkDetail();
+  }
+  if (screenId === 'talk-write') {
+    renderTalkImagePreview();
+  }
+  if (screenId === 'talk-chats') {
+    void fetchTalkChats();
+  }
+  if (screenId === 'talk-chat') {
+    stopTalkChatPolling();
+    void fetchTalkMessages();
+    talkChatPollTimer = setInterval(fetchTalkMessages, 3000);
+  } else {
+    stopTalkChatPolling();
   }
   if (screenId === 'card-list') {
     void refreshCardList();
@@ -1205,7 +1225,7 @@ window.EATSPAY_HANDLE_ANDROID_BACK = handleAndroidBackButton;
 function updateBottomNav(screenId) {
   renderBottomNavs(screenId);
   $$('.nav-item').forEach(btn => btn.classList.remove('active'));
-  const isHome = ['home', 'charge', 'benefit-cards', 'talk', 'talk-write'].includes(screenId);
+  const isHome = ['home', 'charge', 'benefit-cards', 'talk', 'talk-detail', 'talk-write', 'talk-chats', 'talk-chat'].includes(screenId);
   const isAgencyFlow = ['agency'].includes(screenId);
   const isMyFlow = ['my', 'find-id', 'find-pw', 'card-list', 'card-add', 'payment-history', 'vaccount-list', 'vaccount-add', 'delivery-agency-list', 'edit-myinfo', 'login'].includes(screenId);
   const isCsFlow = ['cs-main', 'cs-guide', 'cs-promo'].includes(screenId);
@@ -1643,6 +1663,14 @@ function normalizeTalkImage(url) {
   return '';
 }
 
+function getTalkImages(post) {
+  const images = Array.isArray(post?.imageUrls) ? post.imageUrls : [];
+  const normalized = images.map(normalizeTalkImage).filter(Boolean);
+  const fallback = normalizeTalkImage(post?.imageUrl);
+  if (!normalized.length && fallback) normalized.push(fallback);
+  return normalized.slice(0, 10);
+}
+
 function renderTalkHome(posts = talkPostCache) {
   const list = $('#home-talk-list');
   if (!list) return;
@@ -1668,9 +1696,9 @@ function renderTalkBoard(posts = talkPostCache) {
     return;
   }
   list.innerHTML = items.map(post => {
-    const image = normalizeTalkImage(post.imageUrl);
+    const image = getTalkImages(post)[0] || '';
     return `
-      <article class="talk-board-card" style="display:flex; gap:12px; border-bottom:1px solid var(--border-light); padding:12px 0;">
+      <article class="talk-board-card" data-talk-id="${escapeHtml(post.id)}" style="display:flex; gap:12px; border-bottom:1px solid var(--border-light); padding:12px 0; cursor:pointer;">
         <div style="width:92px; height:92px; border-radius:12px; background:${image ? '#f5f5f5' : 'linear-gradient(135deg,#e8f5e9,#d9f2d4)'}; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-light);">
           ${image ? `<img src="${escapeHtml(image)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : '<span style="font-size:28px;">🥕</span>'}
         </div>
@@ -1685,6 +1713,49 @@ function renderTalkBoard(posts = talkPostCache) {
   }).join('');
 }
 
+function renderTalkImagePreview() {
+  const preview = $('#talk-image-preview');
+  if (!preview) return;
+  if (!talkImageFiles.length) {
+    preview.innerHTML = '<div style="font-size:11px;color:var(--text-muted);font-weight:700;">선택된 이미지가 없습니다.</div>';
+    return;
+  }
+  preview.innerHTML = talkImageFiles.map((file, index) => `
+    <div style="position:relative;flex:0 0 auto;width:72px;height:72px;border-radius:10px;overflow:hidden;border:1px solid var(--border-light);background:#f5f5f5;">
+      <img src="${escapeHtml(URL.createObjectURL(file))}" alt="" style="width:100%;height:100%;object-fit:cover;">
+      <button type="button" class="talk-image-remove" data-index="${index}" style="position:absolute;top:4px;right:4px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:900;">×</button>
+    </div>
+  `).join('');
+}
+
+function openTalkDetail(id) {
+  selectedTalkPostId = String(id || '');
+  renderTalkDetail();
+  navigate('talk-detail');
+}
+
+function renderTalkDetail() {
+  const wrap = $('#talk-detail-body');
+  if (!wrap) return;
+  const post = talkPostCache.find(item => String(item.id) === String(selectedTalkPostId));
+  if (!post) {
+    wrap.innerHTML = '<div style="padding:32px 0;color:var(--text-muted);font-weight:800;text-align:center;">게시글을 찾을 수 없습니다.</div>';
+    return;
+  }
+  const images = getTalkImages(post);
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;overflow-x:auto;margin:4px -24px 18px;padding:0 24px 4px;">
+      ${images.length ? images.map(src => `<img src="${escapeHtml(src)}" alt="" style="width:260px;height:240px;object-fit:cover;border-radius:18px;border:1px solid var(--border-light);flex:0 0 auto;">`).join('') : '<div style="width:100%;height:190px;border-radius:18px;background:linear-gradient(135deg,#e8f5e9,#d9f2d4);display:flex;align-items:center;justify-content:center;font-size:42px;">🥕</div>'}
+    </div>
+    <div style="font-size:13px;color:var(--text-muted);font-weight:800;margin-bottom:6px;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')} · ${escapeHtml(post.createdAtLabel || '')}</div>
+    <h2 style="font-size:22px;line-height:1.35;font-weight:900;color:var(--text-primary);margin:0 0 8px;">${escapeHtml(post.title || '')}</h2>
+    <div style="font-size:19px;font-weight:900;color:var(--text-primary);margin-bottom:18px;">${Number(post.price || 0) > 0 ? formatWon(post.price) : '나눔'}</div>
+    <div style="white-space:pre-wrap;font-size:14px;line-height:1.65;color:var(--text-secondary);font-weight:700;border-top:1px solid var(--border-light);padding-top:18px;">${escapeHtml(post.body || '')}</div>
+    <button id="btn-talk-start-chat" type="button" style="width:100%;height:52px;border:none;border-radius:var(--radius-sm);background:var(--green-primary);color:#fff;font-size:16px;font-weight:900;margin-top:22px;cursor:pointer;">채팅하기</button>
+  `;
+  $('#btn-talk-start-chat')?.addEventListener('click', () => startTalkChat(post.id));
+}
+
 async function fetchTalkPosts(limit = 20) {
   try {
     const response = await fetch(apiUrl(`/api/talk/posts?limit=${encodeURIComponent(limit)}&_=${Date.now()}`), { cache: 'no-store' });
@@ -1697,6 +1768,7 @@ async function fetchTalkPosts(limit = 20) {
   }
   renderTalkHome(talkPostCache);
   if (state.currentScreen === 'talk') renderTalkBoard(talkPostCache);
+  if (state.currentScreen === 'talk-detail') renderTalkDetail();
   return talkPostCache;
 }
 
@@ -1709,7 +1781,6 @@ async function submitTalkPost() {
   const title = ($('#talk-title-input')?.value || '').trim();
   const body = ($('#talk-body-input')?.value || '').trim();
   const price = Number(($('#talk-price-input')?.value || '0').replace?.(/[^\d]/g, '') || $('#talk-price-input')?.value || 0);
-  const imageUrl = ($('#talk-image-url')?.value || '').trim();
   if (!title || !body) {
     showToast('제목과 내용을 입력해주세요.');
     return;
@@ -1721,20 +1792,28 @@ async function submitTalkPost() {
     btn.textContent = '등록 중...';
   }
   try {
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('body', body);
+    formData.append('price', String(price || 0));
+    talkImageFiles.slice(0, 10).forEach(file => formData.append('images', file));
     const response = await fetch(apiUrl('/api/talk/posts'), {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
       },
-      body: JSON.stringify({ title, body, price, imageUrl })
+      body: formData
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, 'Talk 글 등록에 실패했습니다.'));
-    ['#talk-title-input', '#talk-body-input', '#talk-price-input', '#talk-image-url'].forEach(sel => {
+    ['#talk-title-input', '#talk-body-input', '#talk-price-input'].forEach(sel => {
       const el = $(sel);
       if (el) el.value = '';
     });
+    const input = $('#talk-image-input');
+    if (input) input.value = '';
+    talkImageFiles = [];
+    renderTalkImagePreview();
     showToast('Talk 글이 등록되었습니다.');
     await fetchTalkPosts(20);
     navigate('talk');
@@ -1745,6 +1824,116 @@ async function submitTalkPost() {
       btn.disabled = false;
       btn.textContent = originalText;
     }
+  }
+}
+
+async function startTalkChat(postId) {
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    showToast('승인된 가맹점 계정만 채팅할 수 있습니다.');
+    navigate(isAuthenticated() ? 'home' : 'login');
+    return;
+  }
+  try {
+    const response = await fetch(apiUrl(`/api/talk/posts/${encodeURIComponent(postId)}/chats`), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` }
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, '채팅방을 열 수 없습니다.'));
+    selectedTalkChatId = payload?.data?.id;
+    navigate('talk-chat');
+  } catch (err) {
+    showToast(err.message || '채팅방을 열 수 없습니다.');
+  }
+}
+
+async function fetchTalkChats() {
+  const list = $('#talk-chat-list');
+  if (!list) return;
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">승인된 가맹점 계정만 채팅을 이용할 수 있습니다.</div>';
+    return;
+  }
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats?_=${Date.now()}`), {
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` },
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => null);
+    const chats = Array.isArray(payload?.data) ? payload.data : [];
+    if (!chats.length) {
+      list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">아직 Talk 채팅이 없습니다.</div>';
+      return;
+    }
+    list.innerHTML = chats.map(chat => `
+      <div class="talk-chat-row" data-chat-id="${escapeHtml(chat.id)}" style="padding:14px 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
+        <div style="font-size:15px;font-weight:900;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(chat.postTitle || 'Talk')}</div>
+        <div style="font-size:12px;color:var(--text-muted);font-weight:800;margin-top:4px;">${escapeHtml(chat.lastMessage || '메시지가 없습니다.')}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">채팅 목록을 불러오지 못했습니다.</div>';
+  }
+}
+
+async function fetchTalkMessages() {
+  if (!selectedTalkChatId) return;
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats/${encodeURIComponent(selectedTalkChatId)}/messages?_=${Date.now()}`), {
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` },
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error('채팅을 불러오지 못했습니다.');
+    const chat = payload?.data?.chat || {};
+    const messages = Array.isArray(payload?.data?.messages) ? payload.data.messages : [];
+    const user = getSessionUser();
+    $('#talk-chat-title') && ($('#talk-chat-title').textContent = chat.postTitle || 'Talk 채팅');
+    const wrap = $('#talk-chat-messages');
+    if (!wrap) return;
+    wrap.innerHTML = messages.map(msg => {
+      const mine = String(msg.senderUserId) === String(user?.id);
+      return `
+        <div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};">
+          <div style="max-width:78%;background:${mine ? 'var(--green-primary)' : '#f1f3f1'};color:${mine ? '#fff' : 'var(--text-primary)'};border-radius:16px;padding:10px 12px;font-size:14px;font-weight:700;line-height:1.45;white-space:pre-wrap;">${escapeHtml(msg.message || '')}</div>
+        </div>
+      `;
+    }).join('') || '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">첫 메시지를 보내보세요.</div>';
+  } catch (err) {
+    showToast('채팅을 불러오지 못했습니다.');
+  }
+}
+
+async function sendTalkMessage() {
+  const input = $('#talk-chat-input');
+  const message = (input?.value || '').trim();
+  if (!selectedTalkChatId || !message) return;
+  const btn = $('#btn-talk-chat-send');
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats/${encodeURIComponent(selectedTalkChatId)}/messages`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+      },
+      body: JSON.stringify({ message })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, '메시지 전송에 실패했습니다.'));
+    if (input) input.value = '';
+    await fetchTalkMessages();
+  } catch (err) {
+    showToast(err.message || '메시지 전송에 실패했습니다.');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function stopTalkChatPolling() {
+  if (talkChatPollTimer) {
+    clearInterval(talkChatPollTimer);
+    talkChatPollTimer = null;
   }
 }
 
@@ -1956,11 +2145,42 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#btn-talk-more')?.addEventListener('click', () => navigate('talk'));
   $('#btn-talk-write')?.addEventListener('click', () => navigate('talk-write'));
+  $('#btn-talk-chats')?.addEventListener('click', () => navigate('talk-chats'));
   $('#btn-talk-submit')?.addEventListener('click', submitTalkPost);
+  $('#btn-talk-image-pick')?.addEventListener('click', () => $('#talk-image-input')?.click());
+  $('#talk-image-input')?.addEventListener('change', event => {
+    const files = Array.from(event.target.files || []).filter(file => file.type.startsWith('image/'));
+    talkImageFiles = [...talkImageFiles, ...files].slice(0, 10);
+    if (files.length > 10 || talkImageFiles.length >= 10) showToast('이미지는 최대 10개까지 첨부할 수 있습니다.');
+    renderTalkImagePreview();
+  });
+  $('#talk-image-preview')?.addEventListener('click', event => {
+    const btn = event.target.closest('.talk-image-remove');
+    if (!btn) return;
+    talkImageFiles.splice(Number(btn.getAttribute('data-index')), 1);
+    renderTalkImagePreview();
+  });
   $('#home-talk-list')?.addEventListener('click', event => {
     const item = event.target.closest('.talk-item');
     if (!item) return;
-    navigate('talk');
+    openTalkDetail(item.getAttribute('data-talk-id'));
+  });
+  $('#talk-board-list')?.addEventListener('click', event => {
+    const card = event.target.closest('.talk-board-card');
+    if (!card) return;
+    openTalkDetail(card.getAttribute('data-talk-id'));
+  });
+  $('#talk-chat-list')?.addEventListener('click', event => {
+    const row = event.target.closest('.talk-chat-row');
+    if (!row) return;
+    selectedTalkChatId = row.getAttribute('data-chat-id');
+    navigate('talk-chat');
+  });
+  $('#btn-talk-chat-send')?.addEventListener('click', sendTalkMessage);
+  $('#talk-chat-input')?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void sendTalkMessage();
   });
   document.addEventListener('click', event => {
     const btn = event.target.closest('.btn-benefit-card-select');

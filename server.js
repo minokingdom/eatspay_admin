@@ -209,14 +209,39 @@ const dbBootstrapPromise = (async () => {
       body TEXT NOT NULL,
       price NUMERIC(14, 0) NOT NULL DEFAULT 0,
       image_url TEXT,
+      image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_chats (
+      id BIGSERIAL PRIMARY KEY,
+      post_id BIGINT NOT NULL REFERENCES talk_posts(id) ON DELETE CASCADE,
+      seller_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      buyer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(post_id, buyer_user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_messages (
+      id BIGSERIAL PRIMARY KEY,
+      chat_id BIGINT NOT NULL REFERENCES talk_chats(id) ON DELETE CASCADE,
+      sender_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      message TEXT NOT NULL,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_chats_user_updated ON talk_chats(buyer_user_id, seller_user_id, updated_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_messages_chat_created ON talk_messages(chat_id, created_at)');
   await repo.ensureDefaultAgency();
   await seedDeliveryAgencies();
 })();
@@ -316,7 +341,21 @@ app.get('/api/talk/posts', asyncHandler(async (req, res) => {
   });
 }));
 
-app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
+app.get('/api/talk/posts/:id', asyncHandler(async (req, res) => {
+  const post = await repo.findTalkPostById(Number(req.params.id));
+  if (!post) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
+  }
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    }
+  });
+}));
+
+app.post('/api/talk/posts', authenticate, multiUpload('images', 10), asyncHandler(async (req, res) => {
   if (req.user.role === 'AGENCY') {
     return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 글을 등록할 수 없습니다.');
   }
@@ -328,6 +367,7 @@ app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
   const body = String(req.body?.body || '').trim();
   const price = Math.max(Math.round(Number(req.body?.price || 0)), 0);
   const imageUrl = String(req.body?.imageUrl || '').trim();
+  const files = Array.isArray(req.files) ? req.files : [];
   if (!title || !body) {
     return sendError(res, 400, 'MISSING_FIELDS', '제목과 내용을 입력해주세요.');
   }
@@ -337,6 +377,18 @@ app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
   if (body.length > 1000) {
     return sendError(res, 400, 'BODY_TOO_LONG', '내용은 1000자 이내로 입력해주세요.');
   }
+  if (files.length > 10) {
+    return sendError(res, 400, 'TOO_MANY_IMAGES', '이미지는 최대 10개까지 첨부할 수 있습니다.');
+  }
+  if (files.some(file => !String(file.mimetype || '').startsWith('image/'))) {
+    return sendError(res, 415, 'INVALID_FILE_FORMAT', '이미지 파일만 첨부할 수 있습니다.');
+  }
+  const uploadedFiles = [];
+  for (const file of files) {
+    uploadedFiles.push(await persistUpload(file, req.user.id));
+  }
+  const imageUrls = uploadedFiles.map(file => `/uploads/${encodeURIComponent(file.fileKey)}`);
+  if (!imageUrls.length && imageUrl) imageUrls.push(imageUrl);
 
   const post = await repo.createTalkPost({
     userId: req.user.id,
@@ -345,7 +397,8 @@ app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
     title,
     body,
     price,
-    imageUrl
+    imageUrl: imageUrls[0] || '',
+    imageUrls
   });
 
   return res.status(201).json({
@@ -354,6 +407,83 @@ app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
     data: {
       ...post,
       createdAtLabel: formatKstDateTime(post.createdAt)
+    }
+  });
+}));
+
+app.post('/api/talk/posts/:id/chats', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 채팅을 이용할 수 없습니다.');
+  }
+  const post = await repo.findTalkPostById(Number(req.params.id));
+  if (!post) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
+  }
+  if (Number(post.userId) === Number(req.user.id)) {
+    return sendError(res, 400, 'SELF_CHAT_NOT_ALLOWED', '내가 등록한 글에는 채팅을 시작할 수 없습니다.');
+  }
+  const chat = await repo.findOrCreateTalkChat({
+    postId: post.id,
+    sellerUserId: post.userId,
+    buyerUserId: req.user.id
+  });
+  return res.status(200).json({ success: true, data: chat });
+}));
+
+app.get('/api/talk/chats', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 채팅을 이용할 수 없습니다.');
+  }
+  const chats = await repo.listTalkChatsByUser(req.user.id);
+  return res.status(200).json({
+    success: true,
+    data: chats.map(chat => ({
+      ...chat,
+      lastMessageAtLabel: chat.lastMessageAt ? formatKstDateTime(chat.lastMessageAt) : ''
+    }))
+  });
+}));
+
+app.get('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, res) => {
+  const chat = await repo.findTalkChatForUser(Number(req.params.id), req.user.id);
+  if (!chat) {
+    return sendError(res, 404, 'TALK_CHAT_NOT_FOUND', '채팅방을 찾을 수 없습니다.');
+  }
+  const messages = await repo.listTalkMessages(chat.id);
+  return res.status(200).json({
+    success: true,
+    data: {
+      chat,
+      messages: messages.map(message => ({
+        ...message,
+        createdAtLabel: formatKstDateTime(message.createdAt)
+      }))
+    }
+  });
+}));
+
+app.post('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, res) => {
+  const chat = await repo.findTalkChatForUser(Number(req.params.id), req.user.id);
+  if (!chat) {
+    return sendError(res, 404, 'TALK_CHAT_NOT_FOUND', '채팅방을 찾을 수 없습니다.');
+  }
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    return sendError(res, 400, 'MISSING_MESSAGE', '메시지를 입력해주세요.');
+  }
+  if (message.length > 1000) {
+    return sendError(res, 400, 'MESSAGE_TOO_LONG', '메시지는 1000자 이내로 입력해주세요.');
+  }
+  const created = await repo.createTalkMessage({
+    chatId: chat.id,
+    senderUserId: req.user.id,
+    message
+  });
+  return res.status(201).json({
+    success: true,
+    data: {
+      ...created,
+      createdAtLabel: formatKstDateTime(created.createdAt)
     }
   });
 }));
@@ -2121,6 +2251,24 @@ function singleUpload(fieldName) {
       }
       if (err.code === 'LIMIT_FILE_SIZE') {
         return sendError(res, 413, 'FILE_SIZE_LIMIT_EXCEEDED', 'Attachment size must be 10MB or less.');
+      }
+      return sendError(res, 400, 'UPLOAD_ERROR', err.message);
+    });
+  };
+}
+
+function multiUpload(fieldName, maxCount) {
+  return (req, res, next) => {
+    upload.array(fieldName, maxCount)(req, res, err => {
+      if (!err) return next();
+      if (err.message === 'INVALID_FILE_FORMAT') {
+        return sendError(res, 415, 'INVALID_FILE_FORMAT', 'jpg, jpeg, png, pdf 파일만 업로드할 수 있습니다.');
+      }
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return sendError(res, 400, 'TOO_MANY_IMAGES', `이미지는 최대 ${maxCount}개까지 첨부할 수 있습니다.`);
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return sendError(res, 413, 'FILE_SIZE_LIMIT_EXCEEDED', '첨부 파일은 10MB 이하만 업로드할 수 있습니다.');
       }
       return sendError(res, 400, 'UPLOAD_ERROR', err.message);
     });

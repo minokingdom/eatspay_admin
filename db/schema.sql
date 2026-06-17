@@ -183,9 +183,29 @@ CREATE TABLE IF NOT EXISTS talk_posts (
   body TEXT NOT NULL,
   price NUMERIC(14, 0) NOT NULL DEFAULT 0,
   image_url TEXT,
+  image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS talk_chats (
+  id BIGSERIAL PRIMARY KEY,
+  post_id BIGINT NOT NULL REFERENCES talk_posts(id) ON DELETE CASCADE,
+  seller_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  buyer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(post_id, buyer_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS talk_messages (
+  id BIGSERIAL PRIMARY KEY,
+  chat_id BIGINT NOT NULL REFERENCES talk_chats(id) ON DELETE CASCADE,
+  sender_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  message TEXT NOT NULL,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -199,6 +219,8 @@ CREATE INDEX IF NOT EXISTS idx_interest_free_installments_active ON interest_fre
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_talk_chats_user_updated ON talk_chats(buyer_user_id, seller_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_talk_messages_chat_created ON talk_messages(chat_id, created_at);
 
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
