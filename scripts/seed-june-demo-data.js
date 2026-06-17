@@ -166,7 +166,7 @@ async function seedUsers(pool, passwordHash, agencyIds) {
   const users = [];
   for (let i = 0; i < STORE_NAMES.length; i += 1) {
     const day = 1 + (i % 15);
-    const role = i % 10 === 3 ? 'OWNER_REJECTED' : i % 4 === 1 ? 'OWNER_PENDING' : 'OWNER';
+    const role = i === 3 ? 'OWNER_REJECTED' : i === 1 ? 'OWNER_PENDING' : 'OWNER';
     const franchiseId = 906010 + i;
     const createdAt = dateTime(day, 9 + (i % 8), (i * 7) % 60);
     const agencyId = agencyIds[i % agencyIds.length];
