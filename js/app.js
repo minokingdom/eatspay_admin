@@ -1268,7 +1268,7 @@ function renderBottomNavs(activeScreen = state.currentScreen) {
         ? 'my'
         : 'home';
   const html = items.map(item => `
-    <div class="nav-item${active === item.id ? ' active' : ''}" id="nav-${item.id}">
+    <div class="nav-item${active === item.id ? ' active' : ''}" id="nav-${item.id}" data-nav-target="${item.id}">
       ${bottomNavSvg(item.id)}
       <span class="nav-label">${item.label}</span>
     </div>
@@ -2099,6 +2099,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', event => {
     const navItem = event.target.closest('.bottom-nav .nav-item');
     if (!navItem) return;
+    const target = navItem.dataset.navTarget || '';
+    if (target) {
+      event.preventDefault();
+      if (target === 'home') navigate('home');
+      else if (target === 'agency') navigate('agency');
+      else if (target === 'my') navigate('my');
+      else if (target === 'cs') navigate('cs-main');
+      return;
+    }
     const id = navItem.id || '';
     if (id.startsWith('nav-home')) {
       event.preventDefault();
