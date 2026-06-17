@@ -3,7 +3,7 @@
    배달대행비 카드결제의 새로운 기준
    ========================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Nanum+Square&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Square:wght@400;700;800;900&display=swap');
 /* NanumSquare 보조 - CDN에서 로드하므로 @font-face 선언 제거 */
 
 /* === CSS Variables === */
@@ -25,7 +25,7 @@
   --bg-light: #f7f7f7;
   --bg-gray: #f0f0f0;
 
-  --font: 'NanumSquare', 'Nanum Square', 'Apple SD Gothic Neo', sans-serif;
+  --font: 'NanumSquare', 'Nanum Square', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -51,6 +51,27 @@ html, body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+}
+
+#app-shell,
+#app-shell *,
+.app-dialog,
+.app-dialog *,
+.photo-sheet,
+.photo-sheet * {
+  font-family: var(--font) !important;
+}
+
+input,
+button,
+select,
+textarea {
+  font-family: var(--font) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-family: var(--font) !important;
 }
 
 /* === Unified Logo Component === */
@@ -876,7 +897,7 @@ html.native-app .screen-container {
   color: #111827 !important;
   -webkit-text-fill-color: #111827 !important;
   caret-color: #111827 !important;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font) !important;
 }
 
 #login-pw[type="password"] {
