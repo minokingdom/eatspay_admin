@@ -103,13 +103,15 @@ function renderChargeCards(selector, cards) {
   selector.innerHTML = safeCards.map((card, index) => {
     const isPrimary = index === 0;
     const borderColor = isPrimary ? '#3a9430' : 'var(--border-color)';
-    const label = card.alias || card.cardCompany || card.cardName || '\uCE74\uB4DC';
+    const label = card.cardCompany || card.cardName || card.alias || '\uCE74\uB4DC';
+    const aliasLabel = card.alias && card.alias !== label ? card.alias : '';
     const masked = card.maskedNumber || '****-****-****-0000';
     return `
       <div class="charge-card-option${isPrimary ? ' active' : ''}" data-card="${escapeHtml(card.id)}" style="border: 1.5px solid ${borderColor}; border-radius: var(--radius); padding: 12px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; gap: 6px; box-shadow: 1px 1px 4px rgba(0,0,0,0.05); transition: border-color 0.2s;">
         <div style="display: flex; align-items: center; gap: 4px;">
           <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isPrimary ? '#3a9430' : '#bbb'}; display: inline-block;"></span>
           <span style="font-size: 11px; font-weight: 800; color: #333;">${escapeHtml(label)}</span>
+          ${aliasLabel ? `<span style="font-size: 10px; font-weight: 700; color: #777;">${escapeHtml(aliasLabel)}</span>` : ''}
         </div>
         <div style="font-size: 10px; font-family: monospace; color: #555; letter-spacing: 0.5px;">${escapeHtml(masked)}</div>
       </div>
