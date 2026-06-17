@@ -1209,8 +1209,9 @@ async function syncBackendTransactions(options={}) {
   const silent=!!options.silent;
   try {
     if(!await ensureAdminLogin())return;
-    const res = await fetch('/api/admin/bootstrap', {
-      headers: adminAuthHeaders()
+    const res = await fetch(`/api/admin/bootstrap?_=${Date.now()}`, {
+      headers: adminAuthHeaders(),
+      cache: 'no-store'
     });
     if(await handleAdminUnauthorized(res))return syncBackendTransactions();
     if (!res.ok) {
@@ -1250,7 +1251,7 @@ function startBackendMonitor(){
   backendPollTimer=setInterval(async()=>{
     if(document.hidden)return;
     await syncBackendTransactions();
-  },5000);
+  },3000);
   document.addEventListener('visibilitychange',()=>{
     if(!document.hidden)syncBackendTransactions();
   });
