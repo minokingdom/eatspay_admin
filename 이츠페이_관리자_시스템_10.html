@@ -444,7 +444,7 @@ function setPendingAccountPage(n){
 }
 
 // ═══ 결제 내역 ═══
-function pgPay(){const tot=D.payments.reduce((s,p)=>s+p.amount,0);return`
+function pgPay(){return`
   <div class="aw aw-w">⚠️ 조회 전용. 승인번호 클릭 시 전표 확인 가능.</div>
   <div class="sb2">
     <input class="si" id="ps" placeholder="가맹점명 검색..." oninput="rPay()">
@@ -455,7 +455,7 @@ function pgPay(){const tot=D.payments.reduce((s,p)=>s+p.amount,0);return`
     <select class="fs" style="width:120px" id="pst" onchange="rPay()"><option value="">전체 상태</option><option>결제완료</option><option>취소</option></select>
     <button class="btn bo sm" onclick="clearPS()">초기화</button>
   </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg">${fmt(tot)}</span></span></div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg" id="pay-total">0원</span></span></div>
   <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>대리점</th><th>가맹점명</th><th>구분</th><th>금액</th><th>할부</th><th>상태</th><th>PG</th></tr></thead><tbody id="pb"></tbody></table></div></div>`;}
 function clearPS(){['ps','pan','psd','ped'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pst').value='';rPay();}
 function rPay(){
@@ -469,6 +469,9 @@ function rPay(){
     if(ed&&p.date>ed+' 23:59')return false;
     return true;
   });
+  const total=rows.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const totalEl=document.getElementById('pay-total');
+  if(totalEl)totalEl.textContent=fmt(total);
   el.innerHTML=rows.map(p=>`<tr><td>${p.date}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px;text-decoration:underline" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${p.agency}</td><td>${paymentFranchiseName(p)}</td><td>${p.type}</td><td class="tg">${fmt(p.amount)}</td><td>${p.installment}</td><td>${bdg(p.status)}</td><td>${p.pg}</td></tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
 }
 
