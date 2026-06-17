@@ -412,27 +412,43 @@ function createRepository(pool) {
     },
 
     async updateFranchiseDetails(franchiseId, fields) {
+      const updates = [
+        'franchise_name = $2',
+        'name = $3',
+        'phone = $4',
+        "business_number = NULLIF($5, '')",
+        'tel = COALESCE($6, tel)',
+        'address = COALESCE($7, address)'
+      ];
+      const params = [
+        franchiseId,
+        fields.franchiseName,
+        fields.ownerName,
+        fields.phone,
+        fields.businessNumber,
+        fields.tel || null,
+        fields.address || null
+      ];
+      if (fields.email !== undefined) {
+        params.push(fields.email);
+        updates.push(`email = $${params.length}`);
+      }
+      if (fields.passwordHash !== undefined) {
+        params.push(fields.passwordHash);
+        updates.push(`password_hash = $${params.length}`);
+      }
+      if (fields.agencyId !== undefined) {
+        params.push(fields.agencyId);
+        updates.push(`agency_id = $${params.length}`);
+      }
       const result = await pool.query(
         `UPDATE users
-         SET franchise_name = $2,
-             name = $3,
-             phone = $4,
-             business_number = NULLIF($5, ''),
-             tel = COALESCE($6, tel),
-             address = COALESCE($7, address),
+         SET ${updates.join(', ')},
              updated_at = now()
          WHERE franchise_id = $1
            AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
          RETURNING *`,
-        [
-          franchiseId,
-          fields.franchiseName,
-          fields.ownerName,
-          fields.phone,
-          fields.businessNumber,
-          fields.tel || null,
-          fields.address || null
-        ]
+        params
       );
       return toUser(result.rows[0]);
     },

@@ -1454,10 +1454,13 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
 
   const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
   const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
+  const email = String(req.body?.email || '').trim();
+  const password = String(req.body?.password || '');
   const phone = String(req.body?.phone || '').trim();
   const address = String(req.body?.address || '').trim();
   const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
   const tel = String(req.body?.tel || '').trim();
+  const agencyId = req.body?.agencyId !== undefined && req.body?.agencyId !== '' ? Number(req.body.agencyId) : null;
 
   if (!franchiseName) {
     return sendError(res, 400, 'MISSING_FRANCHISE_NAME', 'franchiseName is required.');
@@ -1468,6 +1471,30 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   if (businessNumber && businessNumber.length !== 10) {
     return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
   }
+  if (!email) {
+    return sendError(res, 400, 'MISSING_EMAIL', '로그인 ID를 입력해주세요.');
+  }
+  if (password && password.length < 4) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '비밀번호는 4자 이상 입력해주세요.');
+  }
+  if (req.body?.agencyId !== undefined && req.body?.agencyId !== '' && !Number.isFinite(agencyId)) {
+    return sendError(res, 400, 'BAD_AGENCY_ID', '대리점 정보가 올바르지 않습니다.');
+  }
+
+  const existing = await repo.findUserByFranchiseId(franchiseId);
+  if (!existing) {
+    return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
+  }
+  const duplicateEmail = await repo.findUserByEmail(email);
+  if (duplicateEmail && Number(duplicateEmail.franchiseId) !== franchiseId) {
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+  }
+  if (businessNumber) {
+    const duplicateBusiness = await repo.findUserByBusinessNumber(businessNumber);
+    if (duplicateBusiness && Number(duplicateBusiness.franchiseId) !== franchiseId) {
+      return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
+    }
+  }
 
   const updated = await repo.updateFranchiseDetails(franchiseId, {
     franchiseName,
@@ -1475,7 +1502,10 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     phone,
     address,
     businessNumber,
-    tel
+    tel,
+    email,
+    passwordHash: password ? await hashPassword(password) : undefined,
+    agencyId
   });
   if (!updated) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
@@ -1486,12 +1516,14 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     message: '가맹점 정보가 수정되었습니다.',
     data: {
       id: updated.franchiseId,
+      email: updated.email,
       name: updated.franchiseName,
       owner: updated.name,
       phone: updated.phone,
       address: updated.address,
       bizNo: updated.businessNumber,
-      tel: updated.tel
+      tel: updated.tel,
+      agencyId: updated.agencyId
     }
   });
 }));
