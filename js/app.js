@@ -1618,9 +1618,21 @@ document.addEventListener('DOMContentLoaded', () => {
   $$('.btn-back').forEach(btn => btn.addEventListener('click', goBack));
 
   // Bottom Nav & Home Banner Click Bindings
-  $$('[id^="nav-home"]').forEach(btn => btn.addEventListener('click', () => navigate('home')));
-  $$('[id^="nav-my"]').forEach(btn => btn.addEventListener('click', () => navigate('my')));
-  $$('[id^="nav-cs"]').forEach(btn => btn.addEventListener('click', () => navigate('cs-main')));
+  document.addEventListener('click', event => {
+    const navItem = event.target.closest('.bottom-nav .nav-item');
+    if (!navItem) return;
+    const id = navItem.id || '';
+    if (id.startsWith('nav-home')) {
+      event.preventDefault();
+      navigate('home');
+    } else if (id.startsWith('nav-my')) {
+      event.preventDefault();
+      navigate('my');
+    } else if (id.startsWith('nav-cs')) {
+      event.preventDefault();
+      navigate('cs-main');
+    }
+  });
   $$('img[src*="logo.png"]').forEach(logo => {
     logo.style.cursor = 'pointer';
     logo.setAttribute('role', 'button');
