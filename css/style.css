@@ -843,6 +843,30 @@ html.native-app .screen-container {
   box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.12);
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field .form-input {
+  padding-right: 58px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 40px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: #eef8e8;
+  color: var(--green-primary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .input-row {
   display: flex;
   gap: 8px;

@@ -1620,7 +1620,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const idInput = $('#login-id');
     const pwInput = $('#login-pw');
     const username = idInput ? idInput.value.trim() : '';
-    const password = pwInput ? pwInput.value.trim() : '';
+    const password = pwInput ? pwInput.value : '';
 
     if (!username || !password) {
       showToast('아이디와 비밀번호를 입력해주세요.');
@@ -1682,6 +1682,17 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.innerHTML = '로그인';
       btn.disabled = false;
     }
+  });
+
+  $('#login-pw-toggle')?.addEventListener('click', () => {
+    const pwInput = $('#login-pw');
+    const toggle = $('#login-pw-toggle');
+    if (!pwInput || !toggle) return;
+    const show = pwInput.type === 'password';
+    pwInput.type = show ? 'text' : 'password';
+    toggle.textContent = show ? '숨김' : '보기';
+    toggle.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
+    pwInput.focus();
   });
 
   // --------- SOCIAL LOGINS ---------
@@ -2830,4 +2841,3 @@ document.addEventListener('DOMContentLoaded', () => {
   // Removed Interactive Calendar Date Picker code block since separate input elements are now used.
 
 });
-
