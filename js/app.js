@@ -1759,7 +1759,6 @@ function renderTalkDetail() {
     <h2 style="font-size:22px;line-height:1.35;font-weight:900;color:var(--text-primary);margin:0 0 8px;">${escapeHtml(post.title || '')}</h2>
     <div style="font-size:19px;font-weight:900;color:var(--text-primary);margin-bottom:18px;">${Number(post.price || 0) > 0 ? formatWon(post.price) : '나눔'}</div>
     <div style="white-space:pre-wrap;font-size:14px;line-height:1.65;color:var(--text-secondary);font-weight:700;border-top:1px solid var(--border-light);padding-top:18px;">${escapeHtml(post.body || '')}</div>
-    <button id="btn-talk-start-chat" type="button" style="width:100%;height:52px;border:none;border-radius:var(--radius-sm);background:var(--green-primary);color:#fff;font-size:16px;font-weight:900;margin-top:22px;cursor:pointer;">채팅하기</button>
   `;
   $('#btn-talk-start-chat')?.addEventListener('click', () => startTalkChat(post.id));
 }
