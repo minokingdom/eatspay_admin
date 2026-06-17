@@ -41,6 +41,7 @@ let installmentBannerIndex = 0;
 let installmentBannerTimer = null;
 let daumPostcodeScriptPromise = null;
 let cardEditDraft = null;
+let talkPostCache = [];
 
 function loadDaumPostcodeScript() {
   if (window.daum?.Postcode) return Promise.resolve();
@@ -1080,13 +1081,16 @@ function renderDeliveryAgencyList() {
 
 // --- Screen Navigation ---
 function navigate(screenId, direction = 'forward') {
-  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge', 'agency'];
+  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge', 'agency', 'talk-write'];
   const approvalState = getApprovalState();
 
   if (restrictedScreens.includes(screenId)) {
     if (!isAuthenticated()) {
       showToast('로그인이 필요합니다.');
       screenId = 'login';
+    } else if (screenId === 'talk-write' && isAgencyAccount()) {
+      showToast('가맹점 계정으로 로그인해야 등록할 수 있습니다.');
+      screenId = 'talk';
     } else if (screenId === 'agency' && !isAgencyAccount()) {
       showToast('대리점 계정으로 로그인해야 이용할 수 있습니다.');
       screenId = 'home';
@@ -1133,6 +1137,11 @@ function navigate(screenId, direction = 'forward') {
   if (screenId === 'home') {
     renderCurrentInstallmentBanner();
     startInstallmentBannerRotation();
+    void fetchTalkPosts(5);
+  }
+  if (screenId === 'talk') {
+    renderTalkBoard(talkPostCache);
+    void fetchTalkPosts(20);
   }
   if (screenId === 'card-list') {
     void refreshCardList();
@@ -1196,7 +1205,7 @@ window.EATSPAY_HANDLE_ANDROID_BACK = handleAndroidBackButton;
 function updateBottomNav(screenId) {
   renderBottomNavs(screenId);
   $$('.nav-item').forEach(btn => btn.classList.remove('active'));
-  const isHome = ['home', 'charge', 'benefit-cards'].includes(screenId);
+  const isHome = ['home', 'charge', 'benefit-cards', 'talk', 'talk-write'].includes(screenId);
   const isAgencyFlow = ['agency'].includes(screenId);
   const isMyFlow = ['my', 'find-id', 'find-pw', 'card-list', 'card-add', 'payment-history', 'vaccount-list', 'vaccount-add', 'delivery-agency-list', 'edit-myinfo', 'login'].includes(screenId);
   const isCsFlow = ['cs-main', 'cs-guide', 'cs-promo'].includes(screenId);
@@ -1628,6 +1637,117 @@ function formatWon(value) {
   return `${Number(value || 0).toLocaleString('ko-KR')}원`;
 }
 
+function normalizeTalkImage(url) {
+  const value = String(url || '').trim();
+  if (/^https?:\/\//i.test(value) || value.startsWith('/uploads/')) return value;
+  return '';
+}
+
+function renderTalkHome(posts = talkPostCache) {
+  const list = $('#home-talk-list');
+  if (!list) return;
+  const items = (Array.isArray(posts) ? posts : []).slice(0, 5);
+  if (!items.length) {
+    list.innerHTML = '<div style="padding: 12px 0 18px; color: var(--text-muted); font-size: 12px; font-weight: 700;">등록된 Talk 글이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = items.map((post, index) => `
+    <div class="talk-item" data-talk-id="${escapeHtml(post.id)}" style="padding: 10px 0; border-bottom: ${index === items.length - 1 ? 'none' : '1px solid var(--border-light)'}; cursor: pointer;">
+      <div class="talk-title" style="font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(post.title || '')}</div>
+      <div class="talk-meta" style="font-size: 11px; color: var(--text-muted); font-weight: 700;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')}</div>
+    </div>
+  `).join('');
+}
+
+function renderTalkBoard(posts = talkPostCache) {
+  const list = $('#talk-board-list');
+  if (!list) return;
+  const items = Array.isArray(posts) ? posts : [];
+  if (!items.length) {
+    list.innerHTML = '<div style="border:1.5px solid var(--border-color); border-radius:var(--radius); padding:32px 16px; text-align:center; color:var(--text-muted); font-size:13px; font-weight:800;">등록된 Talk 글이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = items.map(post => {
+    const image = normalizeTalkImage(post.imageUrl);
+    return `
+      <article class="talk-board-card" style="display:flex; gap:12px; border-bottom:1px solid var(--border-light); padding:12px 0;">
+        <div style="width:92px; height:92px; border-radius:12px; background:${image ? '#f5f5f5' : 'linear-gradient(135deg,#e8f5e9,#d9f2d4)'}; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-light);">
+          ${image ? `<img src="${escapeHtml(image)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : '<span style="font-size:28px;">🥕</span>'}
+        </div>
+        <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:4px;">
+          <div style="font-size:15px; font-weight:900; color:var(--text-primary); line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(post.title || '')}</div>
+          <div style="font-size:11px; color:var(--text-muted); font-weight:800;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')} · ${escapeHtml(post.createdAtLabel || '')}</div>
+          <div style="font-size:12px; color:var(--text-secondary); line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(post.body || '')}</div>
+          <div style="font-size:14px; font-weight:900; color:var(--text-primary); margin-top:auto;">${Number(post.price || 0) > 0 ? formatWon(post.price) : '나눔'}</div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function fetchTalkPosts(limit = 20) {
+  try {
+    const response = await fetch(apiUrl(`/api/talk/posts?limit=${encodeURIComponent(limit)}&_=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('Talk 목록을 불러오지 못했습니다.');
+    const payload = await response.json().catch(() => null);
+    talkPostCache = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  } catch (err) {
+    console.error(err);
+    talkPostCache = [];
+  }
+  renderTalkHome(talkPostCache);
+  if (state.currentScreen === 'talk') renderTalkBoard(talkPostCache);
+  return talkPostCache;
+}
+
+async function submitTalkPost() {
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    showToast('승인된 가맹점 계정만 Talk 글을 등록할 수 있습니다.');
+    navigate(isAuthenticated() ? 'home' : 'login');
+    return;
+  }
+  const title = ($('#talk-title-input')?.value || '').trim();
+  const body = ($('#talk-body-input')?.value || '').trim();
+  const price = Number(($('#talk-price-input')?.value || '0').replace?.(/[^\d]/g, '') || $('#talk-price-input')?.value || 0);
+  const imageUrl = ($('#talk-image-url')?.value || '').trim();
+  if (!title || !body) {
+    showToast('제목과 내용을 입력해주세요.');
+    return;
+  }
+  const btn = $('#btn-talk-submit');
+  const originalText = btn?.textContent || '등록하기';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '등록 중...';
+  }
+  try {
+    const response = await fetch(apiUrl('/api/talk/posts'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+      },
+      body: JSON.stringify({ title, body, price, imageUrl })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, 'Talk 글 등록에 실패했습니다.'));
+    ['#talk-title-input', '#talk-body-input', '#talk-price-input', '#talk-image-url'].forEach(sel => {
+      const el = $(sel);
+      if (el) el.value = '';
+    });
+    showToast('Talk 글이 등록되었습니다.');
+    await fetchTalkPosts(20);
+    navigate('talk');
+  } catch (err) {
+    showToast(err.message || 'Talk 글 등록에 실패했습니다.');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
 function syncAgencyDateRange(forceToday = false) {
   const startInput = $('#agency-start-date');
   const endInput = $('#agency-end-date');
@@ -1760,6 +1880,7 @@ document.addEventListener('DOMContentLoaded', () => {
   resetAppToSplash();
   startInitialFlow();
   loadInstallmentBanner();
+  void fetchTalkPosts(5);
 
   // Hardware/Virtual Device back button history bindings
   window.history.replaceState({ screen: 'splash' }, '');
@@ -1832,6 +1953,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#home-login-banner')?.addEventListener('click', () => {
     renderBenefitCardList();
     navigate('benefit-cards');
+  });
+  $('#btn-talk-more')?.addEventListener('click', () => navigate('talk'));
+  $('#btn-talk-write')?.addEventListener('click', () => navigate('talk-write'));
+  $('#btn-talk-submit')?.addEventListener('click', submitTalkPost);
+  $('#home-talk-list')?.addEventListener('click', event => {
+    const item = event.target.closest('.talk-item');
+    if (!item) return;
+    navigate('talk');
   });
   document.addEventListener('click', event => {
     const btn = event.target.closest('.btn-benefit-card-select');

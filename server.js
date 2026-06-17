@@ -199,8 +199,24 @@ const dbBootstrapPromise = (async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_posts (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      franchise_id BIGINT,
+      franchise_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      price NUMERIC(14, 0) NOT NULL DEFAULT 0,
+      image_url TEXT,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC)');
   await repo.ensureDefaultAgency();
   await seedDeliveryAgencies();
 })();
@@ -274,6 +290,73 @@ app.get('/', (req, res) => {
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '이츠페이_관리자_시스템_10.html'));
 });
+
+app.get('/api/talk/posts', asyncHandler(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const [items, totalItems] = await Promise.all([
+    repo.listTalkPosts({ limit, offset: (page - 1) * limit }),
+    repo.countTalkPosts()
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      items: items.map(post => ({
+        ...post,
+        createdAtLabel: formatKstDateTime(post.createdAt)
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalItems / limit) || 1,
+        totalItems,
+        limit
+      }
+    }
+  });
+}));
+
+app.post('/api/talk/posts', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 글을 등록할 수 없습니다.');
+  }
+  if (req.user.role !== 'OWNER') {
+    return sendError(res, 403, 'ACCESS_DENIED', '승인된 가맹점 계정만 Talk 글을 등록할 수 있습니다.');
+  }
+
+  const title = String(req.body?.title || '').trim();
+  const body = String(req.body?.body || '').trim();
+  const price = Math.max(Math.round(Number(req.body?.price || 0)), 0);
+  const imageUrl = String(req.body?.imageUrl || '').trim();
+  if (!title || !body) {
+    return sendError(res, 400, 'MISSING_FIELDS', '제목과 내용을 입력해주세요.');
+  }
+  if (title.length > 80) {
+    return sendError(res, 400, 'TITLE_TOO_LONG', '제목은 80자 이내로 입력해주세요.');
+  }
+  if (body.length > 1000) {
+    return sendError(res, 400, 'BODY_TOO_LONG', '내용은 1000자 이내로 입력해주세요.');
+  }
+
+  const post = await repo.createTalkPost({
+    userId: req.user.id,
+    franchiseId: req.user.franchiseId,
+    franchiseName: req.user.franchiseName || req.user.name || '이츠페이 가맹점',
+    title,
+    body,
+    price,
+    imageUrl
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Talk 글이 등록되었습니다.',
+    data: {
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    }
+  });
+}));
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;

@@ -174,6 +174,20 @@ CREATE TABLE IF NOT EXISTS push_tokens (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS talk_posts (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  franchise_id BIGINT,
+  franchise_name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  price NUMERIC(14, 0) NOT NULL DEFAULT 0,
+  image_url TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_agency ON users(agency_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_franchise_created ON transactions(franchise_id, created_at DESC);
@@ -184,6 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_pg_settlements_agency ON pg_settlements(agency_id
 CREATE INDEX IF NOT EXISTS idx_interest_free_installments_active ON interest_free_installments(active, display_order);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC);
 
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;

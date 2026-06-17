@@ -71,6 +71,23 @@ function toStoredFile(row) {
   };
 }
 
+function toTalkPost(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    franchiseId: row.franchise_id,
+    franchiseName: row.franchise_name,
+    title: row.title,
+    body: row.body,
+    price: Number(row.price || 0),
+    imageUrl: row.image_url,
+    status: row.status,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toDeliveryAccount(row) {
   if (!row) return null;
   return {
@@ -149,6 +166,43 @@ function toNotification(row) {
 
 function createRepository(pool) {
   return {
+    async listTalkPosts({ limit = 20, offset = 0 } = {}) {
+      const result = await pool.query(
+        `SELECT *
+         FROM talk_posts
+         WHERE status = 'ACTIVE'
+         ORDER BY created_at DESC, id DESC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      );
+      return result.rows.map(toTalkPost);
+    },
+
+    async countTalkPosts() {
+      const result = await pool.query("SELECT count(*)::int AS count FROM talk_posts WHERE status = 'ACTIVE'");
+      return Number(result.rows[0]?.count || 0);
+    },
+
+    async createTalkPost(post) {
+      const result = await pool.query(
+        `INSERT INTO talk_posts (
+           user_id, franchise_id, franchise_name, title, body, price, image_url
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
+         RETURNING *`,
+        [
+          post.userId,
+          post.franchiseId,
+          post.franchiseName,
+          post.title,
+          post.body,
+          post.price,
+          post.imageUrl || ''
+        ]
+      );
+      return toTalkPost(result.rows[0]);
+    },
+
     async findUserByEmail(email) {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       return toUser(result.rows[0]);
