@@ -1697,8 +1697,75 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
+  const getPasswordValue = (inputId) => {
+    const input = $(inputId);
+    return input?.dataset.realPassword ?? input?.value ?? '';
+  };
+
+  const bindMaskedPasswordInput = (inputId, toggleId) => {
+    const input = $(inputId);
+    const toggle = $(toggleId);
+    if (!input || !toggle) return;
+    let realPassword = input.dataset.realPassword || '';
+    let isVisible = false;
+
+    const render = (cursor = realPassword.length) => {
+      input.dataset.realPassword = realPassword;
+      input.type = 'text';
+      input.value = isVisible ? realPassword : '*'.repeat(realPassword.length);
+      toggle.textContent = isVisible ? '숨김' : '보기';
+      toggle.setAttribute('aria-label', isVisible ? '비밀번호 숨기기' : '비밀번호 보기');
+      requestAnimationFrame(() => {
+        const pos = Math.max(0, Math.min(cursor, input.value.length));
+        input.setSelectionRange(pos, pos);
+      });
+    };
+
+    input.addEventListener('beforeinput', (event) => {
+      if (isVisible) return;
+      event.preventDefault();
+      const start = input.selectionStart ?? realPassword.length;
+      const end = input.selectionEnd ?? start;
+      let nextCursor = start;
+
+      if (event.inputType === 'deleteContentBackward') {
+        if (start === end && start > 0) {
+          realPassword = realPassword.slice(0, start - 1) + realPassword.slice(end);
+          nextCursor = start - 1;
+        } else {
+          realPassword = realPassword.slice(0, start) + realPassword.slice(end);
+        }
+      } else if (event.inputType === 'deleteContentForward') {
+        realPassword = realPassword.slice(0, start) + realPassword.slice(start === end ? end + 1 : end);
+      } else {
+        const inserted = event.data || event.clipboardData?.getData('text') || '';
+        realPassword = realPassword.slice(0, start) + inserted + realPassword.slice(end);
+        nextCursor = start + inserted.length;
+      }
+
+      render(nextCursor);
+    });
+
+    input.addEventListener('input', () => {
+      if (!isVisible) return;
+      realPassword = input.value;
+      input.dataset.realPassword = realPassword;
+    });
+
+    toggle.addEventListener('click', () => {
+      if (isVisible) {
+        realPassword = input.value;
+      }
+      isVisible = !isVisible;
+      render(realPassword.length);
+      input.focus();
+    });
+
+    render(0);
+  };
+
   bindPasswordToggle('#login-pw', '#login-pw-toggle');
-  bindPasswordToggle('#reg-pw', '#reg-pw-toggle');
+  bindMaskedPasswordInput('#reg-pw', '#reg-pw-toggle');
 
   // --------- SOCIAL LOGINS ---------
   const handleSocialLogin = (btnId, name) => {
@@ -1805,7 +1872,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --------- REG STEP 3 ---------
   $('#reg-step2-next')?.addEventListener('click', () => {
     const id = $('#reg-id')?.value;
-    const pw = $('#reg-pw')?.value;
+    const pw = getPasswordValue('#reg-pw');
     const phone = $('#reg-phone')?.value;
     const sms = $('#reg-sms-input')?.value;
 
@@ -1964,7 +2031,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const businessNumber = $('#reg-biz-no')?.value;
     const email = $('#reg-id')?.value;
-    const password = $('#reg-pw')?.value;
+    const password = getPasswordValue('#reg-pw');
     const phone = $('#reg-phone')?.value;
     const storeName = $('#reg-store-name')?.value;
     const ceoName = $('#reg-ceo-name')?.value;
