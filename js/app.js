@@ -1618,9 +1618,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#login-submit-btn')?.addEventListener('click', async () => {
     const btn = $('#login-submit-btn');
     const idInput = $('#login-id');
-    const pwInput = $('#login-pw');
     const username = idInput ? idInput.value.trim() : '';
-    const password = pwInput ? pwInput.value : '';
+    const password = getPasswordValue('#login-pw');
 
     if (!username || !password) {
       showToast('아이디와 비밀번호를 입력해주세요.');
@@ -1683,19 +1682,6 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.disabled = false;
     }
   });
-
-  const bindPasswordToggle = (inputId, toggleId) => {
-    const pwInput = $(inputId);
-    const toggle = $(toggleId);
-    if (!pwInput || !toggle) return;
-    toggle.addEventListener('click', () => {
-      const show = pwInput.type === 'password';
-      pwInput.type = show ? 'text' : 'password';
-      toggle.textContent = show ? '숨김' : '보기';
-      toggle.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
-      pwInput.focus();
-    });
-  };
 
   const getPasswordValue = (inputId) => {
     const input = $(inputId);
@@ -1764,7 +1750,7 @@ document.addEventListener('DOMContentLoaded', () => {
     render(0);
   };
 
-  bindPasswordToggle('#login-pw', '#login-pw-toggle');
+  bindMaskedPasswordInput('#login-pw', '#login-pw-toggle');
   bindMaskedPasswordInput('#reg-pw', '#reg-pw-toggle');
 
   // --------- SOCIAL LOGINS ---------
