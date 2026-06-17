@@ -688,6 +688,34 @@ app.patch('/api/auth/me', authenticate, asyncHandler(async (req, res) => {
   });
 }));
 
+app.patch('/api/admin/me/password', authenticateAdmin, asyncHandler(async (req, res) => {
+  const user = await repo.findUserById(req.user.id);
+  if (!user || user.role !== 'ADMIN') {
+    return sendError(res, 404, 'ADMIN_NOT_FOUND', 'Admin account was not found.');
+  }
+
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!currentPassword || !newPassword) {
+    return sendError(res, 400, 'MISSING_PASSWORD', '현재 비밀번호와 새 비밀번호를 입력해주세요.');
+  }
+  if (newPassword.length < 8) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '관리자 비밀번호는 8자 이상으로 입력해주세요.');
+  }
+  if (!user.passwordHash || !(await verifyPassword(currentPassword, user.passwordHash))) {
+    return sendError(res, 401, 'INVALID_CURRENT_PASSWORD', '현재 비밀번호가 일치하지 않습니다.');
+  }
+
+  await repo.updateUserProfile(user.id, {
+    passwordHash: await hashPassword(newPassword)
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: '관리자 비밀번호가 변경되었습니다.'
+  });
+}));
+
 app.post('/api/franchise/accounts', authenticate, (req, res) => {
   upload.single('documentFile')(req, res, async err => {
     try {
