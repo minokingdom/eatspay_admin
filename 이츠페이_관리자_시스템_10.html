@@ -461,8 +461,8 @@ function showSettleDetail(id){
     </div>`,
   `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">롤백 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
 }
-function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm(`승인번호 ${s.approvalNo} 정산을 롤백(고객 취소 처리)하시겠습니까?`))return;s.status='롤백';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 롤백`);}
-function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm('롤백된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
+async function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 롤백(고객 취소 처리)하시겠습니까?`))return;s.status='롤백';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 롤백`);}
+async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm('롤백된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
 
 // ═══ 대리점 정산 ═══
 function pgSettle(){
@@ -590,9 +590,10 @@ function rFr(){
     </div></td>
   </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
-function changeFrStatus(id,newStatus,selectEl){
+async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>x.id===id);
-  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+  if(!f)return;
+  if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
   f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
@@ -620,7 +621,7 @@ function renderDARows(readonly){
         </select>
         <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="가상계좌번호" value="${a.accountNo||''}" oninput="editingAgencies[${i}].accountNo=this.value">
         <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="파일명(예:계좌증빙.jpg)" value="${a.fileName||''}" oninput="editingAgencies[${i}].fileName=this.value">
-        <button class="da-del" onclick="if(confirm('삭제할까요?'))editingAgencies.splice(${i},1);renderDARows(false)">✕</button>
+        <button class="da-del" onclick="removeDARow(${i})">✕</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:0 2px">
         <span style="font-size:10px;color:#6B7280">계좌 상태:</span>
@@ -633,6 +634,7 @@ function renderDARows(readonly){
     }).join('');
   }
 }
+async function removeDARow(idx){if(!await adminConfirm('삭제할까요?'))return;editingAgencies.splice(idx,1);renderDARows(false);}
 function addDARow(){const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
 function franchiseForm(f={},roDA){return`
   <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
@@ -648,7 +650,7 @@ function franchiseForm(f={},roDA){return`
   ${!roDA?`<div style="font-size:10px;color:#9CA3AF;margin-top:4px">※ 파일명만 입력. 실제 파일은 서버에 별도 업로드 (개발 시 연동)</div>`:''}
   </div>`;}
 function addF(){editingAgencies=[];openM('가맹점 추가',franchiseForm({},false),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF()">저장</button>`);setTimeout(()=>renderDARows(false),20);}
-function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
+async function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){await adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
 async function savF(id){
   const n=v('fn').trim();
   if(!n){await adminAlert('상점명을 입력하세요.');return;}
@@ -675,7 +677,7 @@ async function savF(id){
     await adminAlert(e.message||'가맹점 수정에 실패했습니다.');
   }
 }
-function delF(id){const f=D.franchises.find(x=>x.id===id);if(!confirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
+async function delF(id){const f=D.franchises.find(x=>x.id===id);if(!f)return;if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
 
 // ═══ 출금계좌 목록 ═══
 function pgAccounts(){return`
@@ -834,8 +836,8 @@ function agForm(a={}){return`
   <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="adn" value="${a.deliveryNote||''}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>`;}
 function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);}
 function edAg(id){const a=D.agencies.find(x=>x.id===id);openM('대리점 수정',agForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${id})">저장</button>`);}
-function savAg(id){const n=v('an');if(!n.trim()){alert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn')};if(id){Object.assign(D.agencies.find(x=>x.id===id),data);toast('수정');}else{D.agencies.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();setTimeout(rAg,30);}
-function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!confirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savAg(id){const n=v('an');if(!n.trim()){await adminAlert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn')};if(id){Object.assign(D.agencies.find(x=>x.id===id),data);toast('수정');}else{D.agencies.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();setTimeout(rAg,30);}
+async function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 배달대행사 관리 ═══
 function pgDeliveryMgmt(){
@@ -877,10 +879,10 @@ function pgDeliveryMgmt(){
       </tr>`;
     }).join('')}</tbody>
   </table></div></div>`;}
-function addDA(){const n=prompt('새 배달대행사 이름:','');if(!n||!n.trim())return;if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){alert('이미 존재하는 배달대행사 이름입니다');return;}D.deliveryAgencyList.push({id:nid(),name:n.trim(),status:'active'});save();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);}
-function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;a.status='inactive';save();renderPage();toast(`'${a.name}' → 가입 불가 상태로 전환`);}
-function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;a.status='active';save();renderPage();toast(`'${a.name}' → 가입 가능 상태로 전환`);}
-function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n\u26a0\ufe0f \ud604재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!confirm(msg))return;a.status='deleted';save();renderPage();toast("'"+a.name+"' 삭제");}
+async function addDA(){const n=await adminPrompt('새 배달대행사 이름:','');if(!n||!n.trim())return;if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){await adminAlert('이미 존재하는 배달대행사 이름입니다');return;}D.deliveryAgencyList.push({id:nid(),name:n.trim(),status:'active'});save();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);}
+async function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;a.status='inactive';save();renderPage();toast(`'${a.name}' → 가입 불가 상태로 전환`);}
+async function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;a.status='active';save();renderPage();toast(`'${a.name}' → 가입 가능 상태로 전환`);}
+async function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});if(!a)return;var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n\u26a0\ufe0f \ud604재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!await adminConfirm(msg))return;a.status='deleted';save();renderPage();toast("'"+a.name+"' 삭제");}
 
 // ═══ 영업대리점 개설문의 ═══
 function pgInquiries(){return`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점 개설문의 <span class="tg">${D.inquiries.length}건</span></span><button class="btn bg2 sm" onclick="addInquiry()">+ 문의 등록</button></div>
@@ -898,9 +900,9 @@ function inquiryForm(i={}){return`
   <div class="fr2"><div class="fg"><label class="fl">담당자</label><input class="fi" id="iqh" value="${i.handler||''}" placeholder="담당자명 입력"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
 function addInquiry(){openM('문의 등록',inquiryForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry()">저장</button>`);}
 function edInquiry(id){const i=D.inquiries.find(x=>x.id===id);openM('문의 수정',inquiryForm(i),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry(${id})">저장</button>`);}
-function savInquiry(id){const n=v('iqn');if(!n.trim()){alert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
-function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
-function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savInquiry(id){const n=v('iqn');if(!n.trim()){await adminAlert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
+async function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
+async function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ FAQ ═══
 function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&cats.length)faqTab=cats[0];return`
@@ -909,12 +911,12 @@ function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&
     <button class="btn bg2" onclick="addFQ()">+ FAQ 추가</button>
   </div><div id="fql"></div>`;}
 function rFAQ(){const el=document.getElementById('fql');if(!el)return;const items=D.faqs.filter(f=>f.category===faqTab);el.innerHTML=items.map(f=>`<div class="card" style="margin-bottom:8px"><div class="ch" style="padding:10px 14px"><span style="font-weight:700;color:#3D9B35">Q</span><span style="font-weight:600;margin-left:6px">${f.question}</span><div class="ab" style="margin-left:auto"><button class="btn bo xs" onclick="edFQ(${f.id})">수정</button><button class="btn bd xs" onclick="delFQ(${f.id})">삭제</button></div></div><div style="padding:10px 14px;color:#6B7280;font-size:12px"><span style="color:#3D9B35;font-weight:700">A</span>&nbsp;${f.answer}</div></div>`).join('')||'<div class="card"><div class="emp">FAQ가 없습니다.</div></div>';}
-function addFaqCat(){const n=prompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
+async function addFaqCat(){const n=await adminPrompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
 function fqForm(f={}){const cats=[...new Set(D.faqs.map(x=>x.category))];return`<div class="fg"><label class="fl">카테고리</label><select class="fs" id="fqc">${cats.map(c=>`<option ${c===(f.category||faqTab)?'selected':''}>${c}</option>`).join('')}</select></div><div class="fg"><label class="fl">질문 *</label><input class="fi" id="fqq" value="${f.question||''}" placeholder="자주 묻는 질문"></div><div class="fg"><label class="fl">답변 *</label><textarea class="fta" id="fqa" rows="5">${f.answer||''}</textarea></div>`;}
 function addFQ(){openM('FAQ 추가',fqForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ()">저장</button>`);}
 function edFQ(id){const f=D.faqs.find(x=>x.id===id);openM('FAQ 수정',fqForm(f),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ(${id})">저장</button>`);}
-function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){alert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
-function delFQ(id){if(!confirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
+async function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){await adminAlert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
+async function delFQ(id){if(!await adminConfirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
 
 // ═══ 게시판 ═══
 function pgNotices(){return pgBoard('notices');}
@@ -927,8 +929,8 @@ function viewPost(t,id){const n=D[t].find(x=>x.id===id);openM(n.title,`<div styl
 function pForm(n={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="pt" value="${n.title||''}" placeholder="제목 입력"></div><div class="fg"><label class="fl">작성자</label><input class="fi" id="pa" value="${n.author||'운영팀'}"></div><div class="fg"><label class="fl">내용 *</label><textarea class="fta" id="pc" rows="6" placeholder="내용 입력">${n.content||''}</textarea></div>`;}
 function addPost(t){openM('게시글 작성',pForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}')">저장</button>`);}
 function edPost(t,id){const n=D[t].find(x=>x.id===id);openM('게시글 수정',pForm(n),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}',${id})">저장</button>`);}
-function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){alert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
-function delPost(t,id){if(!confirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){await adminAlert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
+async function delPost(t,id){if(!await adminConfirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 관리자 ═══
 function pgAdmins(){const roles=getRoles();return`
@@ -945,8 +947,8 @@ function savRoles(){const roles=getRoles();const nr=roles.map((r,i)=>({...r,name
 function adForm(a={}){const roles=getRoles();return`<div class="fr2"><div class="fg"><label class="fl">로그인 아이디 *</label><input class="fi" id="adi" value="${a.loginId||''}" placeholder="admin001"></div><div class="fg"><label class="fl">이름 *</label><input class="fi" id="adn" value="${a.name||''}" placeholder="홍길동"></div></div><div class="fg"><label class="fl">권한 레벨</label><select class="fs" id="adr">${roles.map(r=>`<option ${r.name===(a.role||roles[1].name)?'selected':''}>${r.name}</option>`).join('')}</select></div>${!a.id?`<div class="fr2"><div class="fg"><label class="fl">비밀번호 *</label><input class="fi" id="adp" type="password"></div><div class="fg"><label class="fl">비밀번호 확인</label><input class="fi" id="adp2" type="password"></div></div>`:''}`;}
 function addAdm(){openM('관리자 생성',adForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm()">생성</button>`);}
 function edAdm(id){const a=D.admins.find(x=>x.id===id);openM('관리자 수정',adForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm(${id})">저장</button>`);}
-function savAdm(id){const n=v('adn');if(!n){alert('이름 필요');return;}if(!id){const p=v('adp'),p2=v('adp2');if(p!==p2){alert('비밀번호 불일치');return;}}const data={loginId:v('adi'),name:n,role:v('adr')};if(id){Object.assign(D.admins.find(x=>x.id===id),data);toast('수정');}else{D.admins.push({id:nid(),...data,lastLogin:'-'});toast('생성');}save();closeM();renderPage();}
-function delAdm(id){if(D.admins.length<=1){alert('최소 1명 필요');return;}if(!confirm('이 관리자 계정을 삭제하시겠습니까?'))return;D.admins=D.admins.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savAdm(id){const n=v('adn');if(!n){await adminAlert('이름 필요');return;}if(!id){const p=v('adp'),p2=v('adp2');if(p!==p2){await adminAlert('비밀번호 불일치');return;}}const data={loginId:v('adi'),name:n,role:v('adr')};if(id){Object.assign(D.admins.find(x=>x.id===id),data);toast('수정');}else{D.admins.push({id:nid(),...data,lastLogin:'-'});toast('생성');}save();closeM();renderPage();}
+async function delAdm(id){if(D.admins.length<=1){await adminAlert('최소 1명 필요');return;}if(!await adminConfirm('이 관리자 계정을 삭제하시겠습니까?'))return;D.admins=D.admins.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ PG사 관리 ═══
 function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
@@ -957,8 +959,8 @@ function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
 function pgF2(p={}){return`<div class="fg"><label class="fl">PG사명 *</label><input class="fi" id="pgn" value="${p.name||''}" placeholder="예: 스마트페이 (SmartPay)"></div><div class="fr2"><div class="fg"><label class="fl">MID</label><input class="fi" id="pgm" value="${p.mid||''}" placeholder="MID_XXX_001"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="pgs"><option ${(p.status||'')==='활성'?'selected':''}>활성</option><option ${p.status==='준비중'?'selected':''}>준비중</option><option ${p.status==='비활성'?'selected':''}>비활성</option></select></div></div><div class="fg"><label class="fl">API Key</label><input class="fi" id="pgk" value="${p.apiKey||''}" placeholder="live_key_****"></div><div class="fg"><label class="fl">콜백 URL</label><input class="fi" id="pgu" value="${p.callbackUrl||''}" placeholder="https://eatspay.co.kr/callback/pg"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="pgo" value="${p.note||''}" placeholder="메인 PG사, 2차 연동 등"></div>`;}
 function addPG(){openM('PG사 추가',pgF2(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG()">저장</button>`);}
 function edPG(id){const p=D.pgProviders.find(x=>x.id===id);openM('PG사 수정',pgF2(p),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG(${id})">저장</button>`);}
-function savPG(id){const n=v('pgn');if(!n){alert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-function delPG(id){if(!confirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savPG(id){const n=v('pgn');if(!n){await adminAlert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+async function delPG(id){if(!await adminConfirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 수수료율 설정 (본사 전용) ═══
 function pgFees(){
@@ -984,7 +986,7 @@ function pgFees(){
     </div>`).join('')}
   </div></div></div>
   </div>`;}
-function savDfr(){const val=parseFloat(v('dfr'));if(isNaN(val)||val<=0||val>=100){alert('올바른 수수료율 입력');return;}D.defaultFeeRate=val;save();toast(`기본 수수료율 ${val}%로 저장`);}
+async function savDfr(){const val=parseFloat(v('dfr'));if(isNaN(val)||val<=0||val>=100){await adminAlert('올바른 수수료율 입력');return;}D.defaultFeeRate=val;save();toast(`기본 수수료율 ${val}%로 저장`);}
 function savAgF(id,val){D.agencyFeeRates[id]=parseFloat(val)||4.2;save();toast('대리점 수수료율 저장 완료');}
 function calcF(){const a=parseFloat((v('ca')||'').replace(/[^0-9.]/g,''))||0;if(!a){document.getElementById('cr').textContent='—';document.getElementById('cf').textContent='';return;}const r=D.defaultFeeRate/100;const ch=Math.round(a/(1-r));document.getElementById('cr').textContent=ch.toLocaleString()+'원';document.getElementById('cf').textContent='수수료: '+(ch-a).toLocaleString()+'원 ('+D.defaultFeeRate+'%)';}
 
@@ -1068,8 +1070,8 @@ function pgBanners(){const fl=D.banners.filter(b=>b.type===bannerTab);return`
 function bnF(b={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="bnt" value="${b.title||''}" placeholder="배너 제목"></div><div class="fg"><label class="fl">링크 URL</label><input class="fi" id="bnu" value="${b.url||''}" placeholder="https://..."></div><div class="fr2"><div class="fg"><label class="fl">위치</label><select class="fs" id="bntp"><option ${(b.type||bannerTab)==='메인'?'selected':''}>메인</option><option ${b.type==='결제'?'selected':''}>결제</option></select></div><div class="fg"><label class="fl">순서</label><input class="fi" id="bno" type="number" value="${b.order||1}"></div></div>`;}
 function addBn(){openM('배너 추가',bnF(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn()">저장</button>`);}
 function edBn(id){const b=D.banners.find(x=>x.id===id);openM('배너 수정',bnF(b),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn(${id})">저장</button>`);}
-function savBn(id){const t=v('bnt');if(!t){alert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-function delBn(id){if(!confirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savBn(id){const t=v('bnt');if(!t){await adminAlert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+async function delBn(id){if(!await adminConfirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 렌더 ═══
 function renderPage(){
@@ -1172,7 +1174,7 @@ async function syncBackendAccounts() {
 
 async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>x.id===id);
-  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+  if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
 
@@ -1191,7 +1193,7 @@ async function changeFrStatus(id,newStatus,selectEl){
         })
       });
       if (!res.ok) {
-        alert('백엔드 상태 변경 전송 실패');
+        await adminAlert('백엔드 상태 변경 전송 실패');
       }
     } catch (e) {
       console.error(e);
@@ -1303,4 +1305,3 @@ bootAdmin();
 </script>
 </body>
 </html>
-

@@ -39,18 +39,48 @@ GH_PAYMENTS_PAY_KEY
 
 ## Nginx
 
-Use `deploy/nginx/eatspay.conf` as the reverse proxy template.
+Use `deploy/nginx/eatspay.conf` as the first reverse proxy template.
 
-The config routes both:
+The initial config routes both:
 
 - `www.eatspay.co.kr`
 - `eatspay.co.kr`
 
 to the Node server on `127.0.0.1:3000`.
 
+After DNS points to the VPS, run Certbot. Certbot will add the HTTPS server block and redirect rules.
+
 ## systemd
 
 Use `deploy/systemd/eatspay.service` to run the app on boot.
+
+## One-command Ubuntu bootstrap
+
+On a fresh Ubuntu 22.04 or 24.04 server, clone the repo and run:
+
+```bash
+sudo -E bash deploy/bootstrap-ubuntu.sh
+```
+
+Useful environment variables:
+
+```bash
+export REPO_URL=https://github.com/minokingdom/eatspay_admin.git
+export BRANCH=main
+export DOMAIN=www.eatspay.co.kr
+export ALT_DOMAIN=eatspay.co.kr
+export ADMIN_EMAIL=admin@eatspay.co.kr
+export ADMIN_PASSWORD='change-this-before-production'
+export GH_PAYMENTS_PAY_KEY='real-payment-key'
+```
+
+After DNS `A` records point at the VPS IP, issue SSL:
+
+```bash
+export ISSUE_SSL=true
+export LETSENCRYPT_EMAIL=admin@eatspay.co.kr
+sudo -E bash deploy/bootstrap-ubuntu.sh
+```
 
 ## Bootstrap order
 
