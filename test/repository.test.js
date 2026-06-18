@@ -397,9 +397,12 @@ test('deleteDeliveryAccountByFranchise deletes only delivery accounts owned by t
   assert.deepEqual(poolCalls[0].params, [9, 77]);
 });
 
-test('deleteFranchiseById removes dependent records before deleting owner user', async () => {
+test('deleteFranchiseById removes non-payment dependent records before deleting owner user', async () => {
   const { pool, clientCalls, client } = createFakePool({
     clientRowsBySql: [{
+      includes: 'SELECT count(*)::int AS count',
+      rows: [{ count: 0 }]
+    }, {
       includes: 'DELETE FROM users',
       rows: [{
         id: 10,
@@ -419,14 +422,60 @@ test('deleteFranchiseById removes dependent records before deleting owner user',
 
   assert.equal(deleted.franchiseId, 77);
   assert.equal(clientCalls[0].sql, 'BEGIN');
-  assert.match(clientCalls[1].sql, /DELETE FROM account_requests/);
-  assert.match(clientCalls[2].sql, /DELETE FROM delivery_accounts/);
-  assert.match(clientCalls[3].sql, /DELETE FROM transactions/);
-  assert.match(clientCalls[4].sql, /DELETE FROM pg_settlements/);
-  assert.match(clientCalls[5].sql, /UPDATE talk_posts/);
-  assert.match(clientCalls[6].sql, /DELETE FROM users/);
+  assert.match(clientCalls[1].sql, /SELECT count\(\*\)::int AS count/);
+  assert.match(clientCalls[2].sql, /DELETE FROM account_requests/);
+  assert.match(clientCalls[3].sql, /DELETE FROM delivery_accounts/);
+  assert.match(clientCalls[4].sql, /UPDATE talk_posts/);
+  assert.match(clientCalls[5].sql, /DELETE FROM users/);
+  assert.equal(clientCalls.some(call => /DELETE FROM transactions/.test(call.sql)), false);
+  assert.equal(clientCalls.some(call => /DELETE FROM pg_settlements/.test(call.sql)), false);
   assert.equal(clientCalls.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
+});
+
+test('deleteFranchiseById blocks deletion when payment history exists', async () => {
+  const { pool, clientCalls, client } = createFakePool({
+    clientRowsBySql: [{
+      includes: 'SELECT count(*)::int AS count',
+      rows: [{ count: 1 }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  await assert.rejects(() => repo.deleteFranchiseById(77), err => {
+    assert.equal(err.code, 'FRANCHISE_HAS_PAYMENTS');
+    assert.equal(err.paymentCount, 1);
+    return true;
+  });
+
+  assert.equal(clientCalls[0].sql, 'BEGIN');
+  assert.match(clientCalls[1].sql, /SELECT count\(\*\)::int AS count/);
+  assert.equal(clientCalls.some(call => /DELETE FROM users/.test(call.sql)), false);
+  assert.equal(clientCalls.at(-1).sql, 'ROLLBACK');
+  assert.equal(client.released, true);
+});
+
+test('listFranchisePaymentSummaries returns payment count and latest payment date', async () => {
+  const { pool, poolCalls } = createFakePool({
+    rowsBySql: [{
+      includes: 'GROUP BY franchise_id',
+      rows: [{
+        franchise_id: 77,
+        payment_count: 2,
+        last_payment_at: new Date('2026-06-17T08:45:00.000Z')
+      }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  const summaries = await repo.listFranchisePaymentSummaries();
+
+  assert.equal(poolCalls[0].sql.includes('max(created_at)'), true);
+  assert.deepEqual(summaries, [{
+    franchiseId: 77,
+    paymentCount: 2,
+    lastPaymentAt: '2026-06-17T08:45:00.000Z'
+  }]);
 });
 
 test('deleteAgency clears linked franchise and settlement agency references first', async () => {

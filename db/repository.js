@@ -761,10 +761,21 @@ function createRepository(pool) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        const paymentCountResult = await client.query(
+          `SELECT count(*)::int AS count
+           FROM transactions
+           WHERE franchise_id = $1`,
+          [franchiseId]
+        );
+        const paymentCount = Number(paymentCountResult.rows[0]?.count || 0);
+        if (paymentCount > 0) {
+          const err = new Error('Franchise has payment history.');
+          err.code = 'FRANCHISE_HAS_PAYMENTS';
+          err.paymentCount = paymentCount;
+          throw err;
+        }
         await client.query('DELETE FROM account_requests WHERE franchise_id = $1', [franchiseId]);
         await client.query('DELETE FROM delivery_accounts WHERE franchise_id = $1', [franchiseId]);
-        await client.query('DELETE FROM transactions WHERE franchise_id = $1', [franchiseId]);
-        await client.query('DELETE FROM pg_settlements WHERE franchise_id = $1', [franchiseId]);
         await client.query('UPDATE talk_posts SET user_id = NULL WHERE franchise_id = $1', [franchiseId]);
         const userResult = await client.query(
           `DELETE FROM users
@@ -786,6 +797,22 @@ function createRepository(pool) {
       } finally {
         client.release();
       }
+    },
+
+    async listFranchisePaymentSummaries() {
+      const result = await pool.query(
+        `SELECT
+           franchise_id,
+           count(*)::int AS payment_count,
+           max(created_at) AS last_payment_at
+         FROM transactions
+         GROUP BY franchise_id`
+      );
+      return result.rows.map(row => ({
+        franchiseId: row.franchise_id,
+        paymentCount: Number(row.payment_count || 0),
+        lastPaymentAt: row.last_payment_at instanceof Date ? row.last_payment_at.toISOString() : row.last_payment_at
+      }));
     },
 
     async updateUserPasswordByFranchiseId(franchiseId, passwordHash) {

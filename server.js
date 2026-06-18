@@ -1612,26 +1612,34 @@ app.post('/api/admin/settlement/rollback', authenticateAdmin, verifySignature, a
 }));
 
 app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res) => {
-  const users = await repo.listFranchiseUsers();
+  const [users, paymentSummaries] = await Promise.all([
+    repo.listFranchiseUsers(),
+    repo.listFranchisePaymentSummaries()
+  ]);
+  const paymentSummaryByFranchiseId = new Map(paymentSummaries.map(summary => [String(summary.franchiseId), summary]));
   return res.status(200).json({
     success: true,
-    data: users.map(user => ({
-      id: user.franchiseId,
-      name: user.franchiseName || 'Unregistered store',
-      agencyId: user.agencyId || null,
-      agency: displayAgencyName(user.agencyName),
-      owner: user.name,
-      phone: user.phone || '',
-      address: user.address || '',
-      tel: user.tel || '',
-      bizNo: user.businessNumber || '',
-      joinDate: formatDate(user.createdAt),
-      lastPaymentDate: '',
-      status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기',
-      email: user.email,
-      role: user.role,
-      deliveryAgencies: []
-    }))
+    data: users.map(user => {
+      const paymentSummary = paymentSummaryByFranchiseId.get(String(user.franchiseId)) || {};
+      return {
+        id: user.franchiseId,
+        name: user.franchiseName || 'Unregistered store',
+        agencyId: user.agencyId || null,
+        agency: displayAgencyName(user.agencyName),
+        owner: user.name,
+        phone: user.phone || '',
+        address: user.address || '',
+        tel: user.tel || '',
+        bizNo: user.businessNumber || '',
+        joinDate: formatDate(user.createdAt),
+        lastPaymentDate: paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '',
+        paymentCount: Number(paymentSummary.paymentCount || 0),
+        status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기',
+        email: user.email,
+        role: user.role,
+        deliveryAgencies: []
+      };
+    })
   });
 }));
 
@@ -1968,7 +1976,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments] = await Promise.all([
+  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAgencies(),
     repo.listDeliveryAgencies(),
@@ -1987,11 +1995,14 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       limit: 1000,
       offset: 0
     }),
-    repo.listInterestFreeInstallments()
+    repo.listInterestFreeInstallments(),
+    repo.listFranchisePaymentSummaries()
   ]);
 
   const franchiseMap = new Map();
+  const paymentSummaryByFranchiseId = new Map(paymentSummaries.map(summary => [String(summary.franchiseId), summary]));
   users.forEach(user => {
+    const paymentSummary = paymentSummaryByFranchiseId.get(String(user.franchiseId)) || {};
     franchiseMap.set(user.franchiseId, {
       id: user.franchiseId,
       name: user.franchiseName || 'Unregistered store',
@@ -2003,7 +2014,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       tel: user.tel || '',
       bizNo: user.businessNumber || '',
       joinDate: formatDate(user.createdAt),
-      lastPaymentDate: '',
+      lastPaymentDate: paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '',
+      paymentCount: Number(paymentSummary.paymentCount || 0),
       status: user.role === 'OWNER' ? '\uC815\uC0C1 \uC2B9\uC778' : user.role === 'OWNER_REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
       email: user.email,
       role: user.role,
@@ -2049,6 +2061,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       bizNo: request.businessNumber || '',
       joinDate: formatDate(request.submittedAt),
       lastPaymentDate: '',
+      paymentCount: 0,
       status: request.status === 'APPROVED' ? '\uC815\uC0C1 \uC2B9\uC778' : request.status === 'REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
       email: '',
       role: 'OWNER_PENDING',
@@ -2498,6 +2511,11 @@ function handleError(err, res) {
   }
   if (err.code === 'FRANCHISE_NOT_FOUND') {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
+  }
+  if (err.code === 'FRANCHISE_HAS_PAYMENTS') {
+    return sendError(res, 409, 'FRANCHISE_HAS_PAYMENTS', '결제 내역이 있는 가맹점은 삭제할 수 없습니다.', {
+      paymentCount: err.paymentCount || 0
+    });
   }
   if (err.code === 'INSUFFICIENT_BALANCE') {
     return sendError(res, 400, 'INSUFFICIENT_BALANCE', 'Insufficient balance for rollback.');

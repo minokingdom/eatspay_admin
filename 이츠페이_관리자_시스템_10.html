@@ -885,7 +885,11 @@ async function savF(id){
 async function delF(id){
   const f=D.franchises.find(x=>String(x.id)===String(id));
   if(!f){await adminAlert('삭제할 가맹점을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
-  if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n카드, 출금계좌, 결제내역도 DB에서 함께 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,'가맹점 삭제'))return;
+  if(Number(f.paymentCount||0)>0||f.lastPaymentDate){
+    await adminAlert('결제 내역이 있는 가맹점은 삭제할 수 없습니다.\n정산 및 결제 기록 보존을 위해 상태 변경으로 관리해주세요.','가맹점 삭제 불가');
+    return;
+  }
+  if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n결제 내역이 없는 가맹점만 삭제할 수 있습니다.\n이 작업은 되돌릴 수 없습니다.`,'가맹점 삭제'))return;
   try{
     const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
     if(!res.ok){
