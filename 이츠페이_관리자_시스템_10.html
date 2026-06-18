@@ -882,7 +882,25 @@ async function savF(id){
     await adminAlert(e.message||'가맹점 저장에 실패했습니다.');
   }
 }
-async function delF(id){const f=D.franchises.find(x=>x.id===id);if(!f)return;if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
+async function delF(id){
+  const f=D.franchises.find(x=>String(x.id)===String(id));
+  if(!f){await adminAlert('삭제할 가맹점을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
+  if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n카드, 출금계좌, 결제내역도 DB에서 함께 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`,'가맹점 삭제'))return;
+  try{
+    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      const code=err.error?.code?` [${err.error.code}]`:'';
+      throw new Error((err.error?.message||err.message||'가맹점 삭제에 실패했습니다.')+code);
+    }
+    await syncBackendTransactions({forceRender:true});
+    setTimeout(rFr,50);
+    toast('가맹점이 삭제되었습니다.');
+  }catch(e){
+    console.error(e);
+    await adminAlert(e.message||'가맹점 삭제에 실패했습니다.');
+  }
+}
 
 // ═══ 출금계좌 목록 ═══
 function pgAccounts(){return`
@@ -1046,7 +1064,31 @@ function agForm(a={}){return`
 function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);}
 function edAg(id){const a=D.agencies.find(x=>x.id===id);openM('대리점 수정',agForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${id})">저장</button>`);}
 async function savAg(id){const n=v('an');if(!n.trim()){await adminAlert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn'),parentId:v('aparent')||null,password:adminPasswordValue('apw')};if(!id&&(!data.loginId||!data.password)){await adminAlert('신규 대리점은 로그인 ID와 비밀번호가 필요합니다.');return;}try{const res=await fetch(id?`/api/admin/agencies/${encodeURIComponent(id)}`:'/api/admin/agencies',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'대리점 저장에 실패했습니다.');}await syncBackendTransactions({forceRender:true});closeM();toast(id?'대리점이 수정되었습니다.':'대리점이 생성되었습니다.');}catch(e){await adminAlert(e.message||'대리점 저장에 실패했습니다.');}}
-async function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function delAg(id){
+  const a=D.agencies.find(x=>String(x.id)===String(id));
+  if(!a){await adminAlert('삭제할 대리점을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
+  const childCount=(D.agencies||[]).filter(x=>String(x.parentId||'')===String(id)).length;
+  const franchiseCount=(D.franchises||[]).filter(x=>String(x.agencyId||'')===String(id)||x.agency===a.name).length;
+  let msg=`'${a.name}' 대리점을 삭제하시겠습니까?`;
+  if(childCount||franchiseCount){
+    msg+=`\n하위 대리점 ${childCount}개, 연결 가맹점 ${franchiseCount}개는 대리점 연결이 해제됩니다.`;
+  }
+  msg+='\n이 작업은 되돌릴 수 없습니다.';
+  if(!await adminConfirm(msg,'대리점 삭제'))return;
+  try{
+    const res=await fetch(`/api/admin/agencies/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      const code=err.error?.code?` [${err.error.code}]`:'';
+      throw new Error((err.error?.message||err.message||'대리점 삭제에 실패했습니다.')+code);
+    }
+    await syncBackendTransactions({forceRender:true});
+    toast('대리점이 삭제되었습니다.');
+  }catch(e){
+    console.error(e);
+    await adminAlert(e.message||'대리점 삭제에 실패했습니다.');
+  }
+}
 
 // ═══ 배달대행사 관리 ═══
 function pgDeliveryMgmt(){

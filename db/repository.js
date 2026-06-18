@@ -761,6 +761,11 @@ function createRepository(pool) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        await client.query('DELETE FROM account_requests WHERE franchise_id = $1', [franchiseId]);
+        await client.query('DELETE FROM delivery_accounts WHERE franchise_id = $1', [franchiseId]);
+        await client.query('DELETE FROM transactions WHERE franchise_id = $1', [franchiseId]);
+        await client.query('DELETE FROM pg_settlements WHERE franchise_id = $1', [franchiseId]);
+        await client.query('UPDATE talk_posts SET user_id = NULL WHERE franchise_id = $1', [franchiseId]);
         const userResult = await client.query(
           `DELETE FROM users
            WHERE franchise_id = $1
@@ -773,9 +778,6 @@ function createRepository(pool) {
           await client.query('ROLLBACK');
           return null;
         }
-        await client.query('DELETE FROM account_requests WHERE franchise_id = $1', [franchiseId]);
-        await client.query('DELETE FROM delivery_accounts WHERE franchise_id = $1', [franchiseId]);
-        await client.query('DELETE FROM transactions WHERE franchise_id = $1', [franchiseId]);
         await client.query('COMMIT');
         return toUser(user);
       } catch (err) {
@@ -951,11 +953,23 @@ function createRepository(pool) {
     },
 
     async deleteAgency(agencyId) {
-      const result = await pool.query(
-        'DELETE FROM agencies WHERE id = $1 RETURNING id, name',
-        [agencyId]
-      );
-      return result.rows[0] || null;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('UPDATE users SET agency_id = NULL, updated_at = now() WHERE agency_id = $1', [agencyId]);
+        await client.query('UPDATE pg_settlements SET agency_id = NULL WHERE agency_id = $1', [agencyId]);
+        const result = await client.query(
+          'DELETE FROM agencies WHERE id = $1 RETURNING id, name',
+          [agencyId]
+        );
+        await client.query('COMMIT');
+        return result.rows[0] || null;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     },
 
     async registerCard(userId, card) {

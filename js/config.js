@@ -1,8 +1,15 @@
 function resolveApiBaseUrl() {
-  const isNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const protocol = window.location && window.location.protocol;
+  const hostname = window.location && window.location.hostname;
+  const isNative = Boolean(
+    (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+    protocol === 'capacitor:' ||
+    protocol === 'ionic:' ||
+    hostname === 'localhost'
+  );
   if (isNative) return 'https://www.eatspay.co.kr';
 
-  if (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+  if (window.location && window.location.hostname === '127.0.0.1') {
     return window.location.origin;
   }
 
@@ -10,10 +17,17 @@ function resolveApiBaseUrl() {
 }
 
 function resolveAdminBaseUrl() {
-  const isNative = Boolean(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const protocol = window.location && window.location.protocol;
+  const hostname = window.location && window.location.hostname;
+  const isNative = Boolean(
+    (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+    protocol === 'capacitor:' ||
+    protocol === 'ionic:' ||
+    hostname === 'localhost'
+  );
   if (isNative) return 'https://www.eatspay.co.kr';
 
-  if (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+  if (window.location && window.location.hostname === '127.0.0.1') {
     return window.location.origin;
   }
 

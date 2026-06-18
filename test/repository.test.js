@@ -397,6 +397,58 @@ test('deleteDeliveryAccountByFranchise deletes only delivery accounts owned by t
   assert.deepEqual(poolCalls[0].params, [9, 77]);
 });
 
+test('deleteFranchiseById removes dependent records before deleting owner user', async () => {
+  const { pool, clientCalls, client } = createFakePool({
+    clientRowsBySql: [{
+      includes: 'DELETE FROM users',
+      rows: [{
+        id: 10,
+        email: 'owner@example.com',
+        name: 'Owner',
+        franchise_name: 'Store',
+        franchise_id: 77,
+        role: 'OWNER',
+        balance: 0,
+        business_number: '1200012345'
+      }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  const deleted = await repo.deleteFranchiseById(77);
+
+  assert.equal(deleted.franchiseId, 77);
+  assert.equal(clientCalls[0].sql, 'BEGIN');
+  assert.match(clientCalls[1].sql, /DELETE FROM account_requests/);
+  assert.match(clientCalls[2].sql, /DELETE FROM delivery_accounts/);
+  assert.match(clientCalls[3].sql, /DELETE FROM transactions/);
+  assert.match(clientCalls[4].sql, /DELETE FROM pg_settlements/);
+  assert.match(clientCalls[5].sql, /UPDATE talk_posts/);
+  assert.match(clientCalls[6].sql, /DELETE FROM users/);
+  assert.equal(clientCalls.at(-1).sql, 'COMMIT');
+  assert.equal(client.released, true);
+});
+
+test('deleteAgency clears linked franchise and settlement agency references first', async () => {
+  const { pool, clientCalls, client } = createFakePool({
+    clientRowsBySql: [{
+      includes: 'DELETE FROM agencies',
+      rows: [{ id: 3, name: 'Gangnam Agency' }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  const deleted = await repo.deleteAgency(3);
+
+  assert.deepEqual(deleted, { id: 3, name: 'Gangnam Agency' });
+  assert.equal(clientCalls[0].sql, 'BEGIN');
+  assert.match(clientCalls[1].sql, /UPDATE users SET agency_id = NULL/);
+  assert.match(clientCalls[2].sql, /UPDATE pg_settlements SET agency_id = NULL/);
+  assert.match(clientCalls[3].sql, /DELETE FROM agencies/);
+  assert.equal(clientCalls.at(-1).sql, 'COMMIT');
+  assert.equal(client.released, true);
+});
+
 test('findOrCreateTalkChat reuses the same buyer chat for a post', async () => {
   const { pool, poolCalls } = createFakePool({
     rowsBySql: [{
