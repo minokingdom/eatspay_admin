@@ -1119,7 +1119,6 @@ function pgFr(){
       <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th>관리</th></tr></thead><tbody id="fb"></tbody></table></div></div>
     </div>
     <div style="position:sticky;top:16px">
-      ${role==='hq'?'<div style="height:43px"></div>':''}
       <div class="card" style="padding:16px">
         ${fRow('통합검색',`<input class="fi" id="fs" placeholder="가맹점명/대표자/연락처" oninput="rFr()">`)}
         ${fRow('계좌상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option></select>`)}
