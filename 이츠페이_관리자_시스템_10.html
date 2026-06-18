@@ -769,26 +769,68 @@ async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!
 
 // ═══ 대리점 정산 ═══
 function pgSettle(){
+  ensureSettlementFilters();
   const rows=getAgencySettlementRows();
+  const total=rows.reduce((sum,row)=>sum+row.amount,0);
+  const agencyOptions=(D.agencies||[]).map(ag=>`<option value="${ag.id}" ${String(window._settleAgId||'')===String(ag.id)?'selected':''}>${agencyTypePrefix(ag)} ${ag.name}</option>`).join('');
   return`
-  <div class="aw aw-w">📊 영업 지급예정 = 거래금액 × 0.3% × 0.967 (3.3% 세금 공제 후). 대리점명 클릭 시 결제 건별 상세 조회.</div>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-    <button class="btn bo" onclick="downloadAgencySettlementExcel()">📥 정산용 엑셀 다운로드</button>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <label style="font-size:12px;color:#6B7280;font-weight:700">정산 대상</label>
+      <select class="fs" style="min-width:190px" onchange="window._settleAgId=this.value||'';renderPage()"><option value="">전체 (모든 대리점)</option>${agencyOptions}</select>
+    </div>
+    <button class="btn bg2" onclick="downloadAgencySettlementExcel()">📥 엑셀 다운로드</button>
   </div>
-  <div class="card"><div class="tw"><table><thead><tr><th>지점명</th><th>수수료율</th><th>전체건</th><th>전체금액</th><th>가맹입금액 (×0.956)</th><th>서비스수수료 (×0.044)</th><th>영업수수료 (×0.3%)</th><th>영업 지급예정 (세후)</th></tr></thead><tbody>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <label style="font-size:12px;color:#6B7280;font-weight:700">정산 기간</label>
+    <input type="date" class="fi" value="${window._settleSd}" style="width:132px;padding:5px 8px;font-size:12px" onchange="window._settleSd=this.value;renderPage()">
+    <span style="color:#6B7280">~</span>
+    <input type="date" class="fi" value="${window._settleEd}" style="width:132px;padding:5px 8px;font-size:12px" onchange="window._settleEd=this.value;renderPage()">
+    <button class="btn bo sm" onclick="setSettlementRange('thisMonth')">이번 달</button>
+    <button class="btn bo sm" onclick="setSettlementRange('lastMonth')">지난 달</button>
+    <button class="btn bo sm" onclick="setSettlementRange('all')">전체</button>
+  </div>
+  <div style="text-align:center;margin-bottom:14px;padding:14px;background:#fff;border:1px solid #E5E7EB;border-radius:8px;font-size:14px">합계 <strong style="font-size:18px;color:#1F2937">${fmt(total)}</strong></div>
+  <div class="card"><div class="ch"><span style="font-weight:700">대리점별 정산 현황</span><span style="font-size:11px;color:#6B7280">행 클릭 시 해당 대리점 결제 내역 확인</span></div><div class="tw"><table><thead><tr><th>지점명</th><th>유형</th><th style="text-align:right">전체건</th><th style="text-align:right">전체금액</th><th style="text-align:right">가맹입금액</th><th style="text-align:right">가맹입금수수료</th><th style="text-align:right">영업계약수수료액</th><th style="text-align:right">영업지급예정액</th><th style="text-align:right">실지급액</th><th>입금은행</th><th>계좌번호</th></tr></thead><tbody>
   ${rows.map(row=>{
+    const indent=agencyTreeDepth(row.agency);
+    const bg=row.agency.type==='bonbu'?'background:#E8F5E3':row.agency.type==='jijum'?'background:#FAFAFA':'';
     return`<tr style="cursor:pointer" onclick="showAgencyPayments(${row.agency.id},'${row.agency.name}')">
-      <td style="font-weight:600;color:#3B82F6;text-decoration:underline">${row.agency.name} <span style="font-size:10px;color:#9CA3AF">▶ 상세</span></td>
-      <td class="tg">${row.rate.toFixed(2)}%</td>
-      <td>${row.count}건</td>
-      <td class="tg">${fmt(row.amount)}</td>
-      <td>${fmt(row.net)}</td>
-      <td style="color:#EF4444">${fmt(row.serviceFee)}</td>
-      <td>${fmt(row.agencyFee)}</td>
-      <td class="tg">${fmt(row.agencyNet)}</td>
+      <td style="font-weight:${indent===0?'800':'700'};color:#3B82F6;text-decoration:underline;padding-left:${8+(indent*18)}px;${bg}">${agencyIndentMark(indent)} ${row.agency.name} <span style="font-size:10px;color:#9CA3AF">▶ 상세</span></td>
+      <td>${agencyTypeLabel(row.agency)}</td>
+      <td style="text-align:right">${row.count}건</td>
+      <td class="tg" style="text-align:right">${fmt(row.amount)}</td>
+      <td style="text-align:right">${fmt(row.merchantNet)}</td>
+      <td style="text-align:right;color:#EF4444">${fmt(row.serviceFee)}</td>
+      <td style="text-align:right;color:#3D9B35;font-weight:700">${fmt(row.agencyFee)}</td>
+      <td style="text-align:right">${fmt(row.agencyFee)}</td>
+      <td class="tg" style="text-align:right;font-weight:800">${fmt(row.agencyNet)}</td>
+      <td>${row.agency.settleBankName||'-'}</td>
+      <td style="font-family:monospace;font-size:11px">${row.agency.settleAccountNo||'-'}</td>
     </tr>`;
-  }).join('')}
-  </tbody></table></div></div>`;
+  }).join('')||'<tr><td colspan="11" class="emp">정산 내역 없음</td></tr>'}
+  </tbody></table></div></div>
+  <div class="aw aw-b" style="margin-top:12px">가맹입금액 = 결제금액 × 95.6%, 가맹입금수수료 = 결제금액 × 4.4%, 실지급액 = 영업계약수수료액 × 96.7% 기준입니다.</div>`;
+}
+function ensureSettlementFilters(){
+  if(window._settleAgId===undefined)window._settleAgId='';
+  if(!window._settleSd||!window._settleEd)setSettlementRange('thisMonth',false);
+}
+function setSettlementRange(type,rerender=true){
+  const now=new Date();
+  if(type==='lastMonth'){
+    const start=new Date(now.getFullYear(),now.getMonth()-1,1);
+    const end=new Date(now.getFullYear(),now.getMonth(),0);
+    window._settleSd=start.toISOString().slice(0,10);
+    window._settleEd=end.toISOString().slice(0,10);
+  }else if(type==='all'){
+    window._settleSd='2026-01-01';
+    window._settleEd=today();
+  }else{
+    window._settleSd=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    window._settleEd=today();
+  }
+  if(rerender)renderPage();
 }
 function paymentFranchiseName(payment){
   const raw=String(payment?.franchise||'').trim();
@@ -811,19 +853,67 @@ function paymentAgencyId(payment){
 }
 function paymentsForAgency(agId){
   const id=String(agId);
-  return (D.payments||[]).filter(p=>paymentAgencyId(p)===id);
+  return settlementFilteredPayments().filter(p=>paymentAgencyId(p)===id);
+}
+function settlementAgencyIds(){
+  const selected=String(window._settleAgId||'');
+  if(!selected)return null;
+  const ids=[selected];
+  const addChildren=(parentId)=>{
+    (D.agencies||[]).filter(ag=>String(ag.parentId||'')===String(parentId)).forEach(ag=>{
+      ids.push(String(ag.id));
+      addChildren(ag.id);
+    });
+  };
+  addChildren(selected);
+  return ids;
+}
+function settlementFilteredPayments(){
+  ensureSettlementFilters();
+  const ids=settlementAgencyIds();
+  return (D.payments||[]).filter(p=>{
+    const d=dateOnly(p.date);
+    if(window._settleSd&&d<window._settleSd)return false;
+    if(window._settleEd&&d>window._settleEd)return false;
+    if(ids&&ids.indexOf(paymentAgencyId(p))<0)return false;
+    return true;
+  });
 }
 function getAgencySettlementRows(){
   const r=Number(D.defaultFeeRate||4.4)/100;
-  return (D.agencies||[]).map(ag=>{
+  const ids=settlementAgencyIds();
+  return (D.agencies||[]).filter(ag=>!ids||ids.indexOf(String(ag.id))>=0).map(ag=>{
     const pays=paymentsForAgency(ag.id);
     const amount=pays.reduce((sum,p)=>sum+Number(p.amount||0),0);
     const serviceFee=Math.round(amount*r);
-    const net=amount-serviceFee;
-    const agencyFee=Math.round(amount*0.003);
+    const merchantNet=amount-serviceFee;
+    const rate=Number(getEffRate(ag)||0);
+    const agencyFee=Math.round(amount*(rate/100));
     const agencyNet=Math.round(agencyFee*0.967);
-    return{agency:ag,payments:pays,count:pays.length,amount,serviceFee,net,agencyFee,agencyNet,rate:getEffRate(ag)};
-  });
+    return{agency:ag,payments:pays,count:pays.length,amount,serviceFee,merchantNet,agencyFee,agencyNet,rate};
+  }).sort((a,b)=>agencySortKey(a.agency).localeCompare(agencySortKey(b.agency)));
+}
+function agencyTypeLabel(ag){return ({bonbu:'본부',jisa:'지사',jijum:'지점'}[ag?.type]||(`${ag?.level||'-'}단계`));}
+function agencyTypePrefix(ag){return ({bonbu:'[본부]',jisa:'[지사]',jijum:'[지점]'}[ag?.type]||`[${ag?.level||'-'}단계]`);}
+function agencyIndentMark(depth){return depth===0?'→':depth===1?'└':'　└';}
+function agencyTreeDepth(ag){
+  let depth=0,current=ag,guard=0;
+  while(current?.parentId&&guard<10){
+    depth+=1;
+    current=(D.agencies||[]).find(item=>String(item.id)===String(current.parentId));
+    guard+=1;
+  }
+  return depth;
+}
+function agencySortKey(ag){
+  const path=[];
+  let current=ag,guard=0;
+  while(current&&guard<10){
+    path.unshift(String(current.name||current.id).padStart(4,'0'));
+    current=(D.agencies||[]).find(item=>String(item.id)===String(current.parentId));
+    guard+=1;
+  }
+  return `${path.join('/')}/${String(ag.id).padStart(5,'0')}`;
 }
 function xlsEscape(v){
   return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -833,15 +923,16 @@ function downloadAgencySettlementExcel(){
   const detailRows=rows.flatMap(row=>row.payments.map(p=>{
     const amount=Number(p.amount||0);
     const fee=Math.round(amount*(Number(D.defaultFeeRate||4.4)/100));
-    return{agency:row.agency.name,date:p.date,approvalNo:p.approvalNo,franchise:paymentFranchiseName(p),amount,net:amount-fee,serviceFee:fee,agencyFee:Math.round(amount*0.003),agencyNet:Math.round(Math.round(amount*0.003)*0.967)};
+    const agencyFee=Math.round(amount*(row.rate/100));
+    return{agency:row.agency.name,date:p.date,approvalNo:p.approvalNo,franchise:paymentFranchiseName(p),amount,merchantNet:amount-fee,serviceFee:fee,agencyFee,agencyNet:Math.round(agencyFee*0.967)};
   }));
-  const summary=rows.map(row=>`<tr><td>${xlsEscape(row.agency.name)}</td><td>${row.rate.toFixed(2)}%</td><td>${row.count}</td><td>${row.amount}</td><td>${row.net}</td><td>${row.serviceFee}</td><td>${row.agencyFee}</td><td>${row.agencyNet}</td></tr>`).join('');
-  const details=detailRows.length?detailRows.map(row=>`<tr><td>${xlsEscape(row.agency)}</td><td>${xlsEscape(row.date)}</td><td>${xlsEscape(row.approvalNo)}</td><td>${xlsEscape(row.franchise)}</td><td>${row.amount}</td><td>${row.net}</td><td>${row.serviceFee}</td><td>${row.agencyFee}</td><td>${row.agencyNet}</td></tr>`).join(''):`<tr><td colspan="9">정산할 결제 내역이 없습니다.</td></tr>`;
+  const summary=rows.map(row=>`<tr><td>${xlsEscape(row.agency.name)}</td><td>${xlsEscape(agencyTypeLabel(row.agency))}</td><td>${row.count}</td><td>${row.amount}</td><td>${row.merchantNet}</td><td>${row.serviceFee}</td><td>${row.agencyFee}</td><td>${row.agencyFee}</td><td>${row.agencyNet}</td><td>${xlsEscape(row.agency.settleBankName||'')}</td><td>${xlsEscape(row.agency.settleAccountNo||'')}</td></tr>`).join('');
+  const details=detailRows.length?detailRows.map(row=>`<tr><td>${xlsEscape(row.agency)}</td><td>${xlsEscape(row.date)}</td><td>${xlsEscape(row.approvalNo)}</td><td>${xlsEscape(row.franchise)}</td><td>${row.amount}</td><td>${row.merchantNet}</td><td>${row.serviceFee}</td><td>${row.agencyFee}</td><td>${row.agencyNet}</td></tr>`).join(''):`<tr><td colspan="9">정산할 결제 내역이 없습니다.</td></tr>`;
   const html=`<!doctype html><html><head><meta charset="UTF-8"></head><body>
-    <h3>이츠페이 대리점 정산</h3>
-    <table border="1"><thead><tr><th>대리점명</th><th>수수료율</th><th>전체건</th><th>전체금액</th><th>가맹입금액</th><th>서비스수수료</th><th>영업수수료</th><th>세후 지급</th></tr></thead><tbody>${summary}</tbody></table>
+    <h3>이츠페이 대리점 정산 (${xlsEscape(window._settleSd)} ~ ${xlsEscape(window._settleEd)})</h3>
+    <table border="1"><thead><tr><th>지점명</th><th>유형</th><th>전체건</th><th>전체금액</th><th>가맹입금액</th><th>가맹입금수수료</th><th>영업계약수수료액</th><th>영업지급예정액</th><th>실지급액</th><th>입금은행</th><th>계좌번호</th></tr></thead><tbody>${summary}</tbody></table>
     <br>
-    <table border="1"><thead><tr><th>대리점명</th><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액</th><th>서비스수수료</th><th>영업수수료</th><th>세후 지급</th></tr></thead><tbody>${details}</tbody></table>
+    <table border="1"><thead><tr><th>대리점명</th><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>가맹입금액</th><th>가맹입금수수료</th><th>영업수수료</th><th>실지급액</th></tr></thead><tbody>${details}</tbody></table>
   </body></html>`;
   const blob=new Blob(['\ufeff',html],{type:'application/vnd.ms-excel;charset=utf-8;'});
   const a=document.createElement('a');
@@ -855,15 +946,17 @@ function downloadAgencySettlementExcel(){
 function showAgencyPayments(agId,agName){
   const pays=paymentsForAgency(agId);
   if(!pays.length){toast('결제 내역이 없습니다');return;}
+  const ag=(D.agencies||[]).find(item=>String(item.id)===String(agId))||{};
   const tot=pays.reduce((s,p)=>s+Number(p.amount||0),0);
   const svcFee=Math.round(tot*0.044);
-  const agFee=Math.round(tot*0.003);
+  const rate=Number(getEffRate(ag)||0);
+  const agFee=Math.round(tot*(rate/100));
   const agNet=Math.round(agFee*0.967);
   openM(`대리점 정산 상세 - ${agName}`,
     `<div class="aw aw-b" style="margin-bottom:12px"><div style="font-size:11px">전체건: <strong>${pays.length}건</strong> &nbsp;|&nbsp; 전체금액: <strong class="tg">${fmt(tot)}</strong> &nbsp;|&nbsp; 서비스수수료: <strong style="color:#EF4444">${fmt(svcFee)}</strong> &nbsp;|&nbsp; 영업 지급예정: <strong class="tg">${fmt(agNet)}</strong></div></div>
-    <div class="settlement-detail-scroll"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
-    ${pays.map(p=>{const fee=Math.round(Number(p.amount||0)*0.044);const net=Number(p.amount||0)-fee;return`<tr><td style="font-size:11px">${p.date}</td><td style="font-family:monospace;font-size:10px">${p.approvalNo}</td><td>${paymentFranchiseName(p)}</td><td class="tg">${fmt(p.amount)}</td><td>${fmt(net)}</td><td style="color:#EF4444">${fmt(fee)}</td></tr>`;}).join('')}
-    <tr style="background:#F0FAF0;font-weight:700"><td colspan="3">합계</td><td class="tg">${fmt(tot)}</td><td>${fmt(tot-svcFee)}</td><td style="color:#EF4444">${fmt(svcFee)}</td></tr>
+    <div class="settlement-detail-scroll"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>가맹입금액</th><th>수수료</th><th>영업수수료</th><th>실지급액</th></tr></thead><tbody>
+    ${pays.map(p=>{const amount=Number(p.amount||0);const fee=Math.round(amount*0.044);const net=amount-fee;const rowAgencyFee=Math.round(amount*(rate/100));const rowAgencyNet=Math.round(rowAgencyFee*0.967);return`<tr><td style="font-size:11px">${p.date}</td><td style="font-family:monospace;font-size:10px">${p.approvalNo}</td><td>${paymentFranchiseName(p)}</td><td class="tg">${fmt(amount)}</td><td>${fmt(net)}</td><td style="color:#EF4444">${fmt(fee)}</td><td>${fmt(rowAgencyFee)}</td><td class="tg">${fmt(rowAgencyNet)}</td></tr>`;}).join('')}
+    <tr style="background:#F0FAF0;font-weight:700"><td colspan="3">합계</td><td class="tg">${fmt(tot)}</td><td>${fmt(tot-svcFee)}</td><td style="color:#EF4444">${fmt(svcFee)}</td><td>${fmt(agFee)}</td><td class="tg">${fmt(agNet)}</td></tr>
     </tbody></table></div>`,
   `<button class="btn bg2" onclick="closeM()">닫기</button>`);
   document.querySelector('#mo .mbox')?.classList.add('wide');
