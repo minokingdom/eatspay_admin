@@ -329,7 +329,7 @@ function bindAdminPassword(id,toggleId){
   input.dataset.adminPwBound='1';
   let visible=false;
   let realValue=input.dataset.realPassword||'';
-  const setCursor=pos=>setTimeout(()=>{try{input.setSelectionRange(pos,pos);}catch(e){}},0);
+  const moveCursorToEnd=()=>setTimeout(()=>{try{const pos=input.value.length;input.setSelectionRange(pos,pos);}catch(e){}},0);
   const render=()=>{
     input.type='text';
     input.classList.remove('admin-pw-mask');
@@ -339,42 +339,31 @@ function bindAdminPassword(id,toggleId){
     input.style.webkitTextFillColor='#111827';
     input.style.caretColor='#111827';
     if(toggle)toggle.textContent=visible?'숨김':'보기';
+    moveCursorToEnd();
   };
   input.addEventListener('beforeinput',e=>{
-    const start=input.selectionStart??realValue.length;
-    const end=input.selectionEnd??start;
     const type=e.inputType||'';
-    let next=realValue;
-    let cursor=start;
-    if(type==='insertFromPaste'){
-      return;
-    }
+    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
     if(type.startsWith('insert')){
       const data=e.data||'';
-      next=realValue.slice(0,start)+data+realValue.slice(end);
-      cursor=start+data.length;
+      realValue=(visible?input.value:realValue);
+      realValue=allSelected?data:realValue+data;
     }else if(type==='deleteContentBackward'){
-      if(start!==end){next=realValue.slice(0,start)+realValue.slice(end);cursor=start;}
-      else if(start>0){next=realValue.slice(0,start-1)+realValue.slice(end);cursor=start-1;}
+      realValue=allSelected?'':realValue.slice(0,-1);
     }else if(type==='deleteContentForward'){
-      if(start!==end){next=realValue.slice(0,start)+realValue.slice(end);cursor=start;}
-      else{next=realValue.slice(0,start)+realValue.slice(start+1);cursor=start;}
+      realValue=allSelected?'':realValue.slice(0,-1);
     }else{
       return;
     }
     e.preventDefault();
-    realValue=next;
     render();
-    setCursor(cursor);
   });
   input.addEventListener('paste',e=>{
     e.preventDefault();
     const text=(e.clipboardData||window.clipboardData)?.getData('text')||'';
-    const start=input.selectionStart??realValue.length;
-    const end=input.selectionEnd??start;
-    realValue=realValue.slice(0,start)+text+realValue.slice(end);
+    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
+    realValue=allSelected?text:realValue+text;
     render();
-    setCursor(start+text.length);
   });
   input.addEventListener('input',()=>{
     const current=input.value||'';
@@ -385,11 +374,14 @@ function bindAdminPassword(id,toggleId){
     }
     render();
   });
+  input.addEventListener('focus',moveCursorToEnd);
+  input.addEventListener('click',moveCursorToEnd);
+  input.addEventListener('keyup',moveCursorToEnd);
   toggle?.addEventListener('click',()=>{
     visible=!visible;
     render();
     input.focus();
-    setCursor(realValue.length);
+    moveCursorToEnd();
   });
   render();
 }
