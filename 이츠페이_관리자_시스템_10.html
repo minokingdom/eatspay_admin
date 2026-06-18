@@ -250,13 +250,6 @@ function emptyData(){
 }
 function save(){}
 function load(){D=emptyData();}
-async function resetData(){
-  if(!await adminConfirm('브라우저 임시 데이터를 비우고 DB 기준으로 다시 불러올까요?','데이터 초기화'))return;
-  D=emptyData();
-  await syncBackendTransactions();
-  render();
-  toast('DB 기준으로 새로고침 완료');
-}
 
 function getActiveDA(){return D.deliveryAgencyList.filter(a=>a.status==='active').map(a=>a.name);}
 function getAllDA(){return D.deliveryAgencyList.filter(a=>a.status!=='deleted');}
