@@ -145,7 +145,12 @@ curl -fsS -X POST https://www.eatspay.co.kr/api/admin/push/test \
 
 ## Current trigger
 
-When an admin approves or rejects a virtual account request, the server:
+The server sends push notifications when:
+
+- An admin approves or rejects a virtual account request.
+- A Talk chat message is sent to the other participant.
+
+For each push event, the server:
 
 1. Saves an in-app notification in PostgreSQL.
 2. Sends a push notification to every enabled device token registered for that user.

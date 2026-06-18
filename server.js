@@ -484,6 +484,29 @@ app.post('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, 
     senderUserId: req.user.id,
     message
   });
+  const recipientUserId = Number(chat.sellerUserId) === Number(req.user.id)
+    ? chat.buyerUserId
+    : chat.sellerUserId;
+  if (recipientUserId && Number(recipientUserId) !== Number(req.user.id)) {
+    const senderName = req.user.franchiseName || req.user.name || '이츠페이 Talk';
+    const preview = message.length > 80 ? `${message.slice(0, 80)}...` : message;
+    const notification = await repo.createNotification({
+      userId: recipientUserId,
+      type: 'TALK_MESSAGE',
+      title: '새 Talk 메시지가 도착했습니다.',
+      body: `${senderName}: ${preview}`,
+      data: {
+        chatId: chat.id,
+        postId: chat.postId,
+        messageId: created.id,
+        senderUserId: req.user.id,
+        url: '/'
+      }
+    });
+    sendPushToUser(repo, recipientUserId, notification).catch(err => {
+      console.warn('[push] Talk message push failed:', err.message);
+    });
+  }
   return res.status(201).json({
     success: true,
     data: {
