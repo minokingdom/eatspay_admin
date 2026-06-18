@@ -206,6 +206,7 @@ let backendPollTimer=null;
 let backendSnapshot='';
 let pendingAccountPage=1;
 let _sddSel={};
+let frDetailId=null;
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
 function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
@@ -962,34 +963,60 @@ function showAgencyPayments(agId,agName){
   document.querySelector('#mo .mbox')?.classList.add('wide');
 }// ═══ 가맹점 목록 ═══
 function pgFr(){return`
-  ${role==='hq'?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
-  <div class="sb2">
-    <input class="si" id="fs" placeholder="가맹점명 · 대표자 · 연락처 통합검색..." oninput="rFr()">
-    <select class="fs" style="width:130px" id="fst2" onchange="rFr()"><option value="">전체 상태</option><option>정상 승인</option><option>승인 대기</option><option>승인 거절</option></select>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start">
+    <div>
+      ${role==='hq'?`<div style="text-align:right;margin-bottom:10px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
+      <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th>관리</th></tr></thead><tbody id="fb"></tbody></table></div></div>
+    </div>
+    <div style="position:sticky;top:16px">
+      <div class="card" style="padding:16px">
+        ${fRow('통합검색',`<input class="fi" id="fs" placeholder="가맹점명/대표자/연락처" oninput="rFr()">`)}
+        ${fRow('계좌상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option></select>`)}
+        ${fRow('카드등록',`<select class="fs" id="fcard" onchange="rFr()"><option value="">전체</option><option value="yes">등록</option><option value="no">미등록</option></select>`)}
+        ${fRow('상태',`<select class="fs" id="fst2" onchange="rFr()"><option value="">전체</option><option>정상 승인</option><option>승인 대기</option><option>승인 거절</option></select>`)}
+        ${role==='hq'?fRow('대리점',makeSdd('frag',(D.agencies||[]).map(a=>({val:a.id,label:a.name})),'rFr()')):''}
+        <button class="btn bo" onclick="clearFrFilters()" style="width:100%;justify-content:center">초기화</button>
+      </div>
+    </div>
   </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">전체 <span class="tg">${D.franchises.length}개</span></span></div>
-  <div class="tw"><table><thead><tr><th>IDX</th><th>상점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>가입일시</th><th>마지막 결제일</th><th>상태 변경</th><th>수정</th></tr></thead><tbody id="fb"></tbody></table></div></div>`;}
+  `;}
+function clearFrFilters(){['fs','facst','fcard','fst2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.frag='';rFr();}
+function franchiseAccountStatus(f){
+  const accounts=f.deliveryAgencies||[];
+  if(!accounts.length)return'미등록';
+  if(accounts.some(a=>a.accountStatus==='승인대기'))return'승인대기';
+  if(accounts.some(a=>a.accountStatus==='반려'))return'반려';
+  if(accounts.some(a=>a.accountStatus==='승인완료'))return'승인완료';
+  return accounts[0]?.accountStatus||'미등록';
+}
+function franchiseCardRegistered(f){return !!(f.cardRegistered||f.cardCompany||f.cardLast4);}
+function goFrDetail(id){frDetailId=id;page='franchiseDetail';renderNav();renderPage();}
 function rFr(){
-  const q=v('fs').toLowerCase(),st=v('fst2');
+  const q=v('fs').toLowerCase(),st=v('fst2'),accountStatus=v('facst'),cardFilter=v('fcard'),agencyFilter=String(_sddSel.frag||'');
   const el=document.getElementById('fb');if(!el)return;
   const rows=D.franchises.filter(f=>{
     if(st&&f.status!==st)return false;
+    if(accountStatus&&franchiseAccountStatus(f)!==accountStatus)return false;
+    if(cardFilter==='yes'&&!franchiseCardRegistered(f))return false;
+    if(cardFilter==='no'&&franchiseCardRegistered(f))return false;
+    if(agencyFilter&&String(f.agencyId||'')!==agencyFilter)return false;
     if(!q)return true;
-    return f.name.toLowerCase().includes(q)||f.phone.includes(q)||f.owner.toLowerCase().includes(q);
+    return String(f.name||'').toLowerCase().includes(q)||String(f.phone||'').includes(q)||String(f.owner||'').toLowerCase().includes(q);
   });
-  el.innerHTML=rows.map(f=>`<tr>
-    <td style="color:#9CA3AF;font-size:11px">${f.id}</td>
-    <td style="font-weight:600">${f.name}</td>
-    <td>${f.agency}</td><td>${f.owner}</td><td>${f.phone}</td>
+  el.innerHTML=rows.map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${f.id})">
+    <td><div style="font-weight:700;color:#3B82F6">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||f.email||'-'}</div></td>
+    <td>${f.agency||agencyNameById(f.agencyId)||'-'}</td><td>${f.owner||'-'}</td><td>${f.phone||'-'}</td>
     <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${a.agency}&nbsp;${bdg(a.accountStatus)}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
-    <td style="font-size:11px">${f.joinDate}</td>
+    <td>${franchiseCardRegistered(f)?`<span class="bdg bg">등록</span><div style="font-size:10px;color:#6B7280">${f.cardCompany||''} ${f.cardLast4?`****${f.cardLast4}`:''}</div>`:'<span class="bdg bgr">미등록</span>'}</td>
+    <td style="font-size:11px">${f.joinDate||'-'}</td>
     <td style="font-size:11px">${f.lastPaymentDate||'-'}</td>
-    <td>${role==='hq'?`<select class="status-sel" onchange="changeFrStatus(${f.id},this.value,this)">
+    <td onclick="event.stopPropagation()">${role==='hq'?`<select class="status-sel" onchange="changeFrStatus(${f.id},this.value,this)">
       <option ${f.status==='정상 승인'?'selected':''} value="정상 승인">정상 승인</option>
       <option ${f.status==='승인 대기'?'selected':''} value="승인 대기">승인 대기</option>
       <option ${f.status==='승인 거절'?'selected':''} value="승인 거절">승인 거절</option>
     </select>`:bdg(f.status)}</td>
-    <td><div class="ab">
+    <td onclick="event.stopPropagation()"><div class="ab">
+      <button class="btn bo xs" onclick="goFrDetail(${f.id})">상세</button>
       <button class="btn bo xs" onclick="edF(${f.id})">수정</button>
       ${role==='hq'?`<button class="btn bd xs" onclick="delF(${f.id})">삭제</button>`:''}
     </div></td>
@@ -1005,6 +1032,62 @@ async function changeFrStatus(id,newStatus,selectEl){
   // 테이블 새로고침
   setTimeout(rFr,30);
 }
+function pgFrDetail(){
+  const f=(D.franchises||[]).find(x=>String(x.id)===String(frDetailId));
+  if(!f)return`<div class="emp">가맹점 정보를 찾을 수 없습니다.</div>`;
+  const agency=(D.agencies||[]).find(a=>String(a.id)===String(f.agencyId||''))||{name:f.agency||'-'};
+  const payments=(D.payments||[]).filter(p=>String(p.franchiseId||'')===String(f.id)||paymentFranchiseName(p)===f.name).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const accountStatus=franchiseAccountStatus(f);
+  const cardRegistered=franchiseCardRegistered(f);
+  return`
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+    <button class="btn bo" onclick="page='franchises';frDetailId=null;renderNav();renderPage()">← 목록으로</button>
+    <h2 style="margin:0;font-size:20px;font-weight:800">${f.name}</h2>
+    ${bdg(f.status)}
+    <span style="font-size:12px;color:#6B7280;background:#F3F4F6;padding:3px 10px;border-radius:10px">고객 ID: ${f.customerId||f.email||'-'}</span>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      ${role==='hq'?`<button class="btn bo" onclick="edF(${f.id})">정보 수정</button><button class="btn bd" onclick="delF(${f.id})">삭제</button>`:''}
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card"><div class="ch"><span style="font-weight:700">기본 정보</span></div><div style="padding:14px;display:grid;gap:9px;font-size:13px">
+        ${frInfoRow('대표자',f.owner||'-')}
+        ${frInfoRow('연락처',f.phone||'-')}
+        ${frInfoRow('사업자등록번호',f.bizNo||'-')}
+        ${frInfoRow('주소',f.address||'-')}
+        ${frInfoRow('가입일',f.joinDate||'-')}
+        ${frInfoRow('최근 결제',f.lastPaymentDate||'-')}
+        ${frInfoRow('비고',f.note||'-')}
+      </div></div>
+      <div class="card"><div class="ch"><span style="font-weight:700">소속 대리점</span></div><div style="padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div><div style="font-weight:700">${agency.name||'-'}</div><div style="font-size:11px;color:#6B7280">${agencyTypeLabel(agency)}</div></div>
+        <button class="btn bo sm" onclick="page='agencies';renderNav();renderPage()">대리점 관리 →</button>
+      </div></div>
+      <div class="card"><div class="ch"><span style="font-weight:700">카드 정보</span></div><div style="padding:14px">
+        ${cardRegistered?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="background:#1D4ED8;color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700">${f.cardCompany||'카드'}</span><span style="font-family:monospace;font-size:14px;font-weight:800">**** **** **** ${f.cardLast4||'????'}</span></div><div style="font-size:12px;color:#6B7280">등록일: ${f.cardRegisteredDate||'-'}</div>`:`<div style="color:#9CA3AF;font-size:13px">등록된 카드 없음</div>`}
+      </div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card"><div class="ch"><span style="font-weight:700">배달대행사 계좌</span><span>${bdg(accountStatus)}</span></div><div style="padding:0">
+        ${(f.deliveryAgencies||[]).length?(f.deliveryAgencies||[]).map((da,idx)=>`<div style="padding:12px 14px;border-bottom:1px solid #F3F4F6">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px"><span style="font-weight:700">${da.agency}</span><div class="ab">${bdg(da.accountStatus)}${role==='hq'&&da.accountStatus==='승인대기'?`<button class="btn bg2 xs" onclick="approveAccount(${f.id},${idx});goFrDetail(${f.id})">승인</button><button class="btn bd xs" onclick="rejectAccount(${f.id},${idx});goFrDetail(${f.id})">반려</button>`:''}</div></div>
+          <div style="font-size:12px;color:#6B7280;display:grid;gap:3px">
+            <div>은행: ${da.bankName||'-'} | 예금주: ${da.accountHolder||'-'}</div>
+            <div style="font-family:monospace">계좌: ${da.accountNo||'미입력'}</div>
+            <div>증빙: ${da.fileName||'미첨부'}</div>
+          </div>
+        </div>`).join(''):`<div style="padding:20px;text-align:center;color:#9CA3AF">등록된 계좌 없음</div>`}
+      </div></div>
+      <div class="card"><div class="ch"><span style="font-weight:700">결제·충전 내역</span><span style="font-size:12px;color:#6B7280">총 ${payments.length}건</span></div>
+        <div style="max-height:360px;overflow:auto"><table><thead><tr><th>일시</th><th>구분</th><th style="text-align:right">금액</th><th>승인번호</th><th>상태</th></tr></thead><tbody>
+          ${payments.slice(0,50).map(p=>`<tr><td style="font-size:11px">${p.date}</td><td>${p.type||'-'}</td><td class="tg" style="text-align:right">${fmt(p.amount)}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:10px" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${bdg(p.status)}</td></tr>`).join('')||`<tr><td colspan="5" class="emp">결제 내역 없음</td></tr>`}
+        </tbody></table></div>
+      </div>
+    </div>
+  </div>`;
+}
+function frInfoRow(label,value){return`<div style="display:grid;grid-template-columns:110px 1fr;align-items:start"><span style="color:#6B7280">${label}</span><span style="font-weight:600">${value}</span></div>`;}
 
 // 가맹점 배달대행사 폼
 function getAvailDA(idx){
@@ -1678,7 +1761,7 @@ async function delBn(id){if(!await adminConfirm('배너를 삭제하시겠습니
 
 // ═══ 렌더 ═══
 function renderPage(){
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,accounts:pgAccounts,agencies:pgAg,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
   document.getElementById('ct').innerHTML=(m[page]||pgDash)();
   if(page==='payments')   setTimeout(rPay,30);
   if(page==='pgsettle')   setTimeout(rGS,30);
