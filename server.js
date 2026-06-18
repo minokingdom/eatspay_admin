@@ -202,6 +202,22 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_pg_providers (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      mid TEXT,
+      api_key_encrypted TEXT,
+      api_key_masked TEXT,
+      callback_url TEXT,
+      status TEXT NOT NULL DEFAULT '준비중',
+      note TEXT,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query("ALTER TABLE admin_pg_providers ADD COLUMN IF NOT EXISTS api_key_masked TEXT");
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2000,7 +2016,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides] = await Promise.all([
+  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAdminUsers(),
     repo.listAgencies(),
@@ -2024,7 +2040,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     repo.listFranchisePaymentSummaries(),
     repo.listAdminFaqs(),
     repo.listAdminBoardPosts('notice'),
-    repo.listAdminBoardPosts('guide')
+    repo.listAdminBoardPosts('guide'),
+    repo.listAdminPgProviders()
   ]);
 
   const franchiseMap = new Map();
@@ -2203,6 +2220,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     notices,
     guides,
     admins: adminUsers,
+    pgProviders,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2420,6 +2438,69 @@ app.delete('/api/admin/admins/:id', authenticateAdmin, asyncHandler(async (req, 
   const deleted = await repo.deleteAdminUser(id);
   if (!deleted) {
     return sendError(res, 404, 'ADMIN_NOT_FOUND', 'Admin account was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+app.get('/api/admin/pg-providers', authenticateAdmin, asyncHandler(async (req, res) => {
+  const providers = await repo.listAdminPgProviders();
+  return res.status(200).json({ success: true, data: providers });
+}));
+
+app.post('/api/admin/pg-providers', authenticateAdmin, asyncHandler(async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) {
+    return sendError(res, 400, 'BAD_REQUEST', 'PG provider name is required.');
+  }
+  const apiKey = String(req.body?.apiKey || '').trim();
+  const provider = await repo.createAdminPgProvider({
+    name,
+    mid: String(req.body?.mid || '').trim(),
+    apiKeyEncrypted: apiKey ? encryptAdminSecret(apiKey) : null,
+    apiKeyMasked: apiKey ? maskAdminSecret(apiKey) : '',
+    callbackUrl: String(req.body?.callbackUrl || '').trim(),
+    status: String(req.body?.status || '준비중').trim(),
+    note: String(req.body?.note || '').trim()
+  });
+  return res.status(201).json({ success: true, data: provider });
+}));
+
+app.patch('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'PG provider id is required.');
+  }
+  const name = String(req.body?.name || '').trim();
+  if (!name) {
+    return sendError(res, 400, 'BAD_REQUEST', 'PG provider name is required.');
+  }
+  const apiKey = String(req.body?.apiKey || '').trim();
+  const fields = {
+    name,
+    mid: String(req.body?.mid || '').trim(),
+    callbackUrl: String(req.body?.callbackUrl || '').trim(),
+    status: String(req.body?.status || '준비중').trim(),
+    note: String(req.body?.note || '').trim()
+  };
+  if (apiKey) {
+    fields.apiKeyEncrypted = encryptAdminSecret(apiKey);
+    fields.apiKeyMasked = maskAdminSecret(apiKey);
+  }
+  const provider = await repo.updateAdminPgProvider(id, fields);
+  if (!provider) {
+    return sendError(res, 404, 'PG_PROVIDER_NOT_FOUND', 'PG provider was not found.');
+  }
+  return res.status(200).json({ success: true, data: provider });
+}));
+
+app.delete('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'PG provider id is required.');
+  }
+  const deleted = await repo.deleteAdminPgProvider(id);
+  if (!deleted) {
+    return sendError(res, 404, 'PG_PROVIDER_NOT_FOUND', 'PG provider was not found.');
   }
   return res.status(200).json({ success: true, data: deleted });
 }));
@@ -2810,6 +2891,27 @@ function verifySignature(req, res, next) {
     return sendError(res, 403, 'SIGNATURE_VERIFICATION_FAILED', 'Invalid HMAC signature.');
   }
   return next();
+}
+
+function maskAdminSecret(secret) {
+  const value = String(secret || '');
+  if (!value) return '';
+  if (value.length <= 8) return `${value.slice(0, 2)}****`;
+  return `${value.slice(0, 4)}****${value.slice(-4)}`;
+}
+
+function adminSecretKey() {
+  return crypto.createHash('sha256')
+    .update(String(process.env.EATSPAY_HMAC_SECRET || process.env.JWT_SECRET || ''))
+    .digest();
+}
+
+function encryptAdminSecret(secret) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', adminSecretKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(secret), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
 }
 
 async function hashPassword(password) {

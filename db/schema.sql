@@ -175,6 +175,20 @@ CREATE TABLE IF NOT EXISTS admin_board_posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS admin_pg_providers (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  mid TEXT,
+  api_key_encrypted TEXT,
+  api_key_masked TEXT,
+  callback_url TEXT,
+  status TEXT NOT NULL DEFAULT '준비중',
+  note TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

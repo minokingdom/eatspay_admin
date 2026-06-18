@@ -100,6 +100,23 @@ function toAdminBoardPost(row) {
   };
 }
 
+function toAdminPgProvider(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    mid: row.mid || '',
+    apiKey: row.api_key_masked || '',
+    hasApiKey: !!row.api_key_encrypted,
+    callbackUrl: row.callback_url || '',
+    status: row.status || '준비중',
+    note: row.note || '',
+    active: row.active !== false,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toTalkPost(row) {
   if (!row) return null;
   return {
@@ -1522,6 +1539,81 @@ function createRepository(pool) {
          WHERE id = $1 AND type = $2
          RETURNING id`,
         [id, type]
+      );
+      return result.rows[0] || null;
+    },
+
+    async listAdminPgProviders() {
+      const result = await pool.query(
+        `SELECT id, name, mid, api_key_encrypted, api_key_masked, callback_url, status, note, active, created_at, updated_at
+         FROM admin_pg_providers
+         WHERE active = true
+         ORDER BY id ASC`
+      );
+      return result.rows.map(toAdminPgProvider);
+    },
+
+    async createAdminPgProvider(fields) {
+      const result = await pool.query(
+        `INSERT INTO admin_pg_providers (
+           name, mid, api_key_encrypted, api_key_masked, callback_url, status, note, active
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+         RETURNING id, name, mid, api_key_encrypted, api_key_masked, callback_url, status, note, active, created_at, updated_at`,
+        [
+          fields.name,
+          fields.mid || '',
+          fields.apiKeyEncrypted || null,
+          fields.apiKeyMasked || '',
+          fields.callbackUrl || '',
+          fields.status || '준비중',
+          fields.note || ''
+        ]
+      );
+      return toAdminPgProvider(result.rows[0]);
+    },
+
+    async updateAdminPgProvider(id, fields) {
+      const updates = [
+        'name = $2',
+        'mid = $3',
+        'callback_url = $4',
+        'status = $5',
+        'note = $6',
+        'updated_at = now()'
+      ];
+      const params = [
+        id,
+        fields.name,
+        fields.mid || '',
+        fields.callbackUrl || '',
+        fields.status || '준비중',
+        fields.note || ''
+      ];
+      if (fields.apiKeyEncrypted !== undefined) {
+        params.push(fields.apiKeyEncrypted || null);
+        updates.push(`api_key_encrypted = $${params.length}`);
+        params.push(fields.apiKeyMasked || '');
+        updates.push(`api_key_masked = $${params.length}`);
+      }
+      const result = await pool.query(
+        `UPDATE admin_pg_providers
+         SET ${updates.join(', ')}
+         WHERE id = $1 AND active = true
+         RETURNING id, name, mid, api_key_encrypted, api_key_masked, callback_url, status, note, active, created_at, updated_at`,
+        params
+      );
+      return toAdminPgProvider(result.rows[0]);
+    },
+
+    async deleteAdminPgProvider(id) {
+      const result = await pool.query(
+        `UPDATE admin_pg_providers
+         SET active = false,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [id]
       );
       return result.rows[0] || null;
     },

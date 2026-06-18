@@ -21,10 +21,7 @@ const CONFIG = {
     {name:"정산 관리자",desc:"결제 내역, PG정산 확인, 정산 조회",color:"#3B82F6"},
     {name:"고객 관리자",desc:"공지사항, FAQ, 이용가이드 작성/수정",color:"#3D9B35"},
   ],
-  pgProviders:[
-    {name:"넥스트페이 (NextPay)",mid:"MID_NP_001",apiKey:"np_live_****",callbackUrl:"https://eatspay.co.kr/callback/np",status:"활성",note:"메인 PG사"},
-    {name:"클라우드페이 (CloudPay)",mid:"MID_CP_001",apiKey:"cp_live_****",callbackUrl:"https://eatspay.co.kr/callback/cp",status:"준비중",note:"2차 연동 예정"},
-  ],
+  pgProviders:[],
 };
 </script>
 <style>
@@ -1697,16 +1694,33 @@ async function delAdm(id){
 }
 
 // ═══ PG사 관리 ═══
-function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
+function pgPG(){return`<div class="aw aw-w">PG API Key는 서버에서 암호화 저장되며, 관리자 화면에는 마스킹된 값만 표시됩니다. 실제 결제 연동 키는 운영 서버 .env 또는 서버 DB에서만 관리합니다.</div>
   <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addPG()">+ PG사 추가</button></div>
   <div class="card"><div class="tw"><table><thead><tr><th>PG사명</th><th>MID</th><th>API Key</th><th>콜백 URL</th><th>상태</th><th>비고</th><th>관리</th></tr></thead><tbody>
-  ${D.pgProviders.map(p=>`<tr><td style="font-weight:700">${p.name}</td><td style="font-family:monospace;font-size:11px">${p.mid}</td><td style="font-family:monospace;font-size:11px">${p.apiKey}</td><td style="font-size:10px;color:#6B7280">${p.callbackUrl}</td><td>${bdg(p.status)}</td><td style="font-size:11px;color:#6B7280">${p.note||''}</td><td><div class="ab"><button class="btn bo xs" onclick="edPG(${p.id})">수정</button><button class="btn bd xs" onclick="delPG(${p.id})">삭제</button></div></td></tr>`).join('')}
+  ${D.pgProviders.map(p=>`<tr><td style="font-weight:700">${esc(p.name)}</td><td style="font-family:monospace;font-size:11px">${esc(p.mid||'-')}</td><td style="font-family:monospace;font-size:11px">${esc(p.apiKey||'-')}</td><td style="font-size:10px;color:#6B7280">${esc(p.callbackUrl||'-')}</td><td>${bdg(p.status)}</td><td style="font-size:11px;color:#6B7280">${esc(p.note||'')}</td><td><div class="ab"><button class="btn bo xs" onclick="edPG(${jsArg(p.id)})">수정</button><button class="btn bd xs" onclick="delPG(${jsArg(p.id)})">삭제</button></div></td></tr>`).join('')||'<tr><td colspan="7" class="emp">등록된 PG사가 없습니다.</td></tr>'}
   </tbody></table></div></div>`;}
-function pgF2(p={}){return`<div class="fg"><label class="fl">PG사명 *</label><input class="fi" id="pgn" value="${p.name||''}" placeholder="예: 스마트페이 (SmartPay)"></div><div class="fr2"><div class="fg"><label class="fl">MID</label><input class="fi" id="pgm" value="${p.mid||''}" placeholder="MID_XXX_001"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="pgs"><option ${(p.status||'')==='활성'?'selected':''}>활성</option><option ${p.status==='준비중'?'selected':''}>준비중</option><option ${p.status==='비활성'?'selected':''}>비활성</option></select></div></div><div class="fg"><label class="fl">API Key</label><input class="fi" id="pgk" value="${p.apiKey||''}" placeholder="live_key_****"></div><div class="fg"><label class="fl">콜백 URL</label><input class="fi" id="pgu" value="${p.callbackUrl||''}" placeholder="https://eatspay.co.kr/callback/pg"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="pgo" value="${p.note||''}" placeholder="메인 PG사, 2차 연동 등"></div>`;}
+function pgF2(p={}){return`<div class="fg"><label class="fl">PG사명 *</label><input class="fi" id="pgn" value="${esc(p.name||'')}" placeholder="예: 건흥페이먼츠"></div><div class="fr2"><div class="fg"><label class="fl">MID</label><input class="fi" id="pgm" value="${esc(p.mid||'')}" placeholder="MID_XXX_001"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="pgs"><option ${(p.status||'')==='활성'?'selected':''}>활성</option><option ${p.status==='준비중'||!p.status?'selected':''}>준비중</option><option ${p.status==='비활성'?'selected':''}>비활성</option></select></div></div><div class="fg"><label class="fl">API Key ${p.id?'변경':''}</label><input class="fi" id="pgk" value="" placeholder="${p.id?'변경할 때만 입력':'서버에 암호화 저장할 키 입력'}"><div class="admin-modal-note">${p.id?`현재 저장값: ${esc(p.apiKey||'미등록')}. 비워두면 기존 키를 유지합니다.`:'입력한 키 원문은 서버 응답에 다시 노출되지 않습니다.'}</div></div><div class="fg"><label class="fl">콜백 URL</label><input class="fi" id="pgu" value="${esc(p.callbackUrl||'')}" placeholder="https://eatspay.co.kr/callback/pg"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="pgo" value="${esc(p.note||'')}" placeholder="메인 PG사, 2차 연동 등"></div>`;}
 function addPG(){openM('PG사 추가',pgF2(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG()">저장</button>`);}
-function edPG(id){const p=D.pgProviders.find(x=>x.id===id);openM('PG사 수정',pgF2(p),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG(${id})">저장</button>`);}
-async function savPG(id){const n=v('pgn');if(!n){await adminAlert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-async function delPG(id){if(!await adminConfirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+function edPG(id){const p=D.pgProviders.find(x=>String(x.id)===String(id));openM('PG사 수정',pgF2(p||{}),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG(${jsArg(id)})">저장</button>`);}
+async function savPG(id){
+  const n=v('pgn').trim();if(!n){await adminAlert('PG사명 필요');return;}
+  const body={name:n,mid:v('pgm').trim(),apiKey:v('pgk').trim(),callbackUrl:v('pgu').trim(),status:v('pgs'),note:v('pgo').trim()};
+  try{
+    const res=await fetch(id?`/api/admin/pg-providers/${encodeURIComponent(id)}`:'/api/admin/pg-providers',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'PG사 저장에 실패했습니다.');
+    closeM();await syncBackendTransactions({forceRender:true});toast(id?'PG사가 수정되었습니다.':'PG사가 추가되었습니다.');
+  }catch(e){await adminAlert(e.message||'PG사 저장에 실패했습니다.');}
+}
+async function delPG(id){
+  if(!await adminConfirm('PG사를 삭제하시겠습니까?'))return;
+  try{
+    const res=await fetch(`/api/admin/pg-providers/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'PG사 삭제에 실패했습니다.');
+    await syncBackendTransactions({forceRender:true});toast('PG사가 삭제되었습니다.');
+  }catch(e){await adminAlert(e.message||'PG사 삭제에 실패했습니다.');}
+}
 
 // ═══ 수수료율 설정 (본사 전용) ═══
 function pgFees(){
@@ -1979,6 +1993,7 @@ function makeBackendSnapshot(){
     notices:D.notices,
     guides:D.guides,
     admins:D.admins,
+    pgProviders:D.pgProviders,
     summary:D.summary,
     payments:D.payments,
     pgSettlements:D.pgSettlements
@@ -2030,6 +2045,7 @@ async function syncBackendTransactions(options={}) {
     D.notices = Array.isArray(data.notices) ? data.notices : [];
     D.guides = Array.isArray(data.guides) ? data.guides : [];
     D.admins = Array.isArray(data.admins) ? data.admins : [];
+    D.pgProviders = Array.isArray(data.pgProviders) ? data.pgProviders : [];
     D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
