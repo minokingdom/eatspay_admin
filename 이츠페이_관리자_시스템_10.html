@@ -280,6 +280,7 @@ function renderNav(){
   const items=role==='hq'?HQ_NAV:AG_NAV;
   const pc=getPending().length;
   const newFranchiseCount=(D.franchises||[]).filter(isNewFranchise).length;
+  const newPaymentCount=(D.payments||[]).filter(isRecentPayment).length;
   let h='';
   items.forEach(i=>{
     if(i.s){h+=`<div class="ns">${i.s}</div>`;return;}
@@ -287,7 +288,8 @@ function renderNav(){
     const nb=i.nw?'<span class="nb">NEW</span>':'';
     const pb=(i.id==='dashboard'&&pc>0)?`<span class="nb">${pc}</span>`:'';
     const fb=(i.id==='franchises'&&newFranchiseCount>0)?`<span class="nb">${newFranchiseCount}</span>`:'';
-    h+=`<div class="ni${a}${s}" onclick="nav('${i.id}')">${ml(i.id)}${nb}${pb}${fb}</div>`;
+    const payb=(i.id==='payments'&&newPaymentCount>0)?`<span class="nb">${newPaymentCount}</span>`:'';
+    h+=`<div class="ni${a}${s}" onclick="nav('${i.id}')">${ml(i.id)}${nb}${pb}${fb}${payb}</div>`;
   });
   document.getElementById('nav').innerHTML=h;
   document.getElementById('ptitle').textContent=ml(page);
@@ -1148,6 +1150,15 @@ function isNewFranchise(f){
   const now=new Date();
   const todayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   const diff=Math.floor((todayDate-joined)/86400000);
+  return diff>=0&&diff<7;
+}
+function isRecentPayment(p){
+  const raw=dateOnly(p?.date||p?.createdAt||p?.paidAt);
+  if(!raw)return false;
+  const paid=new Date(`${raw}T00:00:00`);
+  const now=new Date();
+  const todayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const diff=Math.floor((todayDate-paid)/86400000);
   return diff>=0&&diff<7;
 }
 function goFrDetail(id){frDetailId=id;page='franchiseDetail';renderNav();renderPage();}
