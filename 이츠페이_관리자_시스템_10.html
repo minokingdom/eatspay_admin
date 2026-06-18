@@ -80,6 +80,7 @@ tr:hover td{background:#FAFFFE}
 .fi:disabled,.fs:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
 .admin-pw-field{position:relative}
 .admin-pw-field .fi{padding-right:58px;color:#111827;-webkit-text-fill-color:#111827}
+.admin-pw-field .admin-pw-mask{-webkit-text-security:disc;color:#111827;-webkit-text-fill-color:#111827}
 .admin-pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#E8F5E3;color:#2F8F2F;border-radius:7px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer}
 .admin-modal-message{white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15;background:#F8FFF8;border:1px solid #D1E8D1;border-radius:8px;padding:12px 14px}
 .admin-modal-note{font-size:11px;color:#6B7280;font-weight:700;margin-top:6px;line-height:1.5}
@@ -296,14 +297,14 @@ function closeMO(e){if(e.target===document.getElementById('mo'))closeM();}
 function adminAlert(message,title='알림'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div class="admin-modal-message">${message}</div>`,`<button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
 function adminConfirm(message,title='확인'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div class="admin-modal-message">${message}</div>`,`<button class="btn bo" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(false)">취소</button><button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
 function adminPrompt(message,defaultValue='',title='입력'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div class="admin-modal-message" style="margin-bottom:10px">${message}</div><input class="fi" id="admin-prompt-input" value="${String(defaultValue||'').replace(/"/g,'&quot;')}">`,`<button class="btn bo" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(null)">취소</button><button class="btn bg2" onclick="const v=document.getElementById('admin-prompt-input').value;closeM();window.__adminModalResolve&&window.__adminModalResolve(v)">확인</button>`);setTimeout(()=>document.getElementById('admin-prompt-input')?.focus(),30);});}
-function adminToken(){return sessionStorage.getItem('eatspayAdminToken')||'';}
+function adminToken(){return localStorage.getItem('eatspayAdminToken')||sessionStorage.getItem('eatspayAdminToken')||'';}
 function adminAuthHeaders(extra={}){return {'Authorization':`Bearer ${adminToken()}`,...extra};}
 function adminPasswordValue(id){
   const el=document.getElementById(id);
   return el?.value ?? el?.dataset.realPassword ?? '';
 }
 function adminPwField(id,placeholder='',autocomplete='new-password'){
-  return `<div class="admin-pw-field"><input class="fi admin-pw-input" id="${id}" type="password" placeholder="${placeholder}" autocomplete="${autocomplete}"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
+  return `<div class="admin-pw-field"><input class="fi admin-pw-input admin-pw-mask" id="${id}" type="text" placeholder="${placeholder}" autocomplete="${autocomplete}"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
 }
 function bindAdminPasswordFields(root=document){
   root?.querySelectorAll?.('.admin-pw-input').forEach(input=>bindAdminPassword(input.id,`${input.id}-toggle`));
@@ -316,7 +317,8 @@ function bindAdminPassword(id,toggleId){
   input.dataset.adminPwBound='1';
   let visible=false;
   const render=()=>{
-    input.type=visible?'text':'password';
+    input.type='text';
+    input.classList.toggle('admin-pw-mask',!visible);
     input.style.color='#111827';
     input.style.webkitTextFillColor='#111827';
     input.style.caretColor='#111827';
@@ -331,15 +333,16 @@ function bindAdminPassword(id,toggleId){
 }
 function adminLogout(){
   sessionStorage.removeItem('eatspayAdminToken');
+  localStorage.removeItem('eatspayAdminToken');
   toast('로그아웃되었습니다.');
   setTimeout(()=>showAdminLogin('관리자 로그인이 필요합니다.'),100);
 }
 function openAdminPasswordModal(){
   openM('관리자 비밀번호 변경',`
     <div class="aw aw-b">현재 로그인한 관리자 계정의 비밀번호를 DB에 바로 변경합니다.</div>
-    <div class="fg"><label class="fl">현재 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-current-password" type="password" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-current-password-toggle">보기</button></div></div>
-    <div class="fg"><label class="fl">새 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password" type="password" autocomplete="new-password" placeholder="8자 이상"><button type="button" class="admin-pw-toggle" id="admin-new-password-toggle">보기</button></div></div>
-    <div class="fg"><label class="fl">새 비밀번호 확인</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password2" type="password" autocomplete="new-password"><button type="button" class="admin-pw-toggle" id="admin-new-password2-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">현재 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input admin-pw-mask" id="admin-current-password" type="text" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-current-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input admin-pw-mask" id="admin-new-password" type="text" autocomplete="new-password" placeholder="8자 이상"><button type="button" class="admin-pw-toggle" id="admin-new-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호 확인</label><div class="admin-pw-field"><input class="fi admin-pw-input admin-pw-mask" id="admin-new-password2" type="text" autocomplete="new-password"><button type="button" class="admin-pw-toggle" id="admin-new-password2-toggle">보기</button></div></div>
   `,`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="submitAdminPasswordChange()">변경</button>`);
   setTimeout(()=>{bindAdminPassword('admin-current-password','admin-current-password-toggle');bindAdminPassword('admin-new-password','admin-new-password-toggle');bindAdminPassword('admin-new-password2','admin-new-password2-toggle');document.getElementById('admin-current-password')?.focus();},30);
 }
@@ -369,8 +372,8 @@ function showAdminLogin(message='관리자 로그인이 필요합니다.'){
     window.__adminLoginResolve=resolve;
     openM('관리자 로그인',`
       <div class="aw aw-b">${message}</div>
-      <div class="fg"><label class="fl">이메일</label><input class="fi" id="admin-login-email" autocomplete="username" value="${sessionStorage.getItem('eatspayAdminEmail')||'admin@eatspay.co.kr'}"></div>
-      <div class="fg"><label class="fl">비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-login-password" type="password" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-login-password-toggle">보기</button></div></div>
+      <div class="fg"><label class="fl">이메일</label><input class="fi" id="admin-login-email" autocomplete="username" value="${localStorage.getItem('eatspayAdminEmail')||sessionStorage.getItem('eatspayAdminEmail')||'admin@eatspay.co.kr'}"></div>
+      <div class="fg"><label class="fl">비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input admin-pw-mask" id="admin-login-password" type="text" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-login-password-toggle">보기</button></div></div>
     `,`<button class="btn bg2" onclick="submitAdminLogin()">로그인</button>`);
     setTimeout(()=>{bindAdminPassword('admin-login-password','admin-login-password-toggle');document.getElementById('admin-login-password')?.focus();},30);
   });
@@ -385,7 +388,9 @@ async function submitAdminLogin(){
     if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'로그인에 실패했습니다.');
     if(json.data?.user?.role!=='ADMIN')throw new Error('관리자 권한 계정이 아닙니다.');
     sessionStorage.setItem('eatspayAdminToken',json.data.accessToken);
+    localStorage.setItem('eatspayAdminToken',json.data.accessToken);
     sessionStorage.setItem('eatspayAdminEmail',email);
+    localStorage.setItem('eatspayAdminEmail',email);
     closeM();
     window.__adminLoginResolve&&window.__adminLoginResolve(true);
   }catch(e){
@@ -399,6 +404,7 @@ async function ensureAdminLogin(){
 async function handleAdminUnauthorized(res){
   if(res.status!==401&&res.status!==403)return false;
   sessionStorage.removeItem('eatspayAdminToken');
+  localStorage.removeItem('eatspayAdminToken');
   await showAdminLogin('세션이 만료되었거나 관리자 권한 확인이 필요합니다.');
   return true;
 }

@@ -2461,7 +2461,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isVisible = false;
 
     const syncInputMode = () => {
-      input.type = isVisible ? 'text' : 'password';
+      input.type = 'text';
+      input.classList.toggle('password-mask', !isVisible);
       input.style.color = '#111827';
       input.style.webkitTextFillColor = '#111827';
       input.style.caretColor = '#111827';

@@ -1000,6 +1000,12 @@ html.native-app .screen-container {
   box-shadow: 0 0 0 1000px var(--bg-white) inset;
 }
 
+.form-input.password-mask {
+  color: #111827;
+  -webkit-text-fill-color: #111827;
+  -webkit-text-security: disc;
+}
+
 .form-input::placeholder {
   color: #9ca3af;
   -webkit-text-fill-color: #9ca3af;
