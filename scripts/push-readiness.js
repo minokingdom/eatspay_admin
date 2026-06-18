@@ -3,7 +3,7 @@ const path = require('path');
 
 const { createPool } = require('../db/pool');
 const { createRepository } = require('../db/repository');
-const { getPushRuntimeStatus } = require('../push');
+const { getPushRuntimeStatus, getWebPushRuntimeStatus } = require('../push');
 
 function parseArgs(argv) {
   const args = {};
@@ -100,10 +100,26 @@ async function main() {
     'Set GOOGLE_APPLICATION_CREDENTIALS=/etc/eatspay/firebase-service-account.json or FIREBASE_SERVICE_ACCOUNT_JSON in the server .env, then restart eatspay.'
   ));
 
+  const webPushStatus = getWebPushRuntimeStatus();
+  checks.push(check(
+    'Server Web Push VAPID keys',
+    webPushStatus.configured,
+    `${webPushStatus.mode}: ${webPushStatus.detail}`,
+    'Generate VAPID keys with npx web-push generate-vapid-keys and set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY in the server .env.'
+  ));
+
   let pool = null;
   try {
     pool = createPool();
     const repo = createRepository(pool);
+    await pool.query('SELECT 1');
+    checks.push(check(
+      'PostgreSQL connectivity',
+      true,
+      'DATABASE_URL is reachable.',
+      ''
+    ));
+
     const totals = await repo.getPushTokenSummary();
     const enabledTokens = Number(totals.enabled || 0);
     checks.push(check(
@@ -111,6 +127,27 @@ async function main() {
       enabledTokens > 0,
       `total=${totals.total || 0}, enabled=${enabledTokens}, disabled=${totals.disabled || 0}`,
       'Install the latest app build on a phone, log in, and allow notifications so /api/push-token can register the device.'
+    ));
+
+    let webTotals = null;
+    try {
+      webTotals = await repo.getWebPushSubscriptionSummary();
+    } catch (err) {
+      checks.push(check(
+        'Web push subscription table',
+        false,
+        err.message,
+        'Restart the eatspay server once so initDb can create web_push_subscriptions, or run the DB initialization flow.'
+      ));
+    }
+    const enabledWebSubscriptions = Number(webTotals?.enabled || 0);
+    checks.push(check(
+      'Registered web push subscriptions in PostgreSQL',
+      Boolean(webTotals) && enabledWebSubscriptions > 0,
+      webTotals
+        ? `total=${webTotals.total || 0}, enabled=${enabledWebSubscriptions}, disabled=${webTotals.disabled || 0}`
+        : 'web_push_subscriptions is not ready yet.',
+      'Open the installed PWA/browser app on HTTPS, log in, and allow notifications so /api/web-push-subscription can register the browser.'
     ));
 
     if (targetEmail || targetUserId) {
@@ -126,11 +163,28 @@ async function main() {
         ));
       } else {
         const tokens = await repo.listEnabledPushTokens(user.id);
+        let webSubscriptions = [];
+        let webSubscriptionLookupReady = true;
+        try {
+          webSubscriptions = await repo.listEnabledWebPushSubscriptions(user.id);
+        } catch (err) {
+          webSubscriptionLookupReady = false;
+        }
         checks.push(check(
           'Target account has an enabled device token',
           tokens.length > 0,
           `${user.email} (${user.franchiseName || user.name || `user ${user.id}`}) tokens=${tokens.length}`,
           'Log in on the phone with this exact account and allow notifications.'
+        ));
+        checks.push(check(
+          'Target account has an enabled web push subscription',
+          webSubscriptionLookupReady && webSubscriptions.length > 0,
+          webSubscriptionLookupReady
+            ? `${user.email} (${user.franchiseName || user.name || `user ${user.id}`}) webSubscriptions=${webSubscriptions.length}`
+            : 'web_push_subscriptions is not ready yet.',
+          webSubscriptionLookupReady
+            ? 'Log in through the installed PWA/browser with this exact account and allow notifications.'
+            : 'Restart the eatspay server once so initDb can create web_push_subscriptions.'
         ));
       }
     }

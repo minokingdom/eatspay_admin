@@ -479,3 +479,47 @@ test('push token helpers summarize and list recent tokens', async () => {
   assert.match(poolCalls[0].sql, /FROM push_tokens/);
   assert.deepEqual(poolCalls[1].params, [10]);
 });
+
+test('web push subscription helpers upsert summarize and disable subscriptions', async () => {
+  const { pool, poolCalls } = createFakePool({
+    rowsBySql: [
+      {
+        includes: 'INSERT INTO web_push_subscriptions',
+        rows: [{ endpoint: 'https://push.example/sub-1', enabled: true }]
+      },
+      {
+        includes: 'count(DISTINCT user_id)',
+        rows: [{ total: 2, enabled: 1, disabled: 1, users: 1 }]
+      },
+      {
+        includes: 'WHERE user_id = $1 AND enabled = true',
+        rows: [{
+          endpoint: 'https://push.example/sub-1',
+          p256dh: 'p256dh',
+          auth: 'auth',
+          platform: 'web'
+        }]
+      },
+      {
+        includes: 'UPDATE web_push_subscriptions',
+        rows: [{ endpoint: 'https://push.example/sub-1' }]
+      }
+    ]
+  });
+  const repo = createRepository(pool);
+
+  await repo.upsertWebPushSubscription(11, {
+    endpoint: 'https://push.example/sub-1',
+    p256dh: 'p256dh',
+    auth: 'auth',
+    platform: 'web'
+  });
+  const summary = await repo.getWebPushSubscriptionSummary();
+  const subscriptions = await repo.listEnabledWebPushSubscriptions(11);
+  const disabled = await repo.disableWebPushSubscriptions(['https://push.example/sub-1']);
+
+  assert.deepEqual(poolCalls[0].params, [11, 'https://push.example/sub-1', 'p256dh', 'auth', 'web']);
+  assert.deepEqual(summary, { total: 2, enabled: 1, disabled: 1, users: 1 });
+  assert.equal(subscriptions[0].endpoint, 'https://push.example/sub-1');
+  assert.deepEqual(disabled, [{ endpoint: 'https://push.example/sub-1' }]);
+});

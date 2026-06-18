@@ -7,6 +7,9 @@ test.afterEach(() => {
   push._resetFirebaseAdminForTest();
   delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  delete process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+  delete process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+  delete process.env.WEB_PUSH_VAPID_SUBJECT;
 });
 
 test('sendPushToUser skips delivery when Firebase is not configured', async () => {
@@ -101,5 +104,50 @@ test('sendPushToUser sends deduplicated tokens and disables invalid tokens', asy
     sent: 1,
     failed: 1,
     invalidTokens: 1
+  });
+});
+
+test('sendWebPushToUser sends subscriptions and disables expired endpoints', async () => {
+  const sent = [];
+  const disabled = [];
+  push._setWebPushClientForTest({
+    async sendNotification(subscription, payload) {
+      sent.push({ subscription, payload: JSON.parse(payload) });
+      if (subscription.endpoint.endsWith('/expired')) {
+        const err = new Error('expired');
+        err.statusCode = 410;
+        throw err;
+      }
+    }
+  });
+
+  const repo = {
+    async listEnabledWebPushSubscriptions(userId) {
+      assert.equal(userId, 15);
+      return [
+        { endpoint: 'https://push.example/ok', p256dh: 'p1', auth: 'a1' },
+        { endpoint: 'https://push.example/expired', p256dh: 'p2', auth: 'a2' }
+      ];
+    },
+    async disableWebPushSubscriptions(endpoints) {
+      disabled.push(...endpoints);
+      return endpoints.map(endpoint => ({ endpoint }));
+    }
+  };
+
+  const result = await push.sendWebPushToUser(repo, 15, {
+    title: '새 알림',
+    body: '테스트 알림입니다.',
+    data: { url: '/' }
+  });
+
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].payload.notification.title, '새 알림');
+  assert.deepEqual(disabled, ['https://push.example/expired']);
+  assert.deepEqual(result, {
+    enabled: true,
+    sent: 1,
+    failed: 1,
+    invalidSubscriptions: 1
   });
 });

@@ -1,6 +1,6 @@
 const { createPool } = require('../db/pool');
 const { createRepository } = require('../db/repository');
-const { sendPushToUser } = require('../push');
+const { sendNotificationPushToUser } = require('../push');
 
 function parseArgs(argv) {
   const args = {};
@@ -50,7 +50,7 @@ async function main() {
     };
 
     await repo.createNotification(notification);
-    const result = await sendPushToUser(repo, user.id, notification);
+    const result = await sendNotificationPushToUser(repo, user.id, notification);
     console.log(JSON.stringify({
       success: true,
       userId: user.id,

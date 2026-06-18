@@ -1,6 +1,6 @@
 const { createPool } = require('../db/pool');
 const { createRepository } = require('../db/repository');
-const { getPushRuntimeStatus } = require('../push');
+const { getPushRuntimeStatus, getWebPushRuntimeStatus } = require('../push');
 
 function parseArgs(argv) {
   const args = {};
@@ -28,6 +28,7 @@ async function main() {
 
   try {
     const totals = await repo.getPushTokenSummary();
+    const webTotals = await repo.getWebPushSubscriptionSummary();
     const recent = await repo.listRecentPushTokens(10);
 
     let target = null;
@@ -38,13 +39,17 @@ async function main() {
       if (!user) {
         target = { found: false, email: email || null, userId: userId || null };
       } else {
-        const tokens = await repo.listEnabledPushTokens(user.id);
+        const [tokens, webSubscriptions] = await Promise.all([
+          repo.listEnabledPushTokens(user.id),
+          repo.listEnabledWebPushSubscriptions(user.id)
+        ]);
         target = {
           found: true,
           userId: user.id,
           email: user.email,
           franchiseName: user.franchiseName,
           enabledTokens: tokens.length,
+          enabledWebSubscriptions: webSubscriptions.length,
           platforms: [...new Set(tokens.map(row => row.platform || 'unknown'))]
         };
       }
@@ -52,7 +57,9 @@ async function main() {
 
     console.log(JSON.stringify({
       firebase: getPushRuntimeStatus(),
+      webPush: getWebPushRuntimeStatus(),
       tokens: totals,
+      webSubscriptions: webTotals,
       recentTokens: recent.map(row => ({
         userId: row.user_id,
         platform: row.platform || 'unknown',

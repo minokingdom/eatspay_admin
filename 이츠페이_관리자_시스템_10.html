@@ -1285,12 +1285,13 @@ async function savInst(){
 
 // ═══ 푸시알림 ═══
 function pgPush(){return`
-  <div class="aw aw-b">관리자 승인/반려 시 앱에 발송되는 푸시알림 상태를 확인하고 테스트 발송할 수 있습니다.</div>
-  <div class="kgrid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="aw aw-b">관리자 승인/반려와 Talk 메시지 발생 시 앱/PWA에 발송되는 푸시알림 상태를 확인하고 테스트 발송할 수 있습니다.</div>
+  <div class="kgrid" style="grid-template-columns:repeat(5,minmax(0,1fr))">
     <div class="kpi"><div class="kl">Firebase 서버 키</div><div class="kv" id="push-firebase-status">확인중</div><div class="ks" id="push-firebase-detail">-</div></div>
+    <div class="kpi"><div class="kl">Web Push VAPID</div><div class="kv" id="push-web-status">확인중</div><div class="ks" id="push-web-detail">-</div></div>
     <div class="kpi"><div class="kl">활성 토큰</div><div class="kv" id="push-enabled-count">-</div><div class="ks">푸시 수신 가능 기기</div></div>
+    <div class="kpi"><div class="kl">웹 구독</div><div class="kv" id="push-web-enabled-count">-</div><div class="ks" id="push-web-users">-</div></div>
     <div class="kpi"><div class="kl">전체 토큰</div><div class="kv" id="push-total-count">-</div><div class="ks" id="push-token-users">-</div></div>
-    <div class="kpi"><div class="kl">비활성 토큰</div><div class="kv" id="push-disabled-count">-</div><div class="ks">무효 처리된 기기</div></div>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">계정별 푸시 확인/테스트</span><button class="btn bo sm" onclick="loadPushStatus()">전체 새로고침</button></div>
   <div style="padding:14px">
@@ -1335,15 +1336,22 @@ async function loadPushStatusForTarget(){
 }
 function renderPushStatus(data){
   const firebase=data.firebase||{};
+  const webPush=data.webPush||{};
   const tokens=data.tokens||{};
+  const webSubscriptions=data.webSubscriptions||{};
   const firebaseOk=!!firebase.configured;
+  const webPushOk=!!webPush.configured;
   const setText=(id,text)=>{const el=document.getElementById(id);if(el)el.textContent=text;};
   setText('push-firebase-status',firebaseOk?'연결됨':'미설정');
   setText('push-firebase-detail',firebase.detail||'-');
+  setText('push-web-status',webPushOk?'연결됨':'미설정');
+  setText('push-web-detail',webPush.detail||'-');
   setText('push-enabled-count',String(tokens.enabled??0));
+  setText('push-web-enabled-count',String(webSubscriptions.enabled??0));
   setText('push-total-count',String(tokens.total??0));
   setText('push-disabled-count',String(tokens.disabled??0));
   setText('push-token-users',`등록 사용자 ${tokens.users??0}명`);
+  setText('push-web-users',`웹 사용자 ${webSubscriptions.users??0}명`);
   const rows=Array.isArray(data.recentTokens)?data.recentTokens:[];
   const tbody=document.getElementById('push-token-rows');
   if(tbody){
@@ -1358,7 +1366,8 @@ function renderPushStatus(data){
       target.innerHTML=`<div class="aw aw-w" style="margin-bottom:0">대상 계정을 찾지 못했습니다.</div>`;
     }else{
       const hasToken=Number(t.enabledTokens||0)>0;
-      target.innerHTML=`<div class="aw ${hasToken?'aw-g':'aw-w'}" style="margin-bottom:0"><div><b>${esc(t.franchiseName||t.email)}</b><br>활성 토큰 ${esc(t.enabledTokens)}개 · 플랫폼 ${esc((t.platforms||[]).join(', ')||'-')}</div></div>`;
+      const hasWeb=Number(t.enabledWebSubscriptions||0)>0;
+      target.innerHTML=`<div class="aw ${(hasToken||hasWeb)?'aw-g':'aw-w'}" style="margin-bottom:0"><div><b>${esc(t.franchiseName||t.email)}</b><br>앱 토큰 ${esc(t.enabledTokens)}개 · 웹 구독 ${esc(t.enabledWebSubscriptions||0)}개 · 플랫폼 ${esc((t.platforms||[]).join(', ')||'-')}</div></div>`;
     }
   }
 }
@@ -1373,7 +1382,7 @@ async function sendPushTest(){
     const json=await res.json().catch(()=>({}));
     if(!res.ok)throw new Error(json.error?.message||json.message||'테스트 발송에 실패했습니다.');
     const p=json.data?.push||{};
-    await adminAlert(`테스트 푸시 요청이 완료되었습니다.\n\nFirebase 사용: ${p.enabled?'예':'아니오'}\n성공: ${p.sent||0}건\n실패: ${p.failed||0}건`,'푸시 테스트');
+    await adminAlert(`테스트 푸시 요청이 완료되었습니다.\n\nFirebase 성공: ${p.fcm?.sent||0}건 / 실패: ${p.fcm?.failed||0}건\nWeb Push 성공: ${p.web?.sent||0}건 / 실패: ${p.web?.failed||0}건`,'푸시 테스트');
     await loadPushStatusForTarget();
   }catch(e){
     await adminAlert(e.message||'테스트 발송에 실패했습니다.');

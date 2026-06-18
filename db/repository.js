@@ -491,6 +491,68 @@ function createRepository(pool) {
       return result.rows;
     },
 
+    async upsertWebPushSubscription(userId, subscription) {
+      const result = await pool.query(
+        `INSERT INTO web_push_subscriptions (user_id, endpoint, p256dh, auth, platform, enabled)
+         VALUES ($1, $2, $3, $4, $5, true)
+         ON CONFLICT (endpoint) DO UPDATE
+         SET user_id = EXCLUDED.user_id,
+             p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth,
+             platform = EXCLUDED.platform,
+             enabled = true,
+             updated_at = now()
+         RETURNING *`,
+        [
+          userId,
+          subscription.endpoint,
+          subscription.p256dh,
+          subscription.auth,
+          subscription.platform || null
+        ]
+      );
+      return result.rows[0];
+    },
+
+    async listEnabledWebPushSubscriptions(userId) {
+      const result = await pool.query(
+        `SELECT endpoint, p256dh, auth, platform
+         FROM web_push_subscriptions
+         WHERE user_id = $1 AND enabled = true
+         ORDER BY updated_at DESC`,
+        [userId]
+      );
+      return result.rows;
+    },
+
+    async getWebPushSubscriptionSummary() {
+      const result = await pool.query(
+        `SELECT
+           count(*)::int AS total,
+           count(*) FILTER (WHERE enabled = true)::int AS enabled,
+           count(*) FILTER (WHERE enabled = false)::int AS disabled,
+           count(DISTINCT user_id)::int AS users
+         FROM web_push_subscriptions`
+      );
+      return result.rows[0] || { total: 0, enabled: 0, disabled: 0, users: 0 };
+    },
+
+    async disableWebPushSubscriptions(endpoints) {
+      const cleanEndpoints = (Array.isArray(endpoints) ? endpoints : [])
+        .map(endpoint => String(endpoint || '').trim())
+        .filter(Boolean);
+      if (!cleanEndpoints.length) return [];
+      const result = await pool.query(
+        `UPDATE web_push_subscriptions
+         SET enabled = false,
+             updated_at = now()
+         WHERE endpoint = ANY($1::text[])
+         RETURNING endpoint`,
+        [cleanEndpoints]
+      );
+      return result.rows;
+    },
+
     async createUser(user) {
       const result = await pool.query(
         `INSERT INTO users (

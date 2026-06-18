@@ -1652,10 +1652,55 @@ function getDevicePlatform() {
   return window.Capacitor?.getPlatform?.() || 'web';
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = `${base64String}${padding}`.replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
+async function registerWebPushSubscription() {
+  if (!isAuthenticated()) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !window.isSecureContext) return;
+
+  const keyResponse = await fetch(apiUrl('/api/web-push/public-key')).catch(() => null);
+  if (!keyResponse?.ok) return;
+  const keyJson = await keyResponse.json().catch(() => null);
+  const publicKey = keyJson?.data?.publicKey || '';
+  if (!keyJson?.data?.configured || !publicKey) return;
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return;
+
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+  }
+
+  await fetch(apiUrl('/api/web-push-subscription'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+    },
+    body: JSON.stringify({
+      subscription,
+      platform: 'web'
+    })
+  }).catch(() => {});
+}
+
 async function registerDevicePushToken() {
   if (!isAuthenticated()) return;
   const pushNotifications = getPushNotificationsPlugin();
-  if (!pushNotifications) return;
+  if (!pushNotifications) {
+    registerWebPushSubscription().catch(err => console.warn('Web push registration failed:', err));
+    return;
+  }
   if (pushRegistrationStarted) return;
   pushRegistrationStarted = true;
 

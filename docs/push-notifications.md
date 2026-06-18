@@ -38,9 +38,25 @@ npx cap sync ios
 
 iOS push cannot be fully built or signed on Windows. It requires Mac, Xcode, Apple Developer account, APNs key/certificate, and the Firebase iOS app configuration.
 
-## Web/PWA push note
+## Web/PWA push setup
 
-The web app already has a service worker notification handler, but browser/PWA push delivery also requires a Web Push subscription flow and VAPID/web push server support. The current production push path is the native Capacitor app path through FCM.
+The PWA can receive browser push notifications when Web Push VAPID keys are configured on the server.
+
+Generate VAPID keys:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Add the generated values to `/opt/eatspay/.env`:
+
+```bash
+WEB_PUSH_VAPID_PUBLIC_KEY=...
+WEB_PUSH_VAPID_PRIVATE_KEY=...
+WEB_PUSH_VAPID_SUBJECT=mailto:admin@eatspay.co.kr
+```
+
+After restart, users who open `https://www.eatspay.co.kr`, log in, and allow notifications will register a browser subscription in PostgreSQL.
 
 ## Server setup
 
@@ -80,6 +96,9 @@ Add this to `/opt/eatspay/.env` if the service account JSON is stored as a file:
 
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=/etc/eatspay/firebase-service-account.json
+WEB_PUSH_VAPID_PUBLIC_KEY=...
+WEB_PUSH_VAPID_PRIVATE_KEY=...
+WEB_PUSH_VAPID_SUBJECT=mailto:admin@eatspay.co.kr
 ```
 
 Check that the app server is healthy:
@@ -112,7 +131,9 @@ curl -fsS "https://www.eatspay.co.kr/api/admin/push/status?email=admin@eatspay.c
 Important status meanings:
 
 - `firebase.configured: false`: Firebase server credentials are missing or invalid.
+- `webPush.configured: false`: Web Push VAPID keys are missing.
 - `tokens.enabled: 0`: no phone has logged in and registered a push token yet.
+- `webSubscriptions.enabled: 0`: no browser/PWA has logged in and registered a web push subscription yet.
 - `target.enabledTokens: 0`: that specific account has no registered phone token.
 
 ## Test delivery

@@ -7,7 +7,7 @@ const multer = require('multer');
 
 const { createPool } = require('./db/pool');
 const { createRepository } = require('./db/repository');
-const { getPushRuntimeStatus, sendPushToUser } = require('./push');
+const { getPushRuntimeStatus, getWebPushRuntimeStatus, sendNotificationPushToUser } = require('./push');
 
 loadEnv();
 
@@ -201,6 +201,19 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      platform TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS talk_posts (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -240,6 +253,7 @@ const dbBootstrapPromise = (async () => {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user ON web_push_subscriptions(user_id, enabled)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_chats_user_updated ON talk_chats(buyer_user_id, seller_user_id, updated_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_messages_chat_created ON talk_messages(chat_id, created_at)');
@@ -503,7 +517,7 @@ app.post('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, 
         url: '/'
       }
     });
-    sendPushToUser(repo, recipientUserId, notification).catch(err => {
+    sendNotificationPushToUser(repo, recipientUserId, notification).catch(err => {
       console.warn('[push] Talk message push failed:', err.message);
     });
   }
@@ -673,6 +687,37 @@ app.post('/api/push-token', authenticate, asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     message: 'Push token registered.'
+  });
+}));
+
+app.get('/api/web-push/public-key', asyncHandler(async (req, res) => {
+  const status = getWebPushRuntimeStatus();
+  return res.status(200).json({
+    success: true,
+    data: {
+      configured: status.configured,
+      publicKey: status.configured ? process.env.WEB_PUSH_VAPID_PUBLIC_KEY : ''
+    }
+  });
+}));
+
+app.post('/api/web-push-subscription', authenticate, asyncHandler(async (req, res) => {
+  const subscription = req.body?.subscription || req.body;
+  const endpoint = String(subscription?.endpoint || '').trim();
+  const p256dh = String(subscription?.keys?.p256dh || '').trim();
+  const auth = String(subscription?.keys?.auth || '').trim();
+  if (!endpoint || !p256dh || !auth) {
+    return sendError(res, 400, 'INVALID_WEB_PUSH_SUBSCRIPTION', 'Web push subscription endpoint and keys are required.');
+  }
+  await repo.upsertWebPushSubscription(req.user.id, {
+    endpoint,
+    p256dh,
+    auth,
+    platform: req.body?.platform || 'web'
+  });
+  return res.status(200).json({
+    success: true,
+    message: 'Web push subscription registered.'
   });
 }));
 
@@ -1319,7 +1364,7 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
       }
     };
     await repo.createNotification(notification);
-    sendPushToUser(repo, owner.id, notification).catch(err => {
+    sendNotificationPushToUser(repo, owner.id, notification).catch(err => {
       console.error('[push] Account approval push failed:', err.message);
     });
   }
@@ -1825,8 +1870,9 @@ app.delete('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (r
 app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, res) => {
   const email = String(req.query.email || '').trim();
   const userId = req.query.userId ? Number(req.query.userId) : null;
-  const [summary, recent] = await Promise.all([
+  const [summary, webSummary, recent] = await Promise.all([
     repo.getPushTokenSummary(),
+    repo.getWebPushSubscriptionSummary(),
     repo.listRecentPushTokens(10)
   ]);
 
@@ -1842,13 +1888,17 @@ app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, re
         userId: userId || null
       };
     } else {
-      const tokens = await repo.listEnabledPushTokens(user.id);
+      const [tokens, webSubscriptions] = await Promise.all([
+        repo.listEnabledPushTokens(user.id),
+        repo.listEnabledWebPushSubscriptions(user.id)
+      ]);
       target = {
         found: true,
         userId: user.id,
         email: user.email,
         franchiseName: user.franchiseName,
         enabledTokens: tokens.length,
+        enabledWebSubscriptions: webSubscriptions.length,
         platforms: [...new Set(tokens.map(row => row.platform || 'unknown'))]
       };
     }
@@ -1858,7 +1908,9 @@ app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, re
     success: true,
     data: {
       firebase: getPushRuntimeStatus(),
+      webPush: getWebPushRuntimeStatus(),
       tokens: summary,
+      webSubscriptions: webSummary,
       recentTokens: recent.map(row => ({
         userId: row.user_id,
         platform: row.platform || 'unknown',
@@ -1903,7 +1955,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
   };
 
   await repo.createNotification(notification);
-  const push = await sendPushToUser(repo, user.id, notification);
+  const push = await sendNotificationPushToUser(repo, user.id, notification);
 
   return res.status(200).json({
     success: true,
