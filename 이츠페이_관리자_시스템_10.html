@@ -339,6 +339,7 @@ function bindAdminPassword(id,toggleId){
   input.dataset.adminPwBound='1';
   let visible=false;
   let realValue=input.dataset.realPassword||'';
+  let handledKey=false;
   const moveCursorToEnd=()=>setTimeout(()=>{try{const pos=input.value.length;input.setSelectionRange(pos,pos);}catch(e){}},0);
   const render=()=>{
     input.type='text';
@@ -351,36 +352,57 @@ function bindAdminPassword(id,toggleId){
     if(toggle)toggle.textContent=visible?'숨김':'보기';
     moveCursorToEnd();
   };
-  input.addEventListener('beforeinput',e=>{
-    const type=e.inputType||'';
+  const appendText=text=>{
+    if(!text)return;
     const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
-    if(type.startsWith('insert')){
-      const data=e.data||'';
-      realValue=(visible?input.value:realValue);
-      realValue=allSelected?data:realValue+data;
-    }else if(type==='deleteContentBackward'){
-      realValue=allSelected?'':realValue.slice(0,-1);
-    }else if(type==='deleteContentForward'){
-      realValue=allSelected?'':realValue.slice(0,-1);
-    }else{
+    realValue=allSelected?text:realValue+text;
+    render();
+  };
+  const deleteLast=()=>{
+    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
+    realValue=allSelected?'':realValue.slice(0,-1);
+    render();
+  };
+  input.addEventListener('keydown',e=>{
+    if(visible)return;
+    if(e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.key==='Backspace'||e.key==='Delete'){
+      e.preventDefault();
+      handledKey=true;
+      deleteLast();
       return;
     }
-    e.preventDefault();
-    render();
+    if(e.key==='Enter')return;
+    if(e.key.length===1){
+      e.preventDefault();
+      handledKey=true;
+      appendText(e.key);
+    }
+  });
+  input.addEventListener('beforeinput',e=>{
+    if(visible)return;
+    if(handledKey){
+      handledKey=false;
+      e.preventDefault();
+      return;
+    }
+    const type=e.inputType||'';
+    if(type.startsWith('insert')&&e.data){
+      e.preventDefault();
+      appendText(e.data);
+    }else if(type==='deleteContentBackward'||type==='deleteContentForward'){
+      e.preventDefault();
+      deleteLast();
+    }
   });
   input.addEventListener('paste',e=>{
     e.preventDefault();
     const text=(e.clipboardData||window.clipboardData)?.getData('text')||'';
-    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
-    realValue=allSelected?text:realValue+text;
-    render();
+    appendText(text);
   });
   input.addEventListener('input',()=>{
-    const current=input.value||'';
     if(visible){
-      realValue=current;
-    }else if(current && !/^\*+$/.test(current)){
-      realValue=current;
+      realValue=input.value||'';
     }
     render();
   });
