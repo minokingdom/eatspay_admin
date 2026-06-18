@@ -1123,6 +1123,15 @@ function franchiseAccountStatus(f){
   return accounts[0]?.accountStatus||'미등록';
 }
 function franchiseCardRegistered(f){return !!(f.cardRegistered||f.cardCompany||f.cardLast4);}
+function isNewFranchise(f){
+  const raw=dateOnly(f?.createdAt||f?.joinDate);
+  if(!raw)return false;
+  const joined=new Date(`${raw}T00:00:00`);
+  const now=new Date();
+  const todayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const diff=Math.floor((todayDate-joined)/86400000);
+  return diff>=0&&diff<7;
+}
 function goFrDetail(id){frDetailId=id;page='franchiseDetail';renderNav();renderPage();}
 function rFr(){
   const q=v('fs').toLowerCase(),st=v('fst2'),accountStatus=v('facst'),cardFilter=v('fcard'),agencyFilter=String(_sddSel.frag||'');
@@ -1137,7 +1146,7 @@ function rFr(){
     return String(f.name||'').toLowerCase().includes(q)||String(f.phone||'').includes(q)||String(f.owner||'').toLowerCase().includes(q);
   });
   el.innerHTML=rows.map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${f.id})">
-    <td><div style="font-weight:700;color:#3B82F6">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||f.email||'-'}</div></td>
+    <td><div style="font-weight:700;color:#3B82F6;display:flex;align-items:center;gap:6px">${f.name}${isNewFranchise(f)?'<span class="nb">NEW</span>':''}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||f.email||'-'}</div></td>
     <td>${f.agency||agencyNameById(f.agencyId)||'-'}</td><td>${f.owner||'-'}</td><td>${f.phone||'-'}</td>
     <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${a.agency}&nbsp;${bdg(a.accountStatus)}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
     <td>${franchiseCardRegistered(f)?`<span class="bdg bg">등록</span><div style="font-size:10px;color:#6B7280">${f.cardCompany||''} ${f.cardLast4?`****${f.cardLast4}`:''}</div>`:'<span class="bdg bgr">미등록</span>'}</td>
