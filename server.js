@@ -1652,6 +1652,28 @@ app.post('/api/settle/export', authenticateAdmin, asyncHandler(async (req, res) 
   return res.status(200).send(`\uFEFF${csv}`);
 }));
 
+app.patch('/api/pg/settlements/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const status = String(req.body?.status || '').trim();
+  if (!Number.isFinite(id) || !status) {
+    return sendError(res, 400, 'BAD_REQUEST', 'settlement id and status are required.');
+  }
+
+  let settlement = null;
+  if (status === 'ROLLED_BACK' || status === '취소') {
+    settlement = await repo.rollbackPgSettlement(id);
+  } else if (status === 'SETTLED' || status === '정산완료') {
+    settlement = await repo.restorePgSettlement(id);
+  } else {
+    return sendError(res, 400, 'INVALID_STATUS', 'status must be SETTLED or ROLLED_BACK.');
+  }
+
+  if (!settlement) {
+    return sendError(res, 404, 'SETTLEMENT_NOT_FOUND', 'PG settlement was not found.');
+  }
+  return res.status(200).json({ success: true, data: settlement });
+}));
+
 app.post('/api/admin/settlement/rollback', authenticateAdmin, verifySignature, asyncHandler(async (req, res) => {
   const { targetTransactionId, reason, doubleAuthToken } = req.body;
   if (!reason) {

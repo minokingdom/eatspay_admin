@@ -2093,6 +2093,14 @@ function createRepository(pool) {
       return toPgSettlement(result.rows[0]);
     },
 
+    async restorePgSettlement(id) {
+      const result = await pool.query(
+        "UPDATE pg_settlements SET status = 'SETTLED', updated_at = now() WHERE id = $1 RETURNING *",
+        [id]
+      );
+      return toPgSettlement(result.rows[0]);
+    },
+
     async findTransaction(transactionId) {
       const result = await pool.query('SELECT * FROM transactions WHERE transaction_id = $1', [transactionId]);
       return toTransaction(result.rows[0]);

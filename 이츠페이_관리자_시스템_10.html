@@ -742,8 +742,26 @@ function showSettleDetail(id){
     </div>`,
   `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">취소 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
 }
-async function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 고객 취소 처리하시겠습니까?`))return;s.status='취소';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 취소`);}
-async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm('취소된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
+async function setPgSettlementStatus(id,status,label){
+  const s=D.pgSettlements.find(x=>String(x.id)===String(id));
+  if(!s)return;
+  try{
+    const res=await fetch(`/api/pg/settlements/${encodeURIComponent(id)}/status`,{
+      method:'PATCH',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({status})
+    });
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||`${label} 처리에 실패했습니다.`);
+    await syncBackendTransactions({forceRender:true});
+    renderPage();
+    setTimeout(rGS,30);
+    toast(label);
+  }catch(e){await adminAlert(e.message||`${label} 처리에 실패했습니다.`);}
+}
+async function rollbackSettle(id){const s=D.pgSettlements.find(x=>String(x.id)===String(id));if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 취소 처리하시겠습니까?`))return;await setPgSettlementStatus(id,'ROLLED_BACK',`${s.franchise} 정산 취소`);}
+async function restoreSettle(id){const s=D.pgSettlements.find(x=>String(x.id)===String(id));if(!s)return;if(!await adminConfirm('취소된 정산을 복원하시겠습니까?'))return;await setPgSettlementStatus(id,'SETTLED','복원 완료');}
 
 // ═══ 대리점 정산 ═══
 function pgSettle(){
