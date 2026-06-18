@@ -105,7 +105,7 @@ async function main() {
     'Server Web Push VAPID keys',
     webPushStatus.configured,
     `${webPushStatus.mode}: ${webPushStatus.detail}`,
-    'Generate VAPID keys with npx web-push generate-vapid-keys and set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY in the server .env.'
+    'Run npm run push:vapid and copy the generated WEB_PUSH_VAPID_* lines into the server .env.'
   ));
 
   let pool = null;

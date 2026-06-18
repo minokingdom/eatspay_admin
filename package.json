@@ -13,6 +13,7 @@
     "push:test": "node scripts/send-test-push.js",
     "push:status": "node scripts/push-status.js",
     "push:readiness": "node scripts/push-readiness.js",
+    "push:vapid": "node scripts/generate-vapid-env.js",
     "android:sync": "node scripts/sync-www.js && npx cap sync android",
     "android:open": "npx cap open android",
     "test": "node --test test/*.test.js",

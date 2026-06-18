@@ -45,10 +45,10 @@ The PWA can receive browser push notifications when Web Push VAPID keys are conf
 Generate VAPID keys:
 
 ```bash
-npx web-push generate-vapid-keys
+npm run push:vapid
 ```
 
-Add the generated values to `/opt/eatspay/.env`:
+Copy the generated values to `/opt/eatspay/.env`:
 
 ```bash
 WEB_PUSH_VAPID_PUBLIC_KEY=...
@@ -84,6 +84,7 @@ Typical AWS deployment after pulling this feature:
 cd /opt/eatspay
 sudo git pull origin main
 npm install
+npm run push:vapid
 sudo install -d -m 750 -o root -g root /etc/eatspay
 sudo nano /etc/eatspay/firebase-service-account.json
 sudo chmod 640 /etc/eatspay/firebase-service-account.json
