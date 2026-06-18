@@ -639,6 +639,85 @@ function createRepository(pool) {
       return toUser(updated.rows[0]);
     },
 
+    async listAdminUsers() {
+      const result = await pool.query(
+        `SELECT id, email, name, role, created_at, updated_at
+         FROM users
+         WHERE role = 'ADMIN'
+         ORDER BY id ASC`
+      );
+      return result.rows.map(row => ({
+        id: row.id,
+        loginId: row.email,
+        email: row.email,
+        name: row.name,
+        role: '총괄 관리자',
+        authRole: row.role,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+        updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+        lastLogin: '-'
+      }));
+    },
+
+    async createAdminUser(user) {
+      const result = await pool.query(
+        `INSERT INTO users (
+           email, password_hash, name, role, balance,
+           franchise_name, phone, address, tel, business_number,
+           customer_id, agency_id, biz_doc_file_key
+         )
+         VALUES ($1, $2, $3, 'ADMIN', 0, $3, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+         RETURNING *`,
+        [user.email, user.passwordHash, user.name]
+      );
+      const updated = await pool.query(
+        'UPDATE users SET franchise_id = id, franchise_name = name, updated_at = now() WHERE id = $1 RETURNING *',
+        [result.rows[0].id]
+      );
+      return toUser(updated.rows[0]);
+    },
+
+    async updateAdminUser(id, fields) {
+      const updates = [];
+      const params = [id];
+      if (fields.email !== undefined) {
+        params.push(fields.email);
+        updates.push(`email = $${params.length}`);
+      }
+      if (fields.name !== undefined) {
+        params.push(fields.name);
+        updates.push(`name = $${params.length}`, `franchise_name = $${params.length}`);
+      }
+      if (fields.passwordHash !== undefined) {
+        params.push(fields.passwordHash);
+        updates.push(`password_hash = $${params.length}`);
+      }
+      if (!updates.length) {
+        const current = await pool.query('SELECT * FROM users WHERE id = $1 AND role = $2', [id, 'ADMIN']);
+        return toUser(current.rows[0]);
+      }
+      const result = await pool.query(
+        `UPDATE users
+         SET ${updates.join(', ')},
+             role = 'ADMIN',
+             updated_at = now()
+         WHERE id = $1 AND role = 'ADMIN'
+         RETURNING *`,
+        params
+      );
+      return toUser(result.rows[0]);
+    },
+
+    async deleteAdminUser(id) {
+      const result = await pool.query(
+        `DELETE FROM users
+         WHERE id = $1 AND role = 'ADMIN'
+         RETURNING id`,
+        [id]
+      );
+      return result.rows[0] || null;
+    },
+
     async listFranchiseUsers() {
       const result = await pool.query(
         `SELECT users.*, agencies.name AS agency_name

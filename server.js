@@ -2000,8 +2000,9 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides] = await Promise.all([
+  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides] = await Promise.all([
     repo.listFranchiseUsers(),
+    repo.listAdminUsers(),
     repo.listAgencies(),
     repo.listDeliveryAgencies(),
     repo.listDeliveryAccounts(),
@@ -2201,6 +2202,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     faqs,
     notices,
     guides,
+    admins: adminUsers,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2331,6 +2333,93 @@ app.delete('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async 
   const deleted = await repo.deleteAdminBoardPost(id, type);
   if (!deleted) {
     return sendError(res, 404, 'POST_NOT_FOUND', 'Board post was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+app.get('/api/admin/admins', authenticateAdmin, asyncHandler(async (req, res) => {
+  const admins = await repo.listAdminUsers();
+  return res.status(200).json({ success: true, data: admins });
+}));
+
+app.post('/api/admin/admins', authenticateAdmin, asyncHandler(async (req, res) => {
+  const email = String(req.body?.loginId || req.body?.email || '').trim().toLowerCase();
+  const name = String(req.body?.name || '').trim();
+  const password = String(req.body?.password || '');
+  if (!email || !name || !password) {
+    return sendError(res, 400, 'BAD_REQUEST', 'loginId, name, and password are required.');
+  }
+  if (password.length < 8) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '관리자 비밀번호는 8자 이상으로 입력해주세요.');
+  }
+  const user = await repo.createAdminUser({
+    email,
+    name,
+    passwordHash: await hashPassword(password)
+  });
+  return res.status(201).json({
+    success: true,
+    data: {
+      id: user.id,
+      loginId: user.email,
+      email: user.email,
+      name: user.name,
+      role: '총괄 관리자',
+      authRole: 'ADMIN',
+      lastLogin: '-'
+    }
+  });
+}));
+
+app.patch('/api/admin/admins/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'admin id is required.');
+  }
+  const email = String(req.body?.loginId || req.body?.email || '').trim().toLowerCase();
+  const name = String(req.body?.name || '').trim();
+  const password = String(req.body?.password || '');
+  if (!email || !name) {
+    return sendError(res, 400, 'BAD_REQUEST', 'loginId and name are required.');
+  }
+  if (password && password.length < 8) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '관리자 비밀번호는 8자 이상으로 입력해주세요.');
+  }
+  const fields = { email, name };
+  if (password) fields.passwordHash = await hashPassword(password);
+  const user = await repo.updateAdminUser(id, fields);
+  if (!user) {
+    return sendError(res, 404, 'ADMIN_NOT_FOUND', 'Admin account was not found.');
+  }
+  return res.status(200).json({
+    success: true,
+    data: {
+      id: user.id,
+      loginId: user.email,
+      email: user.email,
+      name: user.name,
+      role: '총괄 관리자',
+      authRole: 'ADMIN',
+      lastLogin: '-'
+    }
+  });
+}));
+
+app.delete('/api/admin/admins/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'admin id is required.');
+  }
+  if (Number(req.user?.id) === id) {
+    return sendError(res, 400, 'CANNOT_DELETE_SELF', '현재 로그인한 관리자 계정은 삭제할 수 없습니다.');
+  }
+  const admins = await repo.listAdminUsers();
+  if (admins.length <= 1) {
+    return sendError(res, 400, 'LAST_ADMIN', '최소 1개의 관리자 계정은 필요합니다.');
+  }
+  const deleted = await repo.deleteAdminUser(id);
+  if (!deleted) {
+    return sendError(res, 404, 'ADMIN_NOT_FOUND', 'Admin account was not found.');
   }
   return res.status(200).json({ success: true, data: deleted });
 }));
