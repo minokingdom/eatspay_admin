@@ -665,32 +665,27 @@ function pgDash(){
     </tbody></table></div></div>`;
 
   return`
-  <div class="kgrid">
-    <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('accounts')">출금계좌 목록 →</div></div>
-    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">출금요청 (어제)</div><div class="kv">${yesterdayRequests}건</div><div class="ks">${yesterday}</div></div>
-    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">지점개설문의</div><div class="kv">${inquiries.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('inquiries')">문의 목록 →</div></div>
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(160px,1fr));gap:12px;margin-bottom:14px">
+    <div class="kpi" style="border-left:none"><div class="kl">매출 (일별)</div><div class="kv">${fmt(dailySales)}</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">매출 (월별)</div><div class="kv">${fmt(monthlySales)}</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">매출 (누적)</div><div class="kv">${fmt(totalSales)}</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (일별)</div><div class="kv">${dailyFranchises}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (월별)</div><div class="kv">${monthlyFranchises}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (누적)</div><div class="kv">${franchises.length}건</div></div>
   </div>
-  <div class="kgrid">
-    <div class="kpi"><div class="kl">일 매출</div><div class="kv">${fmt(dailySales)}</div><div class="ks">${todayStr}</div></div>
-    <div class="kpi"><div class="kl">월 매출</div><div class="kv">${fmt(monthlySales)}</div><div class="ks">${monthKey}</div></div>
-    <div class="kpi"><div class="kl">누적 매출</div><div class="kv">${fmt(totalSales)}</div><div class="ks">전체 결제내역 기준</div></div>
-    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 일/월/누적</div><div class="kv">${dailyFranchises} / ${monthlyFranchises} / ${franchises.length}개</div><div class="ks">DB 가입일 기준</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:28px">
+    <div class="card"><div class="ch"><span style="font-weight:700">매출 현황</span></div><div style="padding:18px 22px">${makeSalesChart(payments)}</div></div>
+    <div class="card"><div class="ch"><span style="font-weight:700">가맹점 현황</span></div><div style="padding:18px 22px">${makeFranChart(franchises)}</div></div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-    <div class="card"><div class="ch"><span style="font-weight:700">매출 일별 추이</span><span style="font-size:11px;color:#6B7280">최근 7일</span></div><div style="padding:12px">${makeSalesChart(payments)}</div></div>
-    <div class="card"><div class="ch"><span style="font-weight:700">가맹점 주별 추이</span><span style="font-size:11px;color:#6B7280">최근 6주</span></div><div style="padding:12px">${makeFranChart(franchises)}</div></div>
-  </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span><span style="font-size:11px;color:#6B7280">항목 클릭 시 상세 확인 가능</span></div><div style="padding:12px 16px">
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span></div><div style="padding:12px 16px">
   ${pending.length?
-  pendingRows.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
-    <div class="pend-hd">
-      <div><div style="font-weight:700;font-size:13px">${p.fname} <span style="font-size:11px;color:#6B7280">▶ 클릭하여 상세 확인</span></div><div style="font-size:11px;color:#6B7280;margin-top:2px">요청일: ${p.reqDate||'-'}</div></div>
-      <div class="ab">
-        <button class="btn bg2 xs" onclick="event.stopPropagation();approveAccount(${p.fid},${p.idx})">승인</button>
-        <button class="btn bd xs" onclick="event.stopPropagation();rejectAccount(${p.fid},${p.idx})">반려</button>
-      </div>
+  pendingRows.map(p=>`<div class="pend-card" style="cursor:pointer;min-height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px" onclick="showAccountDetail(${p.fid},${p.idx})">
+    <div>
+      <div style="font-weight:800;font-size:13px;margin-bottom:4px">${p.fname}</div>
+      <div style="font-size:11px;color:#6B7280;margin-bottom:8px">${p.fagency||'-'} | ${p.agency||'-'}</div>
+      <div style="font-size:11px"><span class="pend-label">가상계좌</span>&nbsp;&nbsp;<span style="font-family:monospace">${p.accountNo||'미입력'}</span></div>
     </div>
-    <div class="pend-info"><span class="pend-label">배달대행사</span><span>${p.agency}</span><span class="pend-label">가상계좌번호</span><span style="font-family:monospace">${p.accountNo||'미입력'}</span><span class="pend-label">증빙 파일명</span><span>${p.fileName||'미첨부'}</span></div>
+    <button class="btn bg2 xs" onclick="event.stopPropagation();showAccountDetail(${p.fid},${p.idx})">🔍 확인</button>
   </div>`).join('')+pendingPager:`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
   `;
 }
