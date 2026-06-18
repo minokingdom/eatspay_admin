@@ -489,11 +489,68 @@ function showReceipt(id){
   `<button class="btn bg2" onclick="closeM()">확인</button>`);
 }
 
+function dateOnly(value){
+  return String(value||'').slice(0,10);
+}
+function addDays(date,days){
+  const d=new Date(date);
+  d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10);
+}
+function fmtShort(n){
+  const v=Number(n||0);
+  if(Math.abs(v)>=100000000)return `${(v/100000000).toFixed(v%100000000?1:0)}억`;
+  if(Math.abs(v)>=10000)return `${Math.round(v/10000).toLocaleString()}만`;
+  return v.toLocaleString();
+}
+function svgBar(labels,values,color='#3D9B35'){
+  const max=Math.max(1,...values.map(v=>Number(v)||0));
+  const bars=values.map((v,i)=>{
+    const h=Math.max(4,Math.round((Number(v)||0)/max*86));
+    const x=24+i*44;
+    const y=104-h;
+    return `<g><rect x="${x}" y="${y}" width="24" height="${h}" rx="5" fill="${color}" opacity=".88"></rect><text x="${x+12}" y="122" text-anchor="middle" font-size="10" fill="#6B7280">${labels[i]}</text></g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${Math.max(320,labels.length*44+42)} 132" style="width:100%;height:150px;display:block"><line x1="16" y1="104" x2="${Math.max(300,labels.length*44+24)}" y2="104" stroke="#D1E8D1"/><text x="16" y="18" font-size="11" fill="#6B7280">최대 ${fmtShort(max)}</text>${bars}</svg>`;
+}
+function makeSalesChart(payments){
+  const base=new Date();
+  const labels=[];
+  const values=[];
+  for(let i=6;i>=0;i--){
+    const day=addDays(base,-i);
+    labels.push(day.slice(5).replace('-','.'));
+    values.push(payments.filter(p=>dateOnly(p.date)===day).reduce((s,p)=>s+Number(p.amount||0),0));
+  }
+  return svgBar(labels,values,'#3B82F6');
+}
+function makeFranChart(franchises){
+  const base=new Date();
+  const labels=[];
+  const values=[];
+  for(let i=5;i>=0;i--){
+    const end=addDays(base,-i*7);
+    const start=addDays(end,-6);
+    labels.push(`${end.slice(5,7)}/${end.slice(8,10)}`);
+    values.push(franchises.filter(f=>dateOnly(f.joinDate||f.createdAt)>=start&&dateOnly(f.joinDate||f.createdAt)<=end).length);
+  }
+  return svgBar(labels,values,'#3D9B35');
+}
+
 // ═══ 대시보드 ═══
 function pgDash(){
-  const tot=D.payments.reduce((s,p)=>s+p.amount,0);
-  const todayTotal=Number(D.summary?.todayPaymentTotal||0);
-  const pf=D.franchises.filter(f=>f.status==='승인 대기').length;
+  const todayStr=today();
+  const yesterday=addDays(new Date(),-1);
+  const payments=D.payments||[];
+  const franchises=D.franchises||[];
+  const inquiries=D.inquiries||[];
+  const dailySales=payments.filter(p=>dateOnly(p.date)===todayStr).reduce((s,p)=>s+Number(p.amount||0),0);
+  const monthKey=todayStr.slice(0,7);
+  const monthlySales=payments.filter(p=>dateOnly(p.date).slice(0,7)===monthKey).reduce((s,p)=>s+Number(p.amount||0),0);
+  const totalSales=payments.reduce((s,p)=>s+Number(p.amount||0),0);
+  const dailyFranchises=franchises.filter(f=>dateOnly(f.joinDate||f.createdAt)===todayStr).length;
+  const monthlyFranchises=franchises.filter(f=>dateOnly(f.joinDate||f.createdAt).slice(0,7)===monthKey).length;
+  const yesterdayRequests=(franchises||[]).flatMap(f=>(f.deliveryAgencies||[]).map(a=>({f,a}))).filter(item=>dateOnly(item.a.reqDate)===yesterday).length;
   const pending=getPending();
   const pendingTotalPages=Math.max(1,Math.ceil(pending.length/5));
   pendingAccountPage=Math.min(Math.max(1,pendingAccountPage),pendingTotalPages);
@@ -502,22 +559,35 @@ function pgDash(){
 
   if(role==='agent') return`
     <div class="kgrid">
-      <div class="kpi"><div class="kl">내 가맹점 (누적)</div><div class="kv">${D.franchises.length}개</div></div>
-      <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">결제 총액 (샘플)</div><div class="kv">${fmt(tot)}</div></div>
-      <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">영업 지급예정</div><div class="kv">${fmt(Math.round(tot*0.003*0.967))}</div><div class="ks">거래금액×0.3%×0.967</div></div>
+      <div class="kpi"><div class="kl">내 가맹점 (누적)</div><div class="kv">${franchises.length}개</div></div>
+      <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">이번 달 매출</div><div class="kv">${fmt(monthlySales)}</div></div>
+      <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">영업 지급예정</div><div class="kv">${fmt(Math.round(monthlySales*0.003*0.967))}</div><div class="ks">거래금액×0.3%×0.967</div></div>
       <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card"><div class="ch"><span style="font-weight:700">매출 일별 추이</span></div><div style="padding:12px">${makeSalesChart(payments)}</div></div>
+      <div class="card"><div class="ch"><span style="font-weight:700">가맹점 주별 추이</span></div><div style="padding:12px">${makeFranChart(franchises)}</div></div>
     </div>
     <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 가맹점 현황</span></div>
     <div class="tw"><table><thead><tr><th>상점명</th><th>가입일</th><th>마지막 결제일</th><th>상태</th></tr></thead><tbody>
-    ${D.franchises.slice(0,5).map(f=>`<tr><td>${f.name}</td><td>${f.joinDate}</td><td>${f.lastPaymentDate||'-'}</td><td>${bdg(f.status)}</td></tr>`).join('')}
+    ${franchises.slice(0,5).map(f=>`<tr><td>${f.name}</td><td>${f.joinDate||'-'}</td><td>${f.lastPaymentDate||'-'}</td><td>${bdg(f.status)}</td></tr>`).join('')||`<tr><td colspan="4" class="emp">가맹점이 없습니다.</td></tr>`}
     </tbody></table></div></div>`;
 
   return`
   <div class="kgrid">
     <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('accounts')">출금계좌 목록 →</div></div>
-    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 승인 대기</div><div class="kv">${pf}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('franchises')">가맹점 목록 →</div></div>
-    <div class="kpi"><div class="kl">전체 가맹점</div><div class="kv">${D.franchises.length}개</div><div class="ks">정상: ${D.franchises.filter(f=>f.status==='정상 승인').length}개</div></div>
-    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액</div><div class="kv">${fmt(todayTotal)}</div></div>
+    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">출금요청 (어제)</div><div class="kv">${yesterdayRequests}건</div><div class="ks">${yesterday}</div></div>
+    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">지점개설문의</div><div class="kv">${inquiries.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('inquiries')">문의 목록 →</div></div>
+  </div>
+  <div class="kgrid">
+    <div class="kpi"><div class="kl">일 매출</div><div class="kv">${fmt(dailySales)}</div><div class="ks">${todayStr}</div></div>
+    <div class="kpi"><div class="kl">월 매출</div><div class="kv">${fmt(monthlySales)}</div><div class="ks">${monthKey}</div></div>
+    <div class="kpi"><div class="kl">누적 매출</div><div class="kv">${fmt(totalSales)}</div><div class="ks">전체 결제내역 기준</div></div>
+    <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 일/월/누적</div><div class="kv">${dailyFranchises} / ${monthlyFranchises} / ${franchises.length}개</div><div class="ks">DB 가입일 기준</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+    <div class="card"><div class="ch"><span style="font-weight:700">매출 일별 추이</span><span style="font-size:11px;color:#6B7280">최근 7일</span></div><div style="padding:12px">${makeSalesChart(payments)}</div></div>
+    <div class="card"><div class="ch"><span style="font-weight:700">가맹점 주별 추이</span><span style="font-size:11px;color:#6B7280">최근 6주</span></div><div style="padding:12px">${makeFranChart(franchises)}</div></div>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span><span style="font-size:11px;color:#6B7280">항목 클릭 시 상세 확인 가능</span></div><div style="padding:12px 16px">
   ${pending.length?
@@ -531,16 +601,7 @@ function pgDash(){
     </div>
     <div class="pend-info"><span class="pend-label">배달대행사</span><span>${p.agency}</span><span class="pend-label">가상계좌번호</span><span style="font-family:monospace">${p.accountNo||'미입력'}</span><span class="pend-label">증빙 파일명</span><span>${p.fileName||'미첨부'}</span></div>
   </div>`).join('')+pendingPager:`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 결제 현황</span><button class="btn bo sm" onclick="nav('payments')">전체보기</button></div>
-    <div class="tw"><table><thead><tr><th>가맹점</th><th>금액</th><th>승인번호</th><th>상태</th></tr></thead><tbody>
-    ${D.payments.length?D.payments.slice(0,4).map(p=>`<tr><td>${paymentFranchiseName(p)}</td><td class="tg">${fmt(p.amount)}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${bdg(p.status)}</td></tr>`).join(''):`<tr><td colspan="4" class="emp">결제 내역이 없습니다.</td></tr>`}
-    </tbody></table></div></div>
-    <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 PG 정산</span><button class="btn bo sm" onclick="nav('pgsettle')">전체보기</button></div>
-    <div class="tw"><table><thead><tr><th>가맹점</th><th>입금액</th><th>상태</th></tr></thead><tbody>
-    ${D.pgSettlements.length?D.pgSettlements.slice(0,4).map(s=>`<tr><td>${s.franchise}</td><td class="tg">${fmt(s.netAmt)}</td><td>${bdg(s.status)}</td></tr>`).join(''):`<tr><td colspan="3" class="emp">PG 정산 내역이 없습니다.</td></tr>`}
-    </tbody></table></div></div>
-  </div>`;
+  `;
 }
 
 function setPendingAccountPage(n){
