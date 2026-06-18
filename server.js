@@ -1770,6 +1770,9 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
     success: true,
     data: users.map(user => {
       const paymentSummary = paymentSummaryByFranchiseId.get(String(user.franchiseId)) || {};
+      const joinDate = formatDate(user.createdAt);
+      const rawLastPaymentDate = paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '';
+      const lastPaymentDate = rawLastPaymentDate && rawLastPaymentDate >= joinDate ? rawLastPaymentDate : '';
       return {
         id: user.franchiseId,
         name: user.franchiseName || 'Unregistered store',
@@ -1780,8 +1783,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
         address: user.address || '',
         tel: user.tel || '',
         bizNo: user.businessNumber || '',
-        joinDate: formatDate(user.createdAt),
-        lastPaymentDate: paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '',
+        joinDate,
+        lastPaymentDate,
         paymentCount: Number(paymentSummary.paymentCount || 0),
         status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기',
         email: user.email,
@@ -2223,6 +2226,9 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
   const paymentSummaryByFranchiseId = new Map(paymentSummaries.map(summary => [String(summary.franchiseId), summary]));
   users.forEach(user => {
     const paymentSummary = paymentSummaryByFranchiseId.get(String(user.franchiseId)) || {};
+    const joinDate = formatDate(user.createdAt);
+    const rawLastPaymentDate = paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '';
+    const lastPaymentDate = rawLastPaymentDate && rawLastPaymentDate >= joinDate ? rawLastPaymentDate : '';
     franchiseMap.set(user.franchiseId, {
       id: user.franchiseId,
       name: user.franchiseName || 'Unregistered store',
@@ -2233,8 +2239,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       address: user.address || '',
       tel: user.tel || '',
       bizNo: user.businessNumber || '',
-      joinDate: formatDate(user.createdAt),
-      lastPaymentDate: paymentSummary.lastPaymentAt ? formatDate(paymentSummary.lastPaymentAt) : '',
+      joinDate,
+      lastPaymentDate,
       paymentCount: Number(paymentSummary.paymentCount || 0),
       status: user.role === 'OWNER' ? '\uC815\uC0C1 \uC2B9\uC778' : user.role === 'OWNER_REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
       email: user.email,

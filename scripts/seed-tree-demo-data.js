@@ -96,6 +96,7 @@ async function seedUsers(pool, passwordHash, agencies) {
     const area = AREAS[i % AREAS.length];
     const food = FOODS[i % FOODS.length];
     const role = i % 40 === 7 ? 'OWNER_REJECTED' : i % 25 === 3 ? 'OWNER_PENDING' : 'OWNER';
+    const createdAt = dateTime(1 + (i % 15), 9 + (i % 8), (i * 5) % 60);
     const result = await pool.query(
       `INSERT INTO users (
         email, password_hash, name, franchise_name, franchise_id, role, balance, phone, address, tel,
@@ -116,10 +117,16 @@ async function seedUsers(pool, passwordHash, agencies) {
         `730-${String(10 + (i % 90)).padStart(2, '0')}-${String(10000 + i).padStart(5, '0')}`,
         `${PREFIX}-CUST-${String(i + 1).padStart(5, '0')}`,
         agency.id,
-        dateTime(1 + (i % 15), 9 + (i % 8), (i * 5) % 60)
+        createdAt
       ]
     );
-    users.push({ id: result.rows[0].id, franchiseId, agencyId: agency.id, franchiseName: `${area} ${food} 가맹점 ${String(i + 1).padStart(4, '0')}` });
+    users.push({
+      id: result.rows[0].id,
+      franchiseId,
+      agencyId: agency.id,
+      franchiseName: `${area} ${food} 가맹점 ${String(i + 1).padStart(4, '0')}`,
+      createdAt
+    });
   }
   return users;
 }
@@ -128,7 +135,8 @@ async function seedTransactions(pool, users) {
   const approvedUsers = users.filter((_, index) => index % 25 !== 3 && index % 40 !== 7);
   for (let i = 0; i < TRANSACTION_COUNT; i += 1) {
     const user = approvedUsers[i % approvedUsers.length];
-    const day = 1 + (i % 15);
+    const joinDay = Number(String(user.createdAt || '').slice(8, 10)) || 1;
+    const day = Math.max(1 + (i % 15), joinDay);
     const depositAmount = 30000 + (i % 25) * 7000;
     const fee = Math.floor(depositAmount * 0.04602);
     const totalAmount = depositAmount + fee;

@@ -302,7 +302,8 @@ async function seedTransactions(pool, users) {
   const transactions = [];
   for (let i = 0; i < 18; i += 1) {
     const user = approvedUsers[i % approvedUsers.length];
-    const day = 1 + (i % 15);
+    const joinDay = Number(String(user.createdAt || '').slice(8, 10)) || 1;
+    const day = Math.max(1 + (i % 15), joinDay);
     const depositAmount = 50000 + (i % 9) * 25000 + Math.floor(i / 9) * 10000;
     const fee = Math.floor(depositAmount * 0.04602);
     const totalAmount = depositAmount + fee;
