@@ -178,6 +178,30 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_faqs (
+      id BIGSERIAL PRIMARY KEY,
+      category TEXT NOT NULL,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_board_posts (
+      id BIGSERIAL PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('notice', 'guide')),
+      title TEXT NOT NULL,
+      author TEXT NOT NULL DEFAULT '운영팀',
+      content TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1976,7 +2000,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries] = await Promise.all([
+  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAgencies(),
     repo.listDeliveryAgencies(),
@@ -1996,7 +2020,10 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       offset: 0
     }),
     repo.listInterestFreeInstallments(),
-    repo.listFranchisePaymentSummaries()
+    repo.listFranchisePaymentSummaries(),
+    repo.listAdminFaqs(),
+    repo.listAdminBoardPosts('notice'),
+    repo.listAdminBoardPosts('guide')
   ]);
 
   const franchiseMap = new Map();
@@ -2171,6 +2198,9 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     agencies: agenciesForAdmin,
     deliveryAgencies,
     installments,
+    faqs,
+    notices,
+    guides,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2197,6 +2227,112 @@ app.put('/api/admin/installments', authenticateAdmin, asyncHandler(async (req, r
 
   const saved = await repo.replaceInterestFreeInstallments(items);
   return res.status(200).json({ success: true, data: saved });
+}));
+
+app.post('/api/admin/faqs', authenticateAdmin, asyncHandler(async (req, res) => {
+  const category = String(req.body?.category || '').trim();
+  const question = String(req.body?.question || '').trim();
+  const answer = String(req.body?.answer || '').trim();
+  if (!category || !question || !answer) {
+    return sendError(res, 400, 'BAD_REQUEST', 'category, question, and answer are required.');
+  }
+  const faq = await repo.createAdminFaq({
+    category,
+    question,
+    answer,
+    displayOrder: Number(req.body?.displayOrder || 0)
+  });
+  return res.status(201).json({ success: true, data: faq });
+}));
+
+app.patch('/api/admin/faqs/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'faq id is required.');
+  }
+  const category = String(req.body?.category || '').trim();
+  const question = String(req.body?.question || '').trim();
+  const answer = String(req.body?.answer || '').trim();
+  if (!category || !question || !answer) {
+    return sendError(res, 400, 'BAD_REQUEST', 'category, question, and answer are required.');
+  }
+  const faq = await repo.updateAdminFaq(id, {
+    category,
+    question,
+    answer,
+    displayOrder: Number(req.body?.displayOrder || 0)
+  });
+  if (!faq) {
+    return sendError(res, 404, 'FAQ_NOT_FOUND', 'FAQ was not found.');
+  }
+  return res.status(200).json({ success: true, data: faq });
+}));
+
+app.delete('/api/admin/faqs/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'faq id is required.');
+  }
+  const deleted = await repo.deleteAdminFaq(id);
+  if (!deleted) {
+    return sendError(res, 404, 'FAQ_NOT_FOUND', 'FAQ was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+function adminBoardType(raw) {
+  const type = String(raw || '').trim();
+  if (type === 'notices') return 'notice';
+  if (type === 'guides') return 'guide';
+  if (type === 'notice' || type === 'guide') return type;
+  return '';
+}
+
+app.post('/api/admin/boards/:type', authenticateAdmin, asyncHandler(async (req, res) => {
+  const type = adminBoardType(req.params.type);
+  if (!type) {
+    return sendError(res, 400, 'BAD_REQUEST', 'board type must be notice or guide.');
+  }
+  const title = String(req.body?.title || '').trim();
+  const content = String(req.body?.content || '').trim();
+  const author = String(req.body?.author || '운영팀').trim() || '운영팀';
+  if (!title || !content) {
+    return sendError(res, 400, 'BAD_REQUEST', 'title and content are required.');
+  }
+  const post = await repo.createAdminBoardPost({ type, title, author, content });
+  return res.status(201).json({ success: true, data: post });
+}));
+
+app.patch('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const type = adminBoardType(req.params.type);
+  const id = Number(req.params.id);
+  if (!type || !Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'board type and post id are required.');
+  }
+  const title = String(req.body?.title || '').trim();
+  const content = String(req.body?.content || '').trim();
+  const author = String(req.body?.author || '운영팀').trim() || '운영팀';
+  if (!title || !content) {
+    return sendError(res, 400, 'BAD_REQUEST', 'title and content are required.');
+  }
+  const post = await repo.updateAdminBoardPost(id, { type, title, author, content });
+  if (!post) {
+    return sendError(res, 404, 'POST_NOT_FOUND', 'Board post was not found.');
+  }
+  return res.status(200).json({ success: true, data: post });
+}));
+
+app.delete('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const type = adminBoardType(req.params.type);
+  const id = Number(req.params.id);
+  if (!type || !Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'board type and post id are required.');
+  }
+  const deleted = await repo.deleteAdminBoardPost(id, type);
+  if (!deleted) {
+    return sendError(res, 404, 'POST_NOT_FOUND', 'Board post was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
 }));
 
 app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res) => {

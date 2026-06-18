@@ -1592,32 +1592,66 @@ async function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!
 async function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ FAQ ═══
-function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&cats.length)faqTab=cats[0];return`
+function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!cats.includes(faqTab))faqTab=cats[0]||'서비스 안내';return`
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
     <div class="tabs" style="margin-bottom:0">${cats.map(c=>`<div class="tab ${faqTab===c?'on':''}" onclick="faqTab='${c}';rFAQ()">${c}</div>`).join('')}<div class="tab" onclick="addFaqCat()" style="color:#3D9B35">+ 추가</div></div>
     <button class="btn bg2" onclick="addFQ()">+ FAQ 추가</button>
   </div><div id="fql"></div>`;}
-function rFAQ(){const el=document.getElementById('fql');if(!el)return;const items=D.faqs.filter(f=>f.category===faqTab);el.innerHTML=items.map(f=>`<div class="card" style="margin-bottom:8px"><div class="ch" style="padding:10px 14px"><span style="font-weight:700;color:#3D9B35">Q</span><span style="font-weight:600;margin-left:6px">${f.question}</span><div class="ab" style="margin-left:auto"><button class="btn bo xs" onclick="edFQ(${f.id})">수정</button><button class="btn bd xs" onclick="delFQ(${f.id})">삭제</button></div></div><div style="padding:10px 14px;color:#6B7280;font-size:12px"><span style="color:#3D9B35;font-weight:700">A</span>&nbsp;${f.answer}</div></div>`).join('')||'<div class="card"><div class="emp">FAQ가 없습니다.</div></div>';}
-async function addFaqCat(){const n=await adminPrompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
-function fqForm(f={}){const cats=[...new Set(D.faqs.map(x=>x.category))];return`<div class="fg"><label class="fl">카테고리</label><select class="fs" id="fqc">${cats.map(c=>`<option ${c===(f.category||faqTab)?'selected':''}>${c}</option>`).join('')}</select></div><div class="fg"><label class="fl">질문 *</label><input class="fi" id="fqq" value="${f.question||''}" placeholder="자주 묻는 질문"></div><div class="fg"><label class="fl">답변 *</label><textarea class="fta" id="fqa" rows="5">${f.answer||''}</textarea></div>`;}
+function rFAQ(){const el=document.getElementById('fql');if(!el)return;const items=D.faqs.filter(f=>f.category===faqTab);el.innerHTML=items.map(f=>`<div class="card" style="margin-bottom:8px"><div class="ch" style="padding:10px 14px"><span style="font-weight:700;color:#3D9B35">Q</span><span style="font-weight:600;margin-left:6px">${esc(f.question)}</span><div class="ab" style="margin-left:auto"><button class="btn bo xs" onclick="edFQ(${jsArg(f.id)})">수정</button><button class="btn bd xs" onclick="delFQ(${jsArg(f.id)})">삭제</button></div></div><div style="padding:10px 14px;color:#6B7280;font-size:12px;white-space:pre-wrap"><span style="color:#3D9B35;font-weight:700">A</span>&nbsp;${esc(f.answer)}</div></div>`).join('')||'<div class="card"><div class="emp">FAQ가 없습니다.</div></div>';}
+async function addFaqCat(){const n=await adminPrompt('새 카테고리 이름:');if(!n)return;faqTab=n.trim();openM('FAQ 추가',fqForm({category:faqTab}),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ()">저장</button>`);}
+function fqForm(f={}){const cats=[...new Set(D.faqs.map(x=>x.category))];const category=f.category||faqTab||cats[0]||'서비스 안내';return`<div class="fg"><label class="fl">카테고리</label><input class="fi" id="fqc" value="${esc(category)}" placeholder="예: 서비스 안내"></div><div class="fg"><label class="fl">질문 *</label><input class="fi" id="fqq" value="${esc(f.question||'')}" placeholder="자주 묻는 질문"></div><div class="fg"><label class="fl">답변 *</label><textarea class="fta" id="fqa" rows="5">${esc(f.answer||'')}</textarea></div>`;}
 function addFQ(){openM('FAQ 추가',fqForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ()">저장</button>`);}
-function edFQ(id){const f=D.faqs.find(x=>x.id===id);openM('FAQ 수정',fqForm(f),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ(${id})">저장</button>`);}
-async function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){await adminAlert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
-async function delFQ(id){if(!await adminConfirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
+function edFQ(id){const f=D.faqs.find(x=>String(x.id)===String(id));openM('FAQ 수정',fqForm(f),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ(${jsArg(id)})">저장</button>`);}
+async function savFQ(id){
+  const q=v('fqq').trim(),a=v('fqa').trim(),cat=v('fqc').trim()||'서비스 안내';
+  if(!q||!a){await adminAlert('질문과 답변 필요');return;}
+  try{
+    const res=await fetch(id?`/api/admin/faqs/${encodeURIComponent(id)}`:'/api/admin/faqs',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({category:cat,question:q,answer:a})});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'FAQ 저장에 실패했습니다.');
+    faqTab=cat;closeM();await syncBackendTransactions({forceRender:true});toast(id?'FAQ가 수정되었습니다.':'FAQ가 추가되었습니다.');
+  }catch(e){await adminAlert(e.message||'FAQ 저장에 실패했습니다.');}
+}
+async function delFQ(id){
+  if(!await adminConfirm('삭제하시겠습니까?'))return;
+  try{
+    const res=await fetch(`/api/admin/faqs/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'FAQ 삭제에 실패했습니다.');
+    await syncBackendTransactions({forceRender:true});toast('FAQ가 삭제되었습니다.');
+  }catch(e){await adminAlert(e.message||'FAQ 삭제에 실패했습니다.');}
+}
 
 // ═══ 게시판 ═══
 function pgNotices(){return pgBoard('notices');}
 function pgGuides(){return pgBoard('guides');}
 function pgBoard(t){return`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addPost('${t}')">+ 게시글 작성</button></div>
   <div class="card"><div class="tw"><table><thead><tr><th>제목</th><th>작성자</th><th>작성일시</th><th>관리</th></tr></thead><tbody>
-  ${D[t].map(n=>`<tr><td><span style="cursor:pointer;font-weight:600;color:#3B82F6" onclick="viewPost('${t}',${n.id})">${n.title}</span></td><td>${n.author}</td><td>${n.date}</td><td><div class="ab"><button class="btn bo xs" onclick="edPost('${t}',${n.id})">수정</button><button class="btn bd xs" onclick="delPost('${t}',${n.id})">삭제</button></div></td></tr>`).join('')||`<tr><td colspan="4" class="emp">게시글 없음</td></tr>`}
+  ${D[t].map(n=>`<tr><td><span style="cursor:pointer;font-weight:600;color:#3B82F6" onclick="viewPost('${t}',${jsArg(n.id)})">${esc(n.title)}</span></td><td>${esc(n.author||'운영팀')}</td><td>${esc(n.date||String(n.updatedAt||'').slice(0,10)||'-')}</td><td><div class="ab"><button class="btn bo xs" onclick="edPost('${t}',${jsArg(n.id)})">수정</button><button class="btn bd xs" onclick="delPost('${t}',${jsArg(n.id)})">삭제</button></div></td></tr>`).join('')||`<tr><td colspan="4" class="emp">게시글 없음</td></tr>`}
   </tbody></table></div></div>`;}
-function viewPost(t,id){const n=D[t].find(x=>x.id===id);openM(n.title,`<div style="font-size:11px;color:#6B7280;margin-bottom:10px">${n.author} | ${n.date}</div><div style="line-height:1.8;white-space:pre-wrap;font-size:12px">${n.content}</div>`,`<button class="btn bo" onclick="edPost('${t}',${id});closeM()">수정</button><button class="btn bg2" onclick="closeM()">확인</button>`);}
-function pForm(n={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="pt" value="${n.title||''}" placeholder="제목 입력"></div><div class="fg"><label class="fl">작성자</label><input class="fi" id="pa" value="${n.author||'운영팀'}"></div><div class="fg"><label class="fl">내용 *</label><textarea class="fta" id="pc" rows="6" placeholder="내용 입력">${n.content||''}</textarea></div>`;}
+function viewPost(t,id){const n=D[t].find(x=>String(x.id)===String(id));if(!n)return;openM(esc(n.title),`<div style="font-size:11px;color:#6B7280;margin-bottom:10px">${esc(n.author||'운영팀')} | ${esc(n.date||String(n.updatedAt||'').slice(0,10)||'-')}</div><div style="line-height:1.8;white-space:pre-wrap;font-size:12px">${esc(n.content)}</div>`,`<button class="btn bo" onclick="closeM();setTimeout(()=>edPost('${t}',${jsArg(id)}),30)">수정</button><button class="btn bg2" onclick="closeM()">확인</button>`);}
+function pForm(n={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="pt" value="${esc(n.title||'')}" placeholder="제목 입력"></div><div class="fg"><label class="fl">작성자</label><input class="fi" id="pa" value="${esc(n.author||'운영팀')}"></div><div class="fg"><label class="fl">내용 *</label><textarea class="fta" id="pc" rows="6" placeholder="내용 입력">${esc(n.content||'')}</textarea></div>`;}
 function addPost(t){openM('게시글 작성',pForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}')">저장</button>`);}
-function edPost(t,id){const n=D[t].find(x=>x.id===id);openM('게시글 수정',pForm(n),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}',${id})">저장</button>`);}
-async function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){await adminAlert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
-async function delPost(t,id){if(!await adminConfirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+function edPost(t,id){const n=D[t].find(x=>String(x.id)===String(id));openM('게시글 수정',pForm(n),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}',${jsArg(id)})">저장</button>`);}
+async function savPost(t,id){
+  const ti=v('pt').trim(),c=v('pc').trim();if(!ti||!c){await adminAlert('제목과 내용 필요');return;}
+  const a=v('pa').trim()||'운영팀';
+  try{
+    const res=await fetch(id?`/api/admin/boards/${t}/${encodeURIComponent(id)}`:`/api/admin/boards/${t}`,{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({title:ti,author:a,content:c})});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'게시글 저장에 실패했습니다.');
+    closeM();await syncBackendTransactions({forceRender:true});toast(id?'게시글이 수정되었습니다.':'게시글이 등록되었습니다.');
+  }catch(e){await adminAlert(e.message||'게시글 저장에 실패했습니다.');}
+}
+async function delPost(t,id){
+  if(!await adminConfirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;
+  try{
+    const res=await fetch(`/api/admin/boards/${t}/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'게시글 삭제에 실패했습니다.');
+    await syncBackendTransactions({forceRender:true});toast('게시글이 삭제되었습니다.');
+  }catch(e){await adminAlert(e.message||'게시글 삭제에 실패했습니다.');}
+}
 
 // ═══ 관리자 ═══
 function pgAdmins(){const roles=getRoles();return`
@@ -1885,6 +1919,9 @@ function makeBackendSnapshot(){
     agencies:D.agencies,
     deliveryAgencyList:D.deliveryAgencyList,
     installments:D.installments,
+    faqs:D.faqs,
+    notices:D.notices,
+    guides:D.guides,
     summary:D.summary,
     payments:D.payments,
     pgSettlements:D.pgSettlements
@@ -1932,6 +1969,9 @@ async function syncBackendTransactions(options={}) {
     D.agencies = Array.isArray(data.agencies) ? data.agencies : D.agencies;
     D.deliveryAgencyList = Array.isArray(data.deliveryAgencies) ? data.deliveryAgencies : D.deliveryAgencyList;
     D.installments = Array.isArray(data.installments) ? data.installments : [];
+    D.faqs = Array.isArray(data.faqs) ? data.faqs : [];
+    D.notices = Array.isArray(data.notices) ? data.notices : [];
+    D.guides = Array.isArray(data.guides) ? data.guides : [];
     D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];

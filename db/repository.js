@@ -71,6 +71,35 @@ function toStoredFile(row) {
   };
 }
 
+function toAdminFaq(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    category: row.category,
+    question: row.question,
+    answer: row.answer,
+    displayOrder: Number(row.display_order || 0),
+    active: row.active !== false,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+function toAdminBoardPost(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    author: row.author,
+    content: row.content,
+    active: row.active !== false,
+    date: row.updated_at instanceof Date ? row.updated_at.toISOString().slice(0, 10) : String(row.updated_at || '').slice(0, 10),
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toTalkPost(row) {
   if (!row) return null;
   return {
@@ -1300,6 +1329,122 @@ function createRepository(pool) {
         throw error;
       }
       return this.listInterestFreeInstallments();
+    },
+
+    async listAdminFaqs() {
+      const result = await pool.query(
+        `SELECT id, category, question, answer, display_order, active, created_at, updated_at
+         FROM admin_faqs
+         WHERE active = true
+         ORDER BY category ASC, display_order ASC, id ASC`
+      );
+      return result.rows.map(toAdminFaq);
+    },
+
+    async createAdminFaq(fields) {
+      const result = await pool.query(
+        `INSERT INTO admin_faqs (category, question, answer, display_order, active)
+         VALUES ($1, $2, $3, $4, true)
+         RETURNING id, category, question, answer, display_order, active, created_at, updated_at`,
+        [
+          fields.category,
+          fields.question,
+          fields.answer,
+          Number(fields.displayOrder || 0)
+        ]
+      );
+      return toAdminFaq(result.rows[0]);
+    },
+
+    async updateAdminFaq(id, fields) {
+      const result = await pool.query(
+        `UPDATE admin_faqs
+         SET category = $2,
+             question = $3,
+             answer = $4,
+             display_order = $5,
+             updated_at = now()
+         WHERE id = $1 AND active = true
+         RETURNING id, category, question, answer, display_order, active, created_at, updated_at`,
+        [
+          id,
+          fields.category,
+          fields.question,
+          fields.answer,
+          Number(fields.displayOrder || 0)
+        ]
+      );
+      return toAdminFaq(result.rows[0]);
+    },
+
+    async deleteAdminFaq(id) {
+      const result = await pool.query(
+        `UPDATE admin_faqs
+         SET active = false,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [id]
+      );
+      return result.rows[0] || null;
+    },
+
+    async listAdminBoardPosts(type) {
+      const result = await pool.query(
+        `SELECT id, type, title, author, content, active, created_at, updated_at
+         FROM admin_board_posts
+         WHERE type = $1 AND active = true
+         ORDER BY updated_at DESC, id DESC`,
+        [type]
+      );
+      return result.rows.map(toAdminBoardPost);
+    },
+
+    async createAdminBoardPost(fields) {
+      const result = await pool.query(
+        `INSERT INTO admin_board_posts (type, title, author, content, active)
+         VALUES ($1, $2, $3, $4, true)
+         RETURNING id, type, title, author, content, active, created_at, updated_at`,
+        [
+          fields.type,
+          fields.title,
+          fields.author || '운영팀',
+          fields.content
+        ]
+      );
+      return toAdminBoardPost(result.rows[0]);
+    },
+
+    async updateAdminBoardPost(id, fields) {
+      const result = await pool.query(
+        `UPDATE admin_board_posts
+         SET title = $2,
+             author = $3,
+             content = $4,
+             updated_at = now()
+         WHERE id = $1 AND type = $5 AND active = true
+         RETURNING id, type, title, author, content, active, created_at, updated_at`,
+        [
+          id,
+          fields.title,
+          fields.author || '운영팀',
+          fields.content,
+          fields.type
+        ]
+      );
+      return toAdminBoardPost(result.rows[0]);
+    },
+
+    async deleteAdminBoardPost(id, type) {
+      const result = await pool.query(
+        `UPDATE admin_board_posts
+         SET active = false,
+             updated_at = now()
+         WHERE id = $1 AND type = $2
+         RETURNING id`,
+        [id, type]
+      );
+      return result.rows[0] || null;
     },
 
     async createAccountRequest(request) {
