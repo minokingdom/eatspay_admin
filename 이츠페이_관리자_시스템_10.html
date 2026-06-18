@@ -205,6 +205,7 @@ let editingAgencies=[];
 let backendPollTimer=null;
 let backendSnapshot='';
 let pendingAccountPage=1;
+let _sddSel={};
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
 function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
@@ -285,6 +286,11 @@ function nid(){return++D.nextId;}
 function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
+function fRow(label,input){return`<div style="margin-bottom:14px"><label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:5px">${label}</label>${input}</div>`;}
+function makeSdd(id,items){
+  const value=_sddSel[id]||'';
+  return`<select class="fs" id="${id}" onchange="_sddSel['${id}']=this.value;rPay()" style="width:100%"><option value="">전체</option>${items.map(item=>`<option value="${item.val}" ${String(value)===String(item.val)?'selected':''}>${item.label}</option>`).join('')}</select>`;
+}
 function openM(title,body,foot){document.querySelector('#mo .mbox')?.classList.remove('wide');document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';setTimeout(()=>bindAdminPasswordFields(document.getElementById('mbd')),20);}
 function closeM(){document.getElementById('mo').style.display='none';document.querySelector('#mo .mbox')?.classList.remove('wide');}
 function closeMO(e){if(e.target===document.getElementById('mo'))closeM();}
@@ -612,33 +618,66 @@ function setPendingAccountPage(n){
 // ═══ 결제 내역 ═══
 function pgPay(){return`
   <div class="aw aw-w">⚠️ 조회 전용. 승인번호 클릭 시 전표 확인 가능.</div>
-  <div class="sb2">
-    <input class="si" id="ps" placeholder="가맹점명 검색..." oninput="rPay()">
-    <input class="si" id="pan" placeholder="승인번호..." oninput="rPay()" style="max-width:150px">
-    <input class="si" id="psd" type="date" oninput="rPay()" style="max-width:135px">
-    <span style="color:#6B7280;font-size:11px">~</span>
-    <input class="si" id="ped" type="date" oninput="rPay()" style="max-width:135px">
-    <select class="fs" style="width:120px" id="pst" onchange="rPay()"><option value="">전체 상태</option><option>결제완료</option><option>취소</option></select>
-    <button class="btn bo sm" onclick="clearPS()">초기화</button>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px;align-items:start">
+    <div>
+      <div style="text-align:center;font-size:14px;color:#374151;margin-bottom:16px;padding:14px;background:#fff;border:1px solid #E5E7EB;border-radius:8px">합계 <strong id="pay-total" style="font-size:18px;color:#1F2937">0원</strong></div>
+      <div class="card"><div class="tw"><table><thead><tr><th>거래일시</th><th>대리점</th><th>가맹점명</th><th>구분</th><th style="text-align:right">금액</th><th>할부</th><th>승인번호</th><th>결제 상태</th><th>회원 아이디</th><th>PG</th><th></th></tr></thead><tbody id="pb"></tbody></table></div></div>
+    </div>
+    <div style="position:sticky;top:16px">
+      <div class="card" style="padding:16px">
+        ${fRow('결제 상태',`<select class="fs" id="pst" onchange="rPay()" style="width:100%"><option value="">전체</option><option>결제완료</option><option>취소</option></select>`)}
+        ${fRow('가맹점명',`<input class="fi" id="ps" placeholder="가맹점명/대표자 검색" oninput="rPay()">`)}
+        ${fRow('거래일시',`<div style="display:flex;flex-direction:column;gap:6px"><input class="fi" id="psd" type="date" oninput="rPay()"><input class="fi" id="ped" type="date" oninput="rPay()"></div>`)}
+        ${role==='hq'?`
+          ${fRow('회원 아이디',`<input class="fi" id="pcid" placeholder="회원 아이디" oninput="rPay()">`)}
+          ${fRow('대리점',makeSdd('pag',(D.agencies||[]).map(a=>({val:a.id,label:a.name}))))}
+          ${fRow('결제 구분',`<select class="fs" id="ptype" onchange="rPay()" style="width:100%"><option value="">전체</option><option>충전</option><option>결제</option></select>`)}
+          ${fRow('PG사',`<select class="fs" id="ppg" onchange="rPay()" style="width:100%"><option value="">전체</option>${[...new Set((D.payments||[]).map(p=>p.pg).filter(Boolean))].map(pg=>`<option>${pg}</option>`).join('')}</select>`)}
+          ${fRow('배달대행사',makeSdd('pda',(D.deliveryAgencyList||[]).filter(a=>a.status!=='deleted').map(a=>({val:a.name,label:a.name}))))}
+          ${fRow('결제 금액',`<div style="display:flex;gap:6px"><input class="fi" id="pamin" placeholder="최소" oninput="rPay()" type="number"><input class="fi" id="pamax" placeholder="최대" oninput="rPay()" type="number"></div>`)}
+          ${fRow('승인번호',`<input class="fi" id="pan" placeholder="승인번호" oninput="rPay()">`)}
+        `:''}
+        <button class="btn bo" onclick="clearPS()" style="width:100%;justify-content:center">초기화</button>
+      </div>
+    </div>
   </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg" id="pay-total">0원</span></span></div>
-  <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>대리점</th><th>가맹점명</th><th>구분</th><th>금액</th><th>할부</th><th>상태</th><th>PG</th></tr></thead><tbody id="pb"></tbody></table></div></div>`;}
-function clearPS(){['ps','pan','psd','ped'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pst').value='';rPay();}
+  `;}
+function clearPS(){['ps','pan','psd','ped','pst','pcid','ptype','ppg','pamin','pamax'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.pag='';_sddSel.pda='';rPay();}
 function rPay(){
-  const q=v('ps'),an=v('pan'),sd=v('psd'),ed=v('ped'),st=v('pst');
+  const q=(v('ps')||'').toLowerCase(),an=v('pan'),sd=v('psd'),ed=v('ped'),st=v('pst');
+  const cid=(v('pcid')||'').toLowerCase(),ptype=v('ptype'),ppg=v('ppg'),amin=Number(v('pamin')||0),amax=Number(v('pamax')||0);
+  const selectedAgency=String(_sddSel.pag||''),selectedDa=String(_sddSel.pda||'');
   const el=document.getElementById('pb');if(!el)return;
-  const rows=D.payments.filter(p=>{
-    if(q&&!paymentFranchiseName(p).toLowerCase().includes(q.toLowerCase()))return false;
+  const rows=(D.payments||[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).filter(p=>{
+    const fr=paymentFranchise(p);
+    const franchiseName=paymentFranchiseName(p);
+    if(q&&!franchiseName.toLowerCase().includes(q)&&!(fr?.owner||'').toLowerCase().includes(q))return false;
+    if(cid&&!(p.customerId||fr?.customerId||'').toLowerCase().includes(cid))return false;
     if(an&&!p.approvalNo.includes(an))return false;
     if(st&&p.status!==st)return false;
-    if(sd&&p.date<sd)return false;
-    if(ed&&p.date>ed+' 23:59')return false;
+    if(selectedAgency&&paymentAgencyId(p)!==selectedAgency)return false;
+    if(ptype&&p.type!==ptype)return false;
+    if(ppg&&p.pg!==ppg)return false;
+    if(selectedDa){
+      const daName=p.usedDA||p.deliveryAgency||'';
+      const hasDa=daName===selectedDa||(fr?.deliveryAgencies||[]).some(a=>a.agency===selectedDa);
+      if(!hasDa)return false;
+    }
+    if(amin&&Number(p.amount||0)<amin)return false;
+    if(amax&&Number(p.amount||0)>amax)return false;
+    if(sd&&dateOnly(p.date)<sd)return false;
+    if(ed&&dateOnly(p.date)>ed)return false;
     return true;
   });
   const total=rows.reduce((s,p)=>s+(Number(p.amount)||0),0);
   const totalEl=document.getElementById('pay-total');
   if(totalEl)totalEl.textContent=fmt(total);
-  el.innerHTML=rows.map(p=>`<tr><td>${p.date}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px;text-decoration:underline" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${p.agency}</td><td>${paymentFranchiseName(p)}</td><td>${p.type}</td><td class="tg">${fmt(p.amount)}</td><td>${p.installment}</td><td>${bdg(p.status)}</td><td>${p.pg}</td></tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
+  el.innerHTML=rows.map(p=>{
+    const fr=paymentFranchise(p);
+    const customerId=p.customerId||fr?.customerId||'-';
+    const cancelBtn=p.status==='결제완료'?`<button class="btn bd xs" onclick="event.stopPropagation();toast('취소 처리는 PG 정산 확인에서 진행해주세요.')">취소</button>`:'';
+    return`<tr><td style="font-size:12px;white-space:nowrap">${String(p.date||'-').replace(' ','<br><span style="color:#9CA3AF">')}</span></td><td>${p.agency||agencyNameById(paymentAgencyId(p))||'-'}</td><td style="font-weight:700">${paymentFranchiseName(p)}</td><td>${p.type||'-'}</td><td class="tg" style="text-align:right">${fmt(p.amount)}</td><td>${p.installment||'-'}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px;text-decoration:underline" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${bdg(p.status)}</td><td style="font-family:monospace;font-size:11px;color:#6B7280">${customerId}</td><td>${p.pg||'-'}</td><td>${cancelBtn}</td></tr>`;
+  }).join('')||'<tr><td colspan="11" class="emp">검색 결과 없음</td></tr>';
 }
 
 // ═══ PG 정산 확인 ═══
@@ -730,6 +769,14 @@ function paymentFranchiseName(payment){
   const raw=String(payment?.franchise||'').trim();
   const byId=(D.franchises||[]).find(f=>String(f.id)===raw||String(f.id)===String(payment?.franchiseId||''));
   return byId?.name || raw || '-';
+}
+function paymentFranchise(payment){
+  const raw=String(payment?.franchise||'').trim();
+  return (D.franchises||[]).find(f=>String(f.id)===String(payment?.franchiseId||'')||String(f.id)===raw||f.name===raw)||null;
+}
+function agencyNameById(id){
+  const ag=(D.agencies||[]).find(a=>String(a.id)===String(id||''));
+  return ag?.name||'';
 }
 function paymentAgencyId(payment){
   if(payment?.agencyId!==undefined&&payment.agencyId!==null&&String(payment.agencyId).trim()!=='')return String(payment.agencyId);
