@@ -677,11 +677,48 @@ function pgPGSettle(){const tot=D.pgSettlements.reduce((s,p)=>s+p.netAmt,0);retu
         ${fRow('배달대행사',makeSdd('gsda',(D.deliveryAgencyList||[]).filter(a=>a.status!=='deleted').map(a=>({val:a.name,label:a.name})),'rGS()'))}
         ${fRow('정산기간',`<div style="display:flex;flex-direction:column;gap:6px"><input class="fi" id="gsd" type="date" oninput="rGS()"><input class="fi" id="ged" type="date" oninput="rGS()"></div>`)}
         <button class="btn bo" onclick="clearGS()" style="width:100%;justify-content:center;margin-bottom:8px">초기화</button>
-        <button class="btn bg2" onclick="toast('정산용 엑셀 다운로드는 서버 엑셀 연동 단계에서 연결합니다.')" style="width:100%;justify-content:center">다운로드</button>
+        <button class="btn bg2" onclick="downloadPgSettlementExport()" style="width:100%;justify-content:center">다운로드</button>
       </div>
     </div>
   </div>`;}
 function clearGS(){['gss','gsan','gscid','gsd','ged','gsst','gspg'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.gsag='';_sddSel.gsda='';rGS();}
+async function downloadPgSettlementExport(){
+  try{
+    const startDate=v('gsd');
+    const endDate=v('ged');
+    const body={
+      startDate,
+      endDate,
+      status:v('gsst'),
+      pg:v('gspg'),
+      approvalNo:v('gsan'),
+      customerId:v('gscid'),
+      franchiseQuery:v('gss'),
+      agencyId:String(_sddSel.gsag||''),
+      deliveryAgency:String(_sddSel.gsda||'')
+    };
+    const res=await fetch('/api/settle/export',{
+      method:'POST',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify(body)
+    });
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      throw new Error(err.error?.message||err.message||'정산 다운로드에 실패했습니다.');
+    }
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`eatspay_pg_settlements_${startDate||'all'}_${endDate||'all'}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast('PG 정산 CSV를 다운로드했습니다.');
+  }catch(e){await adminAlert(e.message||'정산 다운로드에 실패했습니다.');}
+}
 function rGS(){
   const q=(v('gss')||'').toLowerCase(),an=v('gsan'),cid=(v('gscid')||'').toLowerCase(),sd=v('gsd'),ed=v('ged'),st=v('gsst'),pg=v('gspg');
   const selectedAgency=String(_sddSel.gsag||''),selectedDa=String(_sddSel.gsda||'');

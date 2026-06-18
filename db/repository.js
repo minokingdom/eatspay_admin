@@ -2080,6 +2080,26 @@ function createRepository(pool) {
         params.push(filters.status);
         whereParts.push(`status = $${params.length}`);
       }
+      if (filters.approvalNo) {
+        params.push(`%${filters.approvalNo}%`);
+        whereParts.push(`approval_no ILIKE $${params.length}`);
+      }
+      if (filters.customerId) {
+        params.push(`%${filters.customerId}%`);
+        whereParts.push(`customer_id ILIKE $${params.length}`);
+      }
+      if (filters.franchiseQuery) {
+        params.push(`%${filters.franchiseQuery}%`);
+        whereParts.push(`franchise_name ILIKE $${params.length}`);
+      }
+      if (filters.pg) {
+        params.push(filters.pg);
+        whereParts.push(`pg = $${params.length}`);
+      }
+      if (filters.deliveryAgency) {
+        params.push(filters.deliveryAgency);
+        whereParts.push(`delivery_agency = $${params.length}`);
+      }
       const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
       const limit = filters.limit || 50;
       const offset = filters.offset || 0;

@@ -1670,13 +1670,26 @@ app.get('/api/pg/settlements', authenticateAdmin, asyncHandler(async (req, res) 
   });
 }));
 
+function normalizePgSettlementStatus(status) {
+  const value = String(status || '').trim();
+  if (!value) return '';
+  if (value === '정산완료' || value === 'SETTLED') return 'SETTLED';
+  if (value === '취소' || value === '롤백' || value === 'ROLLED_BACK') return 'ROLLED_BACK';
+  return value;
+}
+
 app.post('/api/settle/export', authenticateAdmin, asyncHandler(async (req, res) => {
-  const { startDate, endDate, agencyId, status } = req.body || {};
+  const { startDate, endDate, agencyId, status, approvalNo, customerId, franchiseQuery, pg, deliveryAgency } = req.body || {};
   const result = await repo.listPgSettlements({
     startDate,
     endDate,
     agencyId: agencyId ? Number(agencyId) : null,
-    status,
+    status: normalizePgSettlementStatus(status),
+    approvalNo: String(approvalNo || '').trim(),
+    customerId: String(customerId || '').trim(),
+    franchiseQuery: String(franchiseQuery || '').trim(),
+    pg: String(pg || '').trim(),
+    deliveryAgency: String(deliveryAgency || '').trim(),
     limit: 5000,
     offset: 0
   });
