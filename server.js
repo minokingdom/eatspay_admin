@@ -218,6 +218,32 @@ const dbBootstrapPromise = (async () => {
   `);
   await pool.query("ALTER TABLE admin_pg_providers ADD COLUMN IF NOT EXISTS api_key_masked TEXT");
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_inquiries (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      delivery_agency TEXT,
+      region TEXT,
+      handler TEXT,
+      status TEXT NOT NULL DEFAULT '상담 대기',
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_banners (
+      id BIGSERIAL PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT '메인',
+      title TEXT NOT NULL,
+      url TEXT,
+      display_order INTEGER NOT NULL DEFAULT 1,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2016,7 +2042,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders] = await Promise.all([
+  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders, inquiries, banners] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAdminUsers(),
     repo.listAgencies(),
@@ -2041,7 +2067,9 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     repo.listAdminFaqs(),
     repo.listAdminBoardPosts('notice'),
     repo.listAdminBoardPosts('guide'),
-    repo.listAdminPgProviders()
+    repo.listAdminPgProviders(),
+    repo.listAdminInquiries(),
+    repo.listAdminBanners()
   ]);
 
   const franchiseMap = new Map();
@@ -2221,6 +2249,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     guides,
     admins: adminUsers,
     pgProviders,
+    inquiries,
+    banners,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2351,6 +2381,113 @@ app.delete('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async 
   const deleted = await repo.deleteAdminBoardPost(id, type);
   if (!deleted) {
     return sendError(res, 404, 'POST_NOT_FOUND', 'Board post was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+function readAdminInquiryBody(body) {
+  return {
+    name: String(body?.name || '').trim(),
+    phone: String(body?.phone || '').trim(),
+    deliveryAgency: String(body?.deliveryAgency || '').trim(),
+    region: String(body?.region || '').trim(),
+    handler: String(body?.handler || '').trim(),
+    status: String(body?.status || '상담 대기').trim() || '상담 대기'
+  };
+}
+
+app.post('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res) => {
+  const fields = readAdminInquiryBody(req.body);
+  if (!fields.name) {
+    return sendError(res, 400, 'BAD_REQUEST', 'inquiry name is required.');
+  }
+  const inquiry = await repo.createAdminInquiry(fields);
+  return res.status(201).json({ success: true, data: inquiry });
+}));
+
+app.patch('/api/admin/inquiries/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'inquiry id is required.');
+  }
+  const fields = readAdminInquiryBody(req.body);
+  if (!fields.name) {
+    return sendError(res, 400, 'BAD_REQUEST', 'inquiry name is required.');
+  }
+  const inquiry = await repo.updateAdminInquiry(id, fields);
+  if (!inquiry) {
+    return sendError(res, 404, 'INQUIRY_NOT_FOUND', 'Inquiry was not found.');
+  }
+  return res.status(200).json({ success: true, data: inquiry });
+}));
+
+app.patch('/api/admin/inquiries/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const status = String(req.body?.status || '').trim();
+  if (!Number.isFinite(id) || !status) {
+    return sendError(res, 400, 'BAD_REQUEST', 'inquiry id and status are required.');
+  }
+  const inquiry = await repo.updateAdminInquiryStatus(id, status);
+  if (!inquiry) {
+    return sendError(res, 404, 'INQUIRY_NOT_FOUND', 'Inquiry was not found.');
+  }
+  return res.status(200).json({ success: true, data: inquiry });
+}));
+
+app.delete('/api/admin/inquiries/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'inquiry id is required.');
+  }
+  const deleted = await repo.deleteAdminInquiry(id);
+  if (!deleted) {
+    return sendError(res, 404, 'INQUIRY_NOT_FOUND', 'Inquiry was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+function readAdminBannerBody(body) {
+  return {
+    type: String(body?.type || '메인').trim() || '메인',
+    title: String(body?.title || '').trim(),
+    url: String(body?.url || '').trim(),
+    order: Number(body?.order || body?.displayOrder || 1)
+  };
+}
+
+app.post('/api/admin/banners', authenticateAdmin, asyncHandler(async (req, res) => {
+  const fields = readAdminBannerBody(req.body);
+  if (!fields.title) {
+    return sendError(res, 400, 'BAD_REQUEST', 'banner title is required.');
+  }
+  const banner = await repo.createAdminBanner(fields);
+  return res.status(201).json({ success: true, data: banner });
+}));
+
+app.patch('/api/admin/banners/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'banner id is required.');
+  }
+  const fields = readAdminBannerBody(req.body);
+  if (!fields.title) {
+    return sendError(res, 400, 'BAD_REQUEST', 'banner title is required.');
+  }
+  const banner = await repo.updateAdminBanner(id, fields);
+  if (!banner) {
+    return sendError(res, 404, 'BANNER_NOT_FOUND', 'Banner was not found.');
+  }
+  return res.status(200).json({ success: true, data: banner });
+}));
+
+app.delete('/api/admin/banners/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'banner id is required.');
+  }
+  const deleted = await repo.deleteAdminBanner(id);
+  if (!deleted) {
+    return sendError(res, 404, 'BANNER_NOT_FOUND', 'Banner was not found.');
   }
   return res.status(200).json({ success: true, data: deleted });
 }));

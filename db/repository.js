@@ -117,6 +117,39 @@ function toAdminPgProvider(row) {
   };
 }
 
+function toAdminInquiry(row) {
+  if (!row) return null;
+  const updatedAt = row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at;
+  const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at;
+  return {
+    id: row.id,
+    name: row.name,
+    phone: row.phone || '',
+    deliveryAgency: row.delivery_agency || '',
+    region: row.region || '',
+    handler: row.handler || '',
+    status: row.status || '상담 대기',
+    active: row.active !== false,
+    date: String(updatedAt || createdAt || '').slice(0, 10),
+    createdAt,
+    updatedAt
+  };
+}
+
+function toAdminBanner(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type || '메인',
+    title: row.title,
+    url: row.url || '',
+    order: Number(row.display_order || 1),
+    active: row.active !== false,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toTalkPost(row) {
   if (!row) return null;
   return {
@@ -1609,6 +1642,140 @@ function createRepository(pool) {
     async deleteAdminPgProvider(id) {
       const result = await pool.query(
         `UPDATE admin_pg_providers
+         SET active = false,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [id]
+      );
+      return result.rows[0] || null;
+    },
+
+    async listAdminInquiries() {
+      const result = await pool.query(
+        `SELECT id, name, phone, delivery_agency, region, handler, status, active, created_at, updated_at
+         FROM admin_inquiries
+         WHERE active = true
+         ORDER BY updated_at DESC, id DESC`
+      );
+      return result.rows.map(toAdminInquiry);
+    },
+
+    async createAdminInquiry(fields) {
+      const result = await pool.query(
+        `INSERT INTO admin_inquiries (name, phone, delivery_agency, region, handler, status, active)
+         VALUES ($1, $2, $3, $4, $5, $6, true)
+         RETURNING id, name, phone, delivery_agency, region, handler, status, active, created_at, updated_at`,
+        [
+          fields.name,
+          fields.phone || '',
+          fields.deliveryAgency || '',
+          fields.region || '',
+          fields.handler || '',
+          fields.status || '상담 대기'
+        ]
+      );
+      return toAdminInquiry(result.rows[0]);
+    },
+
+    async updateAdminInquiry(id, fields) {
+      const result = await pool.query(
+        `UPDATE admin_inquiries
+         SET name = $2,
+             phone = $3,
+             delivery_agency = $4,
+             region = $5,
+             handler = $6,
+             status = $7,
+             updated_at = now()
+         WHERE id = $1 AND active = true
+         RETURNING id, name, phone, delivery_agency, region, handler, status, active, created_at, updated_at`,
+        [
+          id,
+          fields.name,
+          fields.phone || '',
+          fields.deliveryAgency || '',
+          fields.region || '',
+          fields.handler || '',
+          fields.status || '상담 대기'
+        ]
+      );
+      return toAdminInquiry(result.rows[0]);
+    },
+
+    async updateAdminInquiryStatus(id, status) {
+      const result = await pool.query(
+        `UPDATE admin_inquiries
+         SET status = $2,
+             updated_at = now()
+         WHERE id = $1 AND active = true
+         RETURNING id, name, phone, delivery_agency, region, handler, status, active, created_at, updated_at`,
+        [id, status]
+      );
+      return toAdminInquiry(result.rows[0]);
+    },
+
+    async deleteAdminInquiry(id) {
+      const result = await pool.query(
+        `UPDATE admin_inquiries
+         SET active = false,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [id]
+      );
+      return result.rows[0] || null;
+    },
+
+    async listAdminBanners() {
+      const result = await pool.query(
+        `SELECT id, type, title, url, display_order, active, created_at, updated_at
+         FROM admin_banners
+         WHERE active = true
+         ORDER BY type ASC, display_order ASC, id ASC`
+      );
+      return result.rows.map(toAdminBanner);
+    },
+
+    async createAdminBanner(fields) {
+      const result = await pool.query(
+        `INSERT INTO admin_banners (type, title, url, display_order, active)
+         VALUES ($1, $2, $3, $4, true)
+         RETURNING id, type, title, url, display_order, active, created_at, updated_at`,
+        [
+          fields.type || '메인',
+          fields.title,
+          fields.url || '',
+          Number(fields.order || 1)
+        ]
+      );
+      return toAdminBanner(result.rows[0]);
+    },
+
+    async updateAdminBanner(id, fields) {
+      const result = await pool.query(
+        `UPDATE admin_banners
+         SET type = $2,
+             title = $3,
+             url = $4,
+             display_order = $5,
+             updated_at = now()
+         WHERE id = $1 AND active = true
+         RETURNING id, type, title, url, display_order, active, created_at, updated_at`,
+        [
+          id,
+          fields.type || '메인',
+          fields.title,
+          fields.url || '',
+          Number(fields.order || 1)
+        ]
+      );
+      return toAdminBanner(result.rows[0]);
+    },
+
+    async deleteAdminBanner(id) {
+      const result = await pool.query(
+        `UPDATE admin_banners
          SET active = false,
              updated_at = now()
          WHERE id = $1

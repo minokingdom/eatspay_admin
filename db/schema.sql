@@ -189,6 +189,30 @@ CREATE TABLE IF NOT EXISTS admin_pg_providers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS admin_inquiries (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT,
+  delivery_agency TEXT,
+  region TEXT,
+  handler TEXT,
+  status TEXT NOT NULL DEFAULT '상담 대기',
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS admin_banners (
+  id BIGSERIAL PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT '메인',
+  title TEXT NOT NULL,
+  url TEXT,
+  display_order INTEGER NOT NULL DEFAULT 1,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

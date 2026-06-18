@@ -1589,10 +1589,47 @@ function inquiryForm(i={}){return`
   <div class="fr2"><div class="fg"><label class="fl">배달대행사 이용</label><select class="fs" id="iqdp"><option ${(i.deliveryAgency||'')==='유'?'selected':''} value="유">유</option><option ${i.deliveryAgency==='무'?'selected':''} value="무">무</option></select></div><div class="fg"><label class="fl">희망지역</label><input class="fi" id="iqr" value="${i.region||''}" placeholder="예: 서울 강남구"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">담당자</label><input class="fi" id="iqh" value="${i.handler||''}" placeholder="담당자명 입력"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
 function addInquiry(){openM('문의 등록',inquiryForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry()">저장</button>`);}
-function edInquiry(id){const i=D.inquiries.find(x=>x.id===id);openM('문의 수정',inquiryForm(i),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry(${id})">저장</button>`);}
-async function savInquiry(id){const n=v('iqn');if(!n.trim()){await adminAlert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
-async function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
-async function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+function edInquiry(id){const i=D.inquiries.find(x=>String(x.id)===String(id));openM('문의 수정',inquiryForm(i),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry(${jsArg(id)})">저장</button>`);}
+async function savInquiry(id){
+  const n=v('iqn');
+  if(!n.trim()){await adminAlert('이름 필요');return;}
+  const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs')};
+  try{
+    const res=await fetch(id?`/api/admin/inquiries/${encodeURIComponent(id)}`:'/api/admin/inquiries',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'문의 저장에 실패했습니다.');
+    if(id){
+      const idx=D.inquiries.findIndex(x=>String(x.id)===String(id));
+      if(idx>=0)D.inquiries[idx]=json.data;
+    }else{
+      D.inquiries.unshift(json.data);
+    }
+    closeM();renderPage();toast(id?'수정':'등록');
+  }catch(e){await adminAlert(e.message||'문의 저장에 실패했습니다.');}
+}
+async function cmpI(id){
+  const i=D.inquiries.find(x=>String(x.id)===String(id));if(!i)return;
+  if(!await adminConfirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;
+  try{
+    const res=await fetch(`/api/admin/inquiries/${encodeURIComponent(id)}/status`,{method:'PATCH',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({status:'상담 완료'})});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'상담 완료 처리에 실패했습니다.');
+    Object.assign(i,json.data);renderPage();toast('상담 완료');
+  }catch(e){await adminAlert(e.message||'상담 완료 처리에 실패했습니다.');}
+}
+async function delI(id){
+  const i=D.inquiries.find(x=>String(x.id)===String(id));if(!i)return;
+  if(!await adminConfirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;
+  try{
+    const res=await fetch(`/api/admin/inquiries/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'문의 삭제에 실패했습니다.');
+    D.inquiries=D.inquiries.filter(x=>String(x.id)!==String(id));renderPage();toast('삭제');
+  }catch(e){await adminAlert(e.message||'문의 삭제에 실패했습니다.');}
+}
 
 // ═══ FAQ ═══
 function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!cats.includes(faqTab))faqTab=cats[0]||'서비스 안내';return`
@@ -1972,9 +2009,35 @@ function pgBanners(){const fl=D.banners.filter(b=>b.type===bannerTab);return`
   </tbody></table></div></div>`;}
 function bnF(b={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="bnt" value="${b.title||''}" placeholder="배너 제목"></div><div class="fg"><label class="fl">링크 URL</label><input class="fi" id="bnu" value="${b.url||''}" placeholder="https://..."></div><div class="fr2"><div class="fg"><label class="fl">위치</label><select class="fs" id="bntp"><option ${(b.type||bannerTab)==='메인'?'selected':''}>메인</option><option ${b.type==='결제'?'selected':''}>결제</option></select></div><div class="fg"><label class="fl">순서</label><input class="fi" id="bno" type="number" value="${b.order||1}"></div></div>`;}
 function addBn(){openM('배너 추가',bnF(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn()">저장</button>`);}
-function edBn(id){const b=D.banners.find(x=>x.id===id);openM('배너 수정',bnF(b),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn(${id})">저장</button>`);}
-async function savBn(id){const t=v('bnt');if(!t){await adminAlert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-async function delBn(id){if(!await adminConfirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+function edBn(id){const b=D.banners.find(x=>String(x.id)===String(id));openM('배너 수정',bnF(b),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn(${jsArg(id)})">저장</button>`);}
+async function savBn(id){
+  const t=v('bnt');
+  if(!t){await adminAlert('제목 필요');return;}
+  const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};
+  try{
+    const res=await fetch(id?`/api/admin/banners/${encodeURIComponent(id)}`:'/api/admin/banners',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'배너 저장에 실패했습니다.');
+    if(id){
+      const idx=D.banners.findIndex(x=>String(x.id)===String(id));
+      if(idx>=0)D.banners[idx]=json.data;
+    }else{
+      D.banners.push(json.data);
+    }
+    closeM();renderPage();toast(id?'수정':'추가');
+  }catch(e){await adminAlert(e.message||'배너 저장에 실패했습니다.');}
+}
+async function delBn(id){
+  if(!await adminConfirm('배너를 삭제하시겠습니까?'))return;
+  try{
+    const res=await fetch(`/api/admin/banners/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'배너 삭제에 실패했습니다.');
+    D.banners=D.banners.filter(x=>String(x.id)!==String(id));renderPage();toast('삭제');
+  }catch(e){await adminAlert(e.message||'배너 삭제에 실패했습니다.');}
+}
 
 // ═══ 렌더 ═══
 function renderPage(){
@@ -2000,6 +2063,8 @@ function makeBackendSnapshot(){
     guides:D.guides,
     admins:D.admins,
     pgProviders:D.pgProviders,
+    inquiries:D.inquiries,
+    banners:D.banners,
     summary:D.summary,
     payments:D.payments,
     pgSettlements:D.pgSettlements
@@ -2052,6 +2117,8 @@ async function syncBackendTransactions(options={}) {
     D.guides = Array.isArray(data.guides) ? data.guides : [];
     D.admins = Array.isArray(data.admins) ? data.admins : [];
     D.pgProviders = Array.isArray(data.pgProviders) ? data.pgProviders : [];
+    D.inquiries = Array.isArray(data.inquiries) ? data.inquiries : [];
+    D.banners = Array.isArray(data.banners) ? data.banners : [];
     D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
