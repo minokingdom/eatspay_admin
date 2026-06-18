@@ -244,6 +244,19 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_role_settings (
+      id BIGSERIAL PRIMARY KEY,
+      role_key TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      color TEXT NOT NULL DEFAULT '#3D9B35',
+      display_order INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2042,7 +2055,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders, inquiries, banners] = await Promise.all([
+  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders, inquiries, banners, customRoles] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAdminUsers(),
     repo.listAgencies(),
@@ -2069,7 +2082,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     repo.listAdminBoardPosts('guide'),
     repo.listAdminPgProviders(),
     repo.listAdminInquiries(),
-    repo.listAdminBanners()
+    repo.listAdminBanners(),
+    repo.listAdminRoleSettings()
   ]);
 
   const franchiseMap = new Map();
@@ -2251,6 +2265,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     pgProviders,
     inquiries,
     banners,
+    customRoles,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2490,6 +2505,25 @@ app.delete('/api/admin/banners/:id', authenticateAdmin, asyncHandler(async (req,
     return sendError(res, 404, 'BANNER_NOT_FOUND', 'Banner was not found.');
   }
   return res.status(200).json({ success: true, data: deleted });
+}));
+
+app.put('/api/admin/roles', authenticateAdmin, asyncHandler(async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!items.length) {
+    return sendError(res, 400, 'BAD_REQUEST', 'role items are required.');
+  }
+  const normalized = items.map((item, index) => ({
+    key: String(item?.key || `role_${index + 1}`).trim() || `role_${index + 1}`,
+    name: String(item?.name || '').trim(),
+    desc: String(item?.desc || item?.description || '').trim(),
+    color: String(item?.color || '#3D9B35').trim(),
+    displayOrder: Number(item?.displayOrder || index + 1)
+  }));
+  if (normalized.some(item => !item.name)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'role name is required.');
+  }
+  const saved = await repo.replaceAdminRoleSettings(normalized);
+  return res.status(200).json({ success: true, data: saved });
 }));
 
 app.get('/api/admin/admins', authenticateAdmin, asyncHandler(async (req, res) => {

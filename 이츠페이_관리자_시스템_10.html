@@ -1704,7 +1704,24 @@ function pgAdmins(){const roles=getRoles();return`
   ${roles.map(r=>`<div class="role-card"><div class="role-head" style="background:${r.color}">${r.name}</div><div class="role-body">${r.desc}</div></div>`).join('')}
   </div></div>`;}
 function edRoles(){const roles=getRoles();openM('권한 이름 수정',`<div class="aw aw-w">권한 이름을 바꾸면 기존 관리자의 권한도 함께 변경됩니다.</div>${roles.map((r,i)=>`<div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin:0"><label class="fl">권한명 ${i+1}</label><input class="fi" id="rn-${i}" value="${r.name}"></div><div class="fg" style="margin:0"><label class="fl">설명</label><input class="fi" id="rd-${i}" value="${r.desc}"></div></div>`).join('')}`,`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savRoles()">저장</button>`);}
-function savRoles(){const roles=getRoles();const nr=roles.map((r,i)=>({...r,name:document.getElementById(`rn-${i}`).value.trim()||r.name,desc:document.getElementById(`rd-${i}`).value||r.desc}));nr.forEach((n,i)=>{if(n.name!==roles[i].name)D.admins.forEach(a=>{if(a.role===roles[i].name)a.role=n.name;});});D.customRoles=nr;save();closeM();renderPage();toast('권한 이름 수정 완료');}
+async function savRoles(){
+  const roles=getRoles();
+  const nr=roles.map((r,i)=>({
+    key:r.key||`role_${i+1}`,
+    name:document.getElementById(`rn-${i}`).value.trim()||r.name,
+    desc:document.getElementById(`rd-${i}`).value||r.desc,
+    color:r.color,
+    displayOrder:r.displayOrder||i+1
+  }));
+  try{
+    const res=await fetch('/api/admin/roles',{method:'PUT',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({items:nr})});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'권한 레벨 저장에 실패했습니다.');
+    D.customRoles=Array.isArray(json.data)?json.data:nr;
+    closeM();renderPage();toast('권한 이름 수정 완료');
+  }catch(e){await adminAlert(e.message||'권한 레벨 저장에 실패했습니다.');}
+}
 function adForm(a={}){const roles=getRoles();const isNew=!a.id;return`<div class="fr2"><div class="fg"><label class="fl">로그인 아이디 *</label><input class="fi" id="adi" value="${esc(a.loginId||a.email||'')}" placeholder="admin@example.com" autocomplete="username"></div><div class="fg"><label class="fl">${isNew?'비밀번호 *':'새 비밀번호'}</label>${adminPwField('adp',isNew?'관리자 로그인 비밀번호':'변경할 때만 입력')}<div class="admin-modal-note">${isNew?'관리자 로그인에 사용할 비밀번호입니다.':'비워두면 기존 비밀번호가 유지됩니다.'}</div></div></div><div class="fr2"><div class="fg"><label class="fl">이름 *</label><input class="fi" id="adn" value="${esc(a.name||'')}" placeholder="홍길동"></div><div class="fg"><label class="fl">비밀번호 확인</label>${adminPwField('adp2',isNew?'비밀번호 재입력':'변경 시 재입력')}</div></div><div class="fg"><label class="fl">권한 레벨</label><select class="fs" id="adr" disabled>${roles.map(r=>`<option ${r.name===(a.role||roles[0].name)?'selected':''}>${r.name}</option>`).join('')}</select><div class="admin-modal-note">실제 로그인 권한은 DB의 ADMIN role로 관리됩니다.</div></div>`;}
 function addAdm(){openM('관리자 생성',adForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm()">생성</button>`);setTimeout(()=>bindAdminPasswordFields(document),30);}
 function edAdm(id){const a=D.admins.find(x=>String(x.id)===String(id));openM('관리자 수정',adForm(a||{}),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm(${jsArg(id)})">저장</button>`);setTimeout(()=>bindAdminPasswordFields(document),30);}
@@ -2065,6 +2082,7 @@ function makeBackendSnapshot(){
     pgProviders:D.pgProviders,
     inquiries:D.inquiries,
     banners:D.banners,
+    customRoles:D.customRoles,
     summary:D.summary,
     payments:D.payments,
     pgSettlements:D.pgSettlements
@@ -2119,6 +2137,7 @@ async function syncBackendTransactions(options={}) {
     D.pgProviders = Array.isArray(data.pgProviders) ? data.pgProviders : [];
     D.inquiries = Array.isArray(data.inquiries) ? data.inquiries : [];
     D.banners = Array.isArray(data.banners) ? data.banners : [];
+    D.customRoles = Array.isArray(data.customRoles) && data.customRoles.length ? data.customRoles : null;
     D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
