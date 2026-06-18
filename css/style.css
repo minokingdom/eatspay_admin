@@ -1646,19 +1646,19 @@ html.native-app .screen-container {
   .phone-frame {
     width: 100vw;
     width: 100dvw;
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - 10px);
+    height: calc(100dvh - 10px);
+    margin-top: 6px;
     border-radius: 0;
     box-shadow: none;
   }
 
   .screen-container {
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
   }
 
   .bottom-nav {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
