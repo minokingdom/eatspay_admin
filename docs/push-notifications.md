@@ -87,6 +87,13 @@ Check one login account specifically:
 npm run push:status -- --email=admin@eatspay.co.kr
 ```
 
+The same diagnostics are also available through the authenticated admin API:
+
+```bash
+curl -fsS "https://www.eatspay.co.kr/api/admin/push/status?email=admin@eatspay.co.kr" \
+  -H "Authorization: Bearer ADMIN_ACCESS_TOKEN"
+```
+
 Important status meanings:
 
 - `firebase.configured: false`: Firebase server credentials are missing or invalid.
@@ -126,6 +133,15 @@ Successful output looks like this:
 ```
 
 If `"enabled": false`, Firebase credentials are not configured on the server. If `"sent": 0`, the app has not registered a device token yet.
+
+An authenticated admin API can also send a test push:
+
+```bash
+curl -fsS -X POST https://www.eatspay.co.kr/api/admin/push/test \
+  -H "Authorization: Bearer ADMIN_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@eatspay.co.kr","title":"eats PAY 테스트 알림","body":"푸시알림 연결이 정상적으로 동작합니다."}'
+```
 
 ## Current trigger
 

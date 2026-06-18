@@ -1,7 +1,6 @@
-const fs = require('fs');
-
 const { createPool } = require('../db/pool');
 const { createRepository } = require('../db/repository');
+const { getPushRuntimeStatus } = require('../push');
 
 function parseArgs(argv) {
   const args = {};
@@ -20,41 +19,6 @@ function maskToken(token) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
-function firebaseStatus() {
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const status = {
-    configured: false,
-    mode: 'none',
-    detail: 'Firebase credentials are not configured.'
-  };
-
-  if (serviceAccountJson) {
-    status.mode = 'FIREBASE_SERVICE_ACCOUNT_JSON';
-    try {
-      const parsed = JSON.parse(serviceAccountJson);
-      status.configured = Boolean(parsed.project_id && parsed.client_email && parsed.private_key);
-      status.detail = status.configured
-        ? `Project ${parsed.project_id} is configured.`
-        : 'Service account JSON is missing required fields.';
-    } catch (err) {
-      status.detail = `Service account JSON is invalid: ${err.message}`;
-    }
-    return status;
-  }
-
-  if (credentialsPath) {
-    status.mode = 'GOOGLE_APPLICATION_CREDENTIALS';
-    status.configured = fs.existsSync(credentialsPath);
-    status.detail = status.configured
-      ? `Credential file exists: ${credentialsPath}`
-      : `Credential file does not exist: ${credentialsPath}`;
-    return status;
-  }
-
-  return status;
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const email = args.email || process.env.PUSH_STATUS_EMAIL;
@@ -63,21 +27,8 @@ async function main() {
   const repo = createRepository(pool);
 
   try {
-    const totals = await pool.query(
-      `SELECT
-         count(*)::int AS total,
-         count(*) FILTER (WHERE enabled = true)::int AS enabled,
-         count(*) FILTER (WHERE enabled = false)::int AS disabled,
-         count(DISTINCT user_id)::int AS users
-       FROM push_tokens`
-    );
-
-    const recent = await pool.query(
-      `SELECT user_id, platform, enabled, token, updated_at
-       FROM push_tokens
-       ORDER BY updated_at DESC
-       LIMIT 10`
-    );
+    const totals = await repo.getPushTokenSummary();
+    const recent = await repo.listRecentPushTokens(10);
 
     let target = null;
     if (email || userId) {
@@ -100,9 +51,9 @@ async function main() {
     }
 
     console.log(JSON.stringify({
-      firebase: firebaseStatus(),
-      tokens: totals.rows[0],
-      recentTokens: recent.rows.map(row => ({
+      firebase: getPushRuntimeStatus(),
+      tokens: totals,
+      recentTokens: recent.map(row => ({
         userId: row.user_id,
         platform: row.platform || 'unknown',
         enabled: row.enabled,

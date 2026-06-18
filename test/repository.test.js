@@ -449,3 +449,33 @@ test('markTalkMessagesRead updates only unread messages from the other user', as
   assert.match(poolCalls[0].sql, /read_at IS NULL/);
   assert.deepEqual(poolCalls[0].params, [12, 51]);
 });
+
+test('push token helpers summarize and list recent tokens', async () => {
+  const { pool, poolCalls } = createFakePool({
+    rowsBySql: [
+      {
+        includes: 'count(DISTINCT user_id)',
+        rows: [{ total: 3, enabled: 2, disabled: 1, users: 2 }]
+      },
+      {
+        includes: 'ORDER BY updated_at DESC',
+        rows: [{
+          user_id: 11,
+          platform: 'android',
+          enabled: true,
+          token: 'token-a',
+          updated_at: '2026-06-18T00:00:00.000Z'
+        }]
+      }
+    ]
+  });
+  const repo = createRepository(pool);
+
+  const summary = await repo.getPushTokenSummary();
+  const recent = await repo.listRecentPushTokens(10);
+
+  assert.deepEqual(summary, { total: 3, enabled: 2, disabled: 1, users: 2 });
+  assert.equal(recent[0].token, 'token-a');
+  assert.match(poolCalls[0].sql, /FROM push_tokens/);
+  assert.deepEqual(poolCalls[1].params, [10]);
+});

@@ -25,6 +25,20 @@ test('sendPushToUser skips delivery when Firebase is not configured', async () =
   assert.deepEqual(result, { enabled: false, sent: 0, failed: 0 });
 });
 
+test('getPushRuntimeStatus reports missing and malformed Firebase credentials', () => {
+  assert.deepEqual(push.getPushRuntimeStatus(), {
+    configured: false,
+    mode: 'none',
+    detail: 'Firebase credentials are not configured.'
+  });
+
+  process.env.FIREBASE_SERVICE_ACCOUNT_JSON = '{bad-json';
+  const status = push.getPushRuntimeStatus();
+  assert.equal(status.configured, false);
+  assert.equal(status.mode, 'FIREBASE_SERVICE_ACCOUNT_JSON');
+  assert.match(status.detail, /invalid/i);
+});
+
 test('sendPushToUser sends deduplicated tokens and disables invalid tokens', async () => {
   const sentMessages = [];
   const disabledTokens = [];

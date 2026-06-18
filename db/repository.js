@@ -451,6 +451,30 @@ function createRepository(pool) {
       return result.rows;
     },
 
+    async getPushTokenSummary() {
+      const result = await pool.query(
+        `SELECT
+           count(*)::int AS total,
+           count(*) FILTER (WHERE enabled = true)::int AS enabled,
+           count(*) FILTER (WHERE enabled = false)::int AS disabled,
+           count(DISTINCT user_id)::int AS users
+         FROM push_tokens`
+      );
+      return result.rows[0] || { total: 0, enabled: 0, disabled: 0, users: 0 };
+    },
+
+    async listRecentPushTokens(limit = 10) {
+      const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
+      const result = await pool.query(
+        `SELECT user_id, platform, enabled, token, updated_at
+         FROM push_tokens
+         ORDER BY updated_at DESC
+         LIMIT $1`,
+        [safeLimit]
+      );
+      return result.rows;
+    },
+
     async disablePushTokens(tokens) {
       const cleanTokens = (Array.isArray(tokens) ? tokens : [])
         .map(token => String(token || '').trim())

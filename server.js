@@ -7,7 +7,7 @@ const multer = require('multer');
 
 const { createPool } = require('./db/pool');
 const { createRepository } = require('./db/repository');
-const { sendPushToUser } = require('./push');
+const { getPushRuntimeStatus, sendPushToUser } = require('./push');
 
 loadEnv();
 
@@ -1799,6 +1799,99 @@ app.delete('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (r
   });
 }));
 
+app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  const userId = req.query.userId ? Number(req.query.userId) : null;
+  const [summary, recent] = await Promise.all([
+    repo.getPushTokenSummary(),
+    repo.listRecentPushTokens(10)
+  ]);
+
+  let target = null;
+  if (email || userId) {
+    const user = email
+      ? await repo.findUserByEmail(email)
+      : await repo.findUserById(userId);
+    if (!user) {
+      target = {
+        found: false,
+        email: email || null,
+        userId: userId || null
+      };
+    } else {
+      const tokens = await repo.listEnabledPushTokens(user.id);
+      target = {
+        found: true,
+        userId: user.id,
+        email: user.email,
+        franchiseName: user.franchiseName,
+        enabledTokens: tokens.length,
+        platforms: [...new Set(tokens.map(row => row.platform || 'unknown'))]
+      };
+    }
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      firebase: getPushRuntimeStatus(),
+      tokens: summary,
+      recentTokens: recent.map(row => ({
+        userId: row.user_id,
+        platform: row.platform || 'unknown',
+        enabled: row.enabled,
+        token: maskToken(row.token),
+        updatedAt: row.updated_at
+      })),
+      target
+    }
+  });
+}));
+
+app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const userId = req.body?.userId ? Number(req.body.userId) : null;
+  const title = String(req.body?.title || 'eats PAY 테스트 알림').trim();
+  const body = String(req.body?.body || '푸시알림 연결이 정상적으로 동작합니다.').trim();
+
+  if (!email && !userId) {
+    return sendError(res, 400, 'TARGET_REQUIRED', 'email or userId is required.');
+  }
+
+  const user = email
+    ? await repo.findUserByEmail(email)
+    : await repo.findUserById(userId);
+  if (!user) {
+    return sendError(res, 404, 'USER_NOT_FOUND', 'Target user was not found.');
+  }
+
+  const notification = {
+    userId: user.id,
+    type: 'PUSH_TEST',
+    title,
+    body,
+    data: {
+      test: true,
+      userId: user.id,
+      franchiseId: user.franchiseId || '',
+      sentBy: req.user.id,
+      sentAt: new Date().toISOString()
+    }
+  };
+
+  await repo.createNotification(notification);
+  const push = await sendPushToUser(repo, user.id, notification);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      userId: user.id,
+      email: user.email,
+      push
+    }
+  });
+}));
+
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
   const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments] = await Promise.all([
     repo.listFranchiseUsers(),
@@ -2541,6 +2634,13 @@ function toCsv(rows) {
 function csvCell(value) {
   const text = value == null ? '' : String(value);
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function maskToken(token) {
+  const value = String(token || '');
+  if (!value) return '';
+  if (value.length <= 16) return `${value.slice(0, 4)}...`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
 function agencyPrincipal(agency) {
