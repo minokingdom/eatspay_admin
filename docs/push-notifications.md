@@ -123,6 +123,24 @@ npm run push:readiness -- --email=admin@eatspay.co.kr
 npm run push:status -- --email=admin@eatspay.co.kr
 ```
 
+Check the live production URL from AWS:
+
+```bash
+npm run push:smoke
+```
+
+With an admin access token, the smoke test can also check the authenticated admin diagnostics API:
+
+```bash
+ADMIN_ACCESS_TOKEN=ADMIN_ACCESS_TOKEN npm run push:smoke -- --email=admin@eatspay.co.kr
+```
+
+To send a real test push through the production URL:
+
+```bash
+ADMIN_ACCESS_TOKEN=ADMIN_ACCESS_TOKEN npm run push:smoke -- --email=admin@eatspay.co.kr --sendTest
+```
+
 The same diagnostics are also available through the authenticated admin API:
 
 ```bash
@@ -163,14 +181,21 @@ Successful output looks like this:
   "userId": 1,
   "email": "admin@eatspay.co.kr",
   "push": {
-    "enabled": true,
-    "sent": 1,
-    "failed": 0
+    "fcm": {
+      "enabled": true,
+      "sent": 1,
+      "failed": 0
+    },
+    "web": {
+      "enabled": true,
+      "sent": 1,
+      "failed": 0
+    }
   }
 }
 ```
 
-If `"enabled": false`, Firebase credentials are not configured on the server. If `"sent": 0`, the app has not registered a device token yet.
+If `push.fcm.enabled` is `false`, Firebase credentials are not configured on the server. If `push.web.enabled` is `false`, Web Push VAPID keys are not configured. If both `sent` values are `0`, the target account has not registered a phone token or web subscription yet.
 
 An authenticated admin API can also send a test push:
 
