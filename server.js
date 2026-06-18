@@ -1192,6 +1192,41 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
   });
 }));
 
+app.get('/api/payment/history/export', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', 'Agency accounts must use the agency settlement API.');
+  }
+  const { startDate, endDate, type = 'ALL' } = req.query;
+  if (!startDate || !endDate) {
+    return sendError(res, 400, 'MISSING_DATE_FILTER', 'startDate and endDate are required.');
+  }
+
+  const { items } = await repo.listTransactions({
+    startDate,
+    endDate,
+    type,
+    limit: 5000,
+    offset: 0,
+    role: req.user.franchiseId ? 'OWNER' : req.user.role,
+    franchiseId: req.user.franchiseId
+  });
+  const rows = items.map(item => ({
+    거래일시: formatKstDateTime(item.createdAt),
+    승인번호: item.transactionId,
+    구분: item.type === 'CHARGE' ? '충전' : item.type,
+    입금금액: Number(item.amount || 0),
+    서비스수수료: Number(item.fee || 0),
+    결제액: Number(item.totalAmount || 0),
+    결제수단: item.method || '',
+    상태: item.status === 'SUCCESS' ? '결제완료' : item.status === 'ROLLED_BACK' ? '취소' : item.status
+  }));
+  const csv = toCsv(rows);
+  const filename = `eatspay-vat-${startDate}-${endDate}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.status(200).send(`\uFEFF${csv}`);
+}));
+
 app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res) => {
   if (req.user.role !== 'AGENCY') {
     return sendError(res, 403, 'ACCESS_DENIED', 'Agency role is required.');

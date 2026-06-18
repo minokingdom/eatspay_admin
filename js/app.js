@@ -3196,13 +3196,43 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutAndGoToLogin();
   });
 
-  // Tax document and search mock actions
-  $('#btn-tax-doc')?.addEventListener('click', () => {
-    showToast('부가세 신고자료 다운로드가 시작됩니다.');
+  $('#btn-tax-doc')?.addEventListener('click', async () => {
+    if (!isAuthenticated()) {
+      showToast('로그인이 필요합니다.');
+      navigate('login');
+      return;
+    }
+    try {
+      syncPaymentHistoryDateRange();
+      const startDate = $('#filter-start-date')?.value || todayYMD();
+      const endDate = $('#filter-end-date')?.value || todayYMD();
+      const response = await fetch(apiUrl(`/api/payment/history/export?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&type=ALL&_=${Date.now()}`), {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+        }
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(getFriendlyErrorMessage(err, '부가세 신고자료를 다운로드하지 못했습니다.'));
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `이츠페이_부가세신고자료_${startDate}_${endDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('부가세 신고자료를 다운로드했습니다.');
+    } catch (err) {
+      showToast(getFriendlyErrorMessage(err, '부가세 신고자료를 다운로드하지 못했습니다.'));
+    }
   });
 
   $('#btn-date-search')?.addEventListener('click', () => {
-    showToast('검색 결과가 성공적으로 반영되었습니다.');
     fetchPaymentHistory();
   });
 
