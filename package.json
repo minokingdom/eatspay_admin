@@ -10,6 +10,7 @@
     "db:verify-june-demo": "node scripts/verify-june-demo-data.js",
     "db:seed-tree-demo": "node scripts/seed-tree-demo-data.js",
     "db:seed-talk-demo": "node scripts/seed-talk-demo-data.js",
+    "push:test": "node scripts/send-test-push.js",
     "android:sync": "node scripts/sync-www.js && npx cap sync android",
     "android:open": "npx cap open android",
     "test": "node --test test/*.test.js",

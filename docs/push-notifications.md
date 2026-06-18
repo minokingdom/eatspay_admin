@@ -75,6 +75,40 @@ Check that the app server is healthy:
 curl -fsS https://www.eatspay.co.kr/healthz
 ```
 
+## Test delivery
+
+Install the new Android build on a phone, log in once, and allow notifications. This registers the phone token in PostgreSQL.
+
+Then send a test push from AWS:
+
+```bash
+cd /opt/eatspay
+npm run push:test -- --email=admin@eatspay.co.kr
+```
+
+or target a specific user id:
+
+```bash
+npm run push:test -- --userId=1
+```
+
+Successful output looks like this:
+
+```json
+{
+  "success": true,
+  "userId": 1,
+  "email": "admin@eatspay.co.kr",
+  "push": {
+    "enabled": true,
+    "sent": 1,
+    "failed": 0
+  }
+}
+```
+
+If `"enabled": false`, Firebase credentials are not configured on the server. If `"sent": 0`, the app has not registered a device token yet.
+
 ## Current trigger
 
 When an admin approves or rejects a virtual account request, the server:
