@@ -322,10 +322,10 @@ function adminToken(){return localStorage.getItem('eatspayAdminToken')||sessionS
 function adminAuthHeaders(extra={}){return {'Authorization':`Bearer ${adminToken()}`,...extra};}
 function adminPasswordValue(id){
   const el=document.getElementById(id);
-  return el?.value ?? el?.dataset.realPassword ?? '';
+  return el?.dataset.realPassword ?? el?.value ?? '';
 }
 function adminPwField(id,placeholder='',autocomplete='new-password'){
-  return `<div class="admin-pw-field"><input class="fi admin-pw-input" id="${id}" type="password" placeholder="${placeholder}" autocomplete="${autocomplete}"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
+  return `<div class="admin-pw-field"><input class="fi admin-pw-input" id="${id}" type="text" placeholder="${placeholder}" autocomplete="${autocomplete}" spellcheck="false" autocapitalize="off"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
 }
 function bindAdminPasswordFields(root=document){
   root?.querySelectorAll?.('.admin-pw-input').forEach(input=>bindAdminPassword(input.id,`${input.id}-toggle`));
@@ -337,18 +337,68 @@ function bindAdminPassword(id,toggleId){
   if(input.dataset.adminPwBound==='1')return;
   input.dataset.adminPwBound='1';
   let visible=false;
+  let realValue=input.dataset.realPassword||'';
+  const setCursor=pos=>setTimeout(()=>{try{input.setSelectionRange(pos,pos);}catch(e){}},0);
   const render=()=>{
-    input.type=visible?'text':'password';
+    input.type='text';
     input.classList.remove('admin-pw-mask');
+    input.dataset.realPassword=realValue;
+    input.value=visible?realValue:'*'.repeat(realValue.length);
     input.style.color='#111827';
     input.style.webkitTextFillColor='#111827';
     input.style.caretColor='#111827';
     if(toggle)toggle.textContent=visible?'숨김':'보기';
   };
+  input.addEventListener('beforeinput',e=>{
+    const start=input.selectionStart??realValue.length;
+    const end=input.selectionEnd??start;
+    const type=e.inputType||'';
+    let next=realValue;
+    let cursor=start;
+    if(type==='insertFromPaste'){
+      return;
+    }
+    if(type.startsWith('insert')){
+      const data=e.data||'';
+      next=realValue.slice(0,start)+data+realValue.slice(end);
+      cursor=start+data.length;
+    }else if(type==='deleteContentBackward'){
+      if(start!==end){next=realValue.slice(0,start)+realValue.slice(end);cursor=start;}
+      else if(start>0){next=realValue.slice(0,start-1)+realValue.slice(end);cursor=start-1;}
+    }else if(type==='deleteContentForward'){
+      if(start!==end){next=realValue.slice(0,start)+realValue.slice(end);cursor=start;}
+      else{next=realValue.slice(0,start)+realValue.slice(start+1);cursor=start;}
+    }else{
+      return;
+    }
+    e.preventDefault();
+    realValue=next;
+    render();
+    setCursor(cursor);
+  });
+  input.addEventListener('paste',e=>{
+    e.preventDefault();
+    const text=(e.clipboardData||window.clipboardData)?.getData('text')||'';
+    const start=input.selectionStart??realValue.length;
+    const end=input.selectionEnd??start;
+    realValue=realValue.slice(0,start)+text+realValue.slice(end);
+    render();
+    setCursor(start+text.length);
+  });
+  input.addEventListener('input',()=>{
+    const current=input.value||'';
+    if(visible){
+      realValue=current;
+    }else if(current && !/^\*+$/.test(current)){
+      realValue=current;
+    }
+    render();
+  });
   toggle?.addEventListener('click',()=>{
     visible=!visible;
     render();
     input.focus();
+    setCursor(realValue.length);
   });
   render();
 }
@@ -361,9 +411,9 @@ function adminLogout(){
 function openAdminPasswordModal(){
   openM('관리자 비밀번호 변경',`
     <div class="aw aw-b">현재 로그인한 관리자 계정의 비밀번호를 DB에 바로 변경합니다.</div>
-    <div class="fg"><label class="fl">현재 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-current-password" type="password" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-current-password-toggle">보기</button></div></div>
-    <div class="fg"><label class="fl">새 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password" type="password" autocomplete="new-password" placeholder="8자 이상"><button type="button" class="admin-pw-toggle" id="admin-new-password-toggle">보기</button></div></div>
-    <div class="fg"><label class="fl">새 비밀번호 확인</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password2" type="password" autocomplete="new-password"><button type="button" class="admin-pw-toggle" id="admin-new-password2-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">현재 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-current-password" type="text" autocomplete="current-password" spellcheck="false" autocapitalize="off"><button type="button" class="admin-pw-toggle" id="admin-current-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password" type="text" autocomplete="new-password" spellcheck="false" autocapitalize="off" placeholder="8자 이상"><button type="button" class="admin-pw-toggle" id="admin-new-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호 확인</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-new-password2" type="text" autocomplete="new-password" spellcheck="false" autocapitalize="off"><button type="button" class="admin-pw-toggle" id="admin-new-password2-toggle">보기</button></div></div>
   `,`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="submitAdminPasswordChange()">변경</button>`);
   setTimeout(()=>{bindAdminPassword('admin-current-password','admin-current-password-toggle');bindAdminPassword('admin-new-password','admin-new-password-toggle');bindAdminPassword('admin-new-password2','admin-new-password2-toggle');document.getElementById('admin-current-password')?.focus();},30);
 }
@@ -402,7 +452,7 @@ function showAdminLogin(message='관리자 로그인이 필요합니다.'){
         </div>
         <div class="admin-login-alert">${esc(message)}</div>
         <div class="fg admin-login-field"><label class="fl">관리자 이메일</label><input class="fi" id="admin-login-email" autocomplete="username" value="${localStorage.getItem('eatspayAdminEmail')||sessionStorage.getItem('eatspayAdminEmail')||'admin@eatspay.co.kr'}" placeholder="admin@eatspay.co.kr"></div>
-        <div class="fg admin-login-field"><label class="fl">비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-login-password" type="password" autocomplete="current-password" placeholder="비밀번호를 입력해주세요"><button type="button" class="admin-pw-toggle" id="admin-login-password-toggle">보기</button></div></div>
+        <div class="fg admin-login-field"><label class="fl">비밀번호</label><div class="admin-pw-field"><input class="fi admin-pw-input" id="admin-login-password" type="text" autocomplete="current-password" spellcheck="false" autocapitalize="off" placeholder="비밀번호를 입력해주세요"><button type="button" class="admin-pw-toggle" id="admin-login-password-toggle">보기</button></div></div>
         <div class="admin-login-help">비밀번호는 DB에 저장된 해시와 비교합니다. 변경 후에는 새 비밀번호로 로그인하세요.</div>
       </div>
     `,`<button class="btn bg2" onclick="submitAdminLogin()">로그인</button>`);
