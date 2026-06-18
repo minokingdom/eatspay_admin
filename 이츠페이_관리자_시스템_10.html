@@ -9,8 +9,8 @@ const CONFIG = {
   csPhone:"1566-3558", csHours:"평일 10:00~18:00",
   menu:{
     dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
-    settlements:"대리점 정산", franchises:"가맹점 목록", accounts:"출금계좌 목록",
-    agencies:"대리점 관리", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
+    settlements:"대리점 정산", franchises:"가맹점 목록", franchiseDetail:"가맹점 상세", accounts:"출금계좌 목록",
+    agencies:"대리점 관리", agencyDetail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
     banners:"배너 관리", faqs:"FAQ 관리", installments:"무이자 할부", push:"푸시알림",
     pg:"PG사 관리", fees:"수수료율 설정", admins:"관리자 계정",
     notices:"공지사항", guides:"이용가이드",
@@ -207,9 +207,10 @@ let backendSnapshot='';
 let pendingAccountPage=1;
 let _sddSel={};
 let frDetailId=null;
+let agDetailId=null;
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
-function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
+function getEffRate(ag){return D.agencyFeeRates[ag?.id]||ag?.feeRate||0;}
 function emptyData(){
   return {
     agencies:[],
@@ -867,8 +868,8 @@ function getAgencySettlementRows(){
     return{agency:ag,payments:pays,count:pays.length,amount,serviceFee,merchantNet,agencyFee,agencyNet,rate};
   }).sort((a,b)=>agencySortKey(a.agency).localeCompare(agencySortKey(b.agency)));
 }
-function agencyTypeLabel(ag){return ({bonbu:'본부',jisa:'지사',jijum:'지점'}[ag?.type]||(`${ag?.level||'-'}단계`));}
-function agencyTypePrefix(ag){return ({bonbu:'[본부]',jisa:'[지사]',jijum:'[지점]'}[ag?.type]||`[${ag?.level||'-'}단계]`);}
+function agencyTypeLabel(ag){return ({bonbu:'본부',jisa:'지사',jijum:'지점'}[agencyTypeKey(ag)]||(`${ag?.level||'-'}단계`));}
+function agencyTypePrefix(ag){return ({bonbu:'[본부]',jisa:'[지사]',jijum:'[지점]'}[agencyTypeKey(ag)]||`[${ag?.level||'-'}단계]`);}
 function agencyIndentMark(depth){return depth===0?'→':depth===1?'└':'　└';}
 function agencyTreeDepth(ag){
   let depth=0,current=ag,guard=0;
@@ -1315,41 +1316,174 @@ async function deleteManagedAccount(fid,idx){
 }
 
 // ═══ 대리점 관리 ═══
+function jsArg(v){return JSON.stringify(String(v??''));}
+function agencyTypeKey(a){
+  const raw=String(a?.type||'').toLowerCase();
+  if(raw==='hq'||raw==='head'||raw==='bonbu')return 'bonbu';
+  if(raw==='branch'||raw==='jisa')return 'jisa';
+  if(raw==='office'||raw==='agency'||raw==='jijum')return Number(a?.level||0)>=3?'jijum':'jisa';
+  const lv=Number(a?.level||0);
+  if(lv<=1)return 'bonbu';
+  if(lv===2)return 'jisa';
+  return 'jijum';
+}
+function agencyLevelFromType(type){
+  return type==='bonbu'?1:type==='jisa'?2:3;
+}
+function agencyTypeBadge(a){
+  const key=agencyTypeKey(a);
+  const label={bonbu:'본부',jisa:'지사',jijum:'지점'}[key]||'대리점';
+  const bg={bonbu:'#152A15',jisa:'#DBEAFE',jijum:'#F3F4F6'}[key]||'#F3F4F6';
+  const color={bonbu:'#DCFCE7',jisa:'#1E40AF',jijum:'#374151'}[key]||'#374151';
+  return `<span class="bdg" style="background:${bg};color:${color}">${label}</span>`;
+}
+function agencyParentName(a){const p=(D.agencies||[]).find(x=>String(x.id)===String(a?.parentId||''));return p?p.name:'';}
+function agencyChildren(id){return (D.agencies||[]).filter(x=>String(x.parentId||'')===String(id));}
+function agencySubtreeIds(id){
+  const ids=[String(id)];
+  const walk=pid=>agencyChildren(pid).forEach(ch=>{ids.push(String(ch.id));walk(ch.id);});
+  walk(id);
+  return ids;
+}
+function agencyChain(a){
+  const chain=[];let cur=a,guard=0;
+  while(cur&&guard<20){chain.unshift(cur);cur=(D.agencies||[]).find(x=>String(x.id)===String(cur.parentId||''));guard+=1;}
+  return chain;
+}
+function agencyTreeRows(){
+  const all=[...(D.agencies||[])].sort((a,b)=>agencySortKey(a).localeCompare(agencySortKey(b)));
+  return all;
+}
+function agencyFranchises(agId,includeChildren=false){
+  const ids=includeChildren?agencySubtreeIds(agId):[String(agId)];
+  return (D.franchises||[]).filter(f=>ids.includes(String(f.agencyId||''))||ids.some(id=>agencyNameById(id)&&f.agency===agencyNameById(id)));
+}
+function goAgDetail(id){agDetailId=id;page='agencyDetail';renderNav();renderPage();}
 function pgAg(){return`
-  <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addAg()">+ 대리점 생성</button></div>
-  <div class="sb2"><input class="si" id="ags" placeholder="대리점명 · 대표자 · 연락처 통합검색..." oninput="rAg()"></div>
-  <div class="card"><div class="tw"><table><thead><tr><th>단계</th><th>상위</th><th>지역</th><th>대리점명</th><th>로그인 ID</th><th>대표자</th><th>연락처</th><th>수수료율</th><th>운영 배달대행 (비고)</th><th>관리</th></tr></thead><tbody id="agb"></tbody></table></div></div>
-  <div class="card"><div style="padding:14px;display:flex;gap:8px;flex-wrap:wrap">
-  ${['1단계: 최상위 영업본부','2단계: 광역 영업본부','3단계: 지역 지사','4단계: 개별 지점'].map((t,i)=>`<span style="background:${['#3D9B35','#3B82F6','#F59E0B','#8B5CF6'][i]};color:#fff;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700">${t}</span>`).join('')}
-  </div></div>`;}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
+    <div class="aw aw-g" style="margin:0">대리점은 DB에 저장된 본부/지사/지점 트리 기준으로 표시됩니다. 행을 클릭하면 상세로 이동합니다.</div>
+    <button class="btn bg2" onclick="addAg()">+ 대리점 생성</button>
+  </div>
+  <div class="sb2">
+    <input class="si" id="ags" placeholder="대리점명 · 로그인 ID · 대표자 · 연락처 통합검색..." oninput="rAg()">
+    <select class="fs" id="agt" style="max-width:140px" onchange="rAg()"><option value="">전체 유형</option><option value="bonbu">본부</option><option value="jisa">지사</option><option value="jijum">지점</option></select>
+  </div>
+  <div class="card"><div class="tw"><table><thead><tr><th>유형</th><th>대리점명</th><th>로그인 ID</th><th>대표자</th><th>연락처</th><th>상위 조직</th><th>하위 대리점</th><th>이용 가맹점</th><th>수수료율</th><th>정산 계좌</th><th>관리</th></tr></thead><tbody id="agb"></tbody></table></div></div>`;}
 function rAg(){
   const q=v('ags').toLowerCase();
+  const type=v('agt');
   const el=document.getElementById('agb');if(!el)return;
-  const rows=D.agencies.filter(a=>!q||a.name.toLowerCase().includes(q)||a.owner.toLowerCase().includes(q)||a.phone.includes(q));
-  el.innerHTML=rows.map(a=>`<tr>
-    <td>${bdg(a.level+'단계')}</td>
-    <td style="font-size:11px;color:#6B7280">${agencyParentName(a)||'-'}</td>
-    <td style="color:#6B7280;font-size:11px">${a.region||'-'}</td>
-    <td style="font-weight:600">${a.name}</td>
-    <td style="font-size:11px;color:#9CA3AF">${a.loginId}</td>
-    <td>${a.owner}</td><td>${a.phone}</td>
-    <td class="tg">${getEffRate(a).toFixed(2)}%</td>
-    <td style="font-size:11px;color:#6B7280">${a.deliveryNote||'-'}</td>
-    <td><div class="ab"><button class="btn bo xs" onclick="edAg(${a.id})">수정</button><button class="btn bd xs" onclick="delAg(${a.id})">삭제</button></div></td>
-  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
+  const rows=agencyTreeRows().filter(a=>{
+    const hay=[a.name,a.loginId,a.owner,a.phone,a.region,a.address,agencyParentName(a)].map(x=>String(x||'').toLowerCase()).join(' ');
+    return (!q||hay.includes(q))&&(!type||agencyTypeKey(a)===type);
+  });
+  el.innerHTML=rows.map(a=>{
+    const depth=agencyTreeDepth(a);
+    const children=agencyChildren(a.id);
+    const frs=agencyFranchises(a.id,true);
+    const arg=jsArg(a.id);
+    const hasAccount=a.settleBankName&&a.settleAccountNo;
+    return `<tr style="cursor:pointer;background:${depth===0?'#F7FFF5':depth===1?'#FBFFFB':'#fff'}" onclick="goAgDetail(${arg})">
+      <td>${agencyTypeBadge(a)}</td>
+      <td style="font-weight:700;padding-left:${12+(depth*18)}px">${depth?'<span style="color:#9CA3AF;margin-right:6px">└</span>':''}${esc(a.name||'-')}</td>
+      <td style="font-size:11px;color:#6B7280;font-family:monospace">${esc(a.loginId||'-')}</td>
+      <td>${esc(a.owner||'-')}</td><td>${esc(a.phone||'-')}</td>
+      <td style="font-size:11px;color:#6B7280">${esc(agencyParentName(a)||'-')}</td>
+      <td>${children.length?`${children.length}개`:'-'}</td>
+      <td>${frs.length?`${frs.length}개`:'-'}</td>
+      <td class="tg">${Number(getEffRate(a)||0).toFixed(2)}%</td>
+      <td>${hasAccount?bdg('정산완료'):'<span style="color:#9CA3AF">미등록</span>'}</td>
+      <td onclick="event.stopPropagation()"><div class="ab"><button class="btn bo xs" onclick="goAgDetail(${arg})">상세</button><button class="btn bo xs" onclick="edAg(${arg})">수정</button><button class="btn bd xs" onclick="delAg(${arg})">삭제</button></div></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="11" class="emp">검색 결과 없음</td></tr>';
 }
-function agencyParentName(a){const p=(D.agencies||[]).find(x=>String(x.id)===String(a.parentId||''));return p?p.name:'';}
-function agencyParentOptions(a={}){const current=String(a.id||'');const opts=(D.agencies||[]).filter(x=>String(x.id)!==current).map(x=>`<option value="${x.id}" ${String(a.parentId||'')===String(x.id)?'selected':''}>${x.name}</option>`).join('');return`<option value="">상위 없음</option>${opts}`;}
-function agForm(a={}){return`
-  <div class="fr2"><div class="fg"><label class="fl">대리점명 *</label><input class="fi" id="an" value="${a.name||''}" placeholder="예: 강남지사"></div><div class="fg"><label class="fl">지역</label><input class="fi" id="ar" value="${a.region||''}" placeholder="예: 서울 강남구"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">로그인 ID</label><input class="fi" id="ai" value="${a.loginId||''}" placeholder="agency-xxx" autocomplete="username"></div><div class="fg"><label class="fl">비밀번호 ${a.id?'변경':''}</label>${adminPwField('apw',a.id?'변경 시에만 입력':'앱 로그인 비밀번호')}<div class="admin-modal-note">${a.id?'비워두면 기존 비밀번호가 유지됩니다.':'신규 대리점 로그인 비밀번호입니다.'}</div></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">상위 대리점</label><select class="fs" id="aparent">${agencyParentOptions(a)}</select></div><div class="fg"><label class="fl">단계</label><select class="fs" id="al">${[1,2,3,4].map(n=>`<option value="${n}" ${a.level===n?'selected':''}>${n}단계</option>`).join('')}</select></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${a.owner||''}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${a.phone||''}" placeholder="010-1234-5678"></div></div>
-  <div class="fg"><label class="fl">수수료율 (%)</label><input class="fi" id="af" type="number" step="0.01" value="${a.feeRate||4.2}"></div>
-  <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="adn" value="${a.deliveryNote||''}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>`;}
-function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);}
-function edAg(id){const a=D.agencies.find(x=>x.id===id);openM('대리점 수정',agForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${id})">저장</button>`);}
-async function savAg(id){const n=v('an');if(!n.trim()){await adminAlert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn'),parentId:v('aparent')||null,password:adminPasswordValue('apw')};if(!id&&(!data.loginId||!data.password)){await adminAlert('신규 대리점은 로그인 ID와 비밀번호가 필요합니다.');return;}try{const res=await fetch(id?`/api/admin/agencies/${encodeURIComponent(id)}`:'/api/admin/agencies',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'대리점 저장에 실패했습니다.');}await syncBackendTransactions({forceRender:true});closeM();toast(id?'대리점이 수정되었습니다.':'대리점이 생성되었습니다.');}catch(e){await adminAlert(e.message||'대리점 저장에 실패했습니다.');}}
+function agencyParentOptions(a={}){
+  const current=String(a.id||'');
+  const opts=(D.agencies||[]).filter(x=>String(x.id)!==current&&!agencySubtreeIds(current).includes(String(x.id))).sort((x,y)=>agencySortKey(x).localeCompare(agencySortKey(y))).map(x=>`<option value="${x.id}" ${String(a.parentId||'')===String(x.id)?'selected':''}>${agencyTypePrefix(x)} ${esc(x.name)}</option>`).join('');
+  return`<option value="">상위 없음</option>${opts}`;
+}
+function agForm(a={}){
+  const type=agencyTypeKey(a);
+  return`
+  <div class="fr2"><div class="fg"><label class="fl">대리점명 *</label><input class="fi" id="an" value="${esc(a.name||'')}" placeholder="예: 강남지사"></div><div class="fg"><label class="fl">유형</label><select class="fs" id="atype"><option value="bonbu" ${type==='bonbu'?'selected':''}>본부</option><option value="jisa" ${type==='jisa'?'selected':''}>지사</option><option value="jijum" ${type==='jijum'?'selected':''}>지점</option></select></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">로그인 ID</label><input class="fi" id="ai" value="${esc(a.loginId||'')}" placeholder="agency-xxx" autocomplete="username"></div><div class="fg"><label class="fl">비밀번호 ${a.id?'변경':''}</label>${adminPwField('apw',a.id?'변경 시에만 입력':'앱 로그인 비밀번호')}<div class="admin-modal-note">${a.id?'비워두면 기존 비밀번호가 유지됩니다.':'신규 대리점 로그인 비밀번호입니다.'}</div></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">상위 대리점</label><select class="fs" id="aparent">${agencyParentOptions(a)}</select></div><div class="fg"><label class="fl">지역/주소</label><input class="fi" id="ar" value="${esc(a.region||a.address||'')}" placeholder="예: 서울 강남구"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${esc(a.owner||'')}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${esc(a.phone||'')}" placeholder="010-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">수수료율 (%)</label><input class="fi" id="af" type="number" step="0.01" value="${Number(getEffRate(a)||4.2)}"></div><div class="fg"><label class="fl">가입 코드</label><input class="fi" value="${esc(a.joinCode||'-')}" disabled></div></div>
+  <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="adn" value="${esc(a.deliveryNote||'')}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>`;}
+function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);setTimeout(()=>bindAdminPasswordFields(document),30);}
+function edAg(id){const a=D.agencies.find(x=>String(x.id)===String(id));openM('대리점 수정',agForm(a||{}),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${jsArg(id)})">저장</button>`);setTimeout(()=>bindAdminPasswordFields(document),30);}
+async function savAg(id){
+  const n=v('an');if(!n.trim()){await adminAlert('대리점명 필요');return;}
+  const type=v('atype')||'jisa';
+  const data={name:n.trim(),loginId:v('ai'),type,level:agencyLevelFromType(type),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn'),parentId:v('aparent')||null,password:adminPasswordValue('apw')};
+  if(!id&&(!data.loginId||!data.password)){await adminAlert('신규 대리점은 로그인 ID와 비밀번호가 필요합니다.');return;}
+  try{
+    const res=await fetch(id?`/api/admin/agencies/${encodeURIComponent(id)}`:'/api/admin/agencies',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'대리점 저장에 실패했습니다.');}
+    await syncBackendTransactions({forceRender:true});
+    closeM();toast(id?'대리점이 수정되었습니다.':'대리점이 생성되었습니다.');
+  }catch(e){await adminAlert(e.message||'대리점 저장에 실패했습니다.');}
+}
+function pgAgDetail(){
+  const ag=(D.agencies||[]).find(x=>String(x.id)===String(agDetailId));
+  if(!ag)return`<div class="emp">대리점을 찾을 수 없습니다.</div>`;
+  const ids=agencySubtreeIds(ag.id);
+  const pays=(D.payments||[]).filter(p=>ids.includes(paymentAgencyId(p)));
+  const amount=pays.reduce((s,p)=>s+Number(p.amount||0),0);
+  const defaultRate=Number(D.defaultFeeRate||4.4)/100;
+  const serviceFee=Math.round(amount*defaultRate);
+  const agencyFee=Math.round(amount*(Number(getEffRate(ag)||0)/100));
+  const chain=agencyChain(ag);
+  const children=agencyChildren(ag.id);
+  const frs=agencyFranchises(ag.id,true);
+  const recent=pays.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,8);
+  const joinUrl=ag.joinCode?`${location.origin}/join/${ag.joinCode}`:'-';
+  return`
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn bo" onclick="page='agencies';agDetailId=null;renderNav();renderPage()">← 목록으로</button><h2 style="margin:0;font-size:18px">${esc(ag.name)}</h2>${agencyTypeBadge(ag)}</div>
+    <div class="ab"><button class="btn bo" onclick="edAg(${jsArg(ag.id)})">정보 수정</button><button class="btn bd" onclick="delAg(${jsArg(ag.id)})">삭제</button></div>
+  </div>
+  <div class="kg" style="margin-bottom:14px">
+    <div class="k"><div class="kl">하위 대리점</div><div class="kv">${children.length}개</div><div class="ks">직속 기준</div></div>
+    <div class="k"><div class="kl">이용 가맹점</div><div class="kv">${frs.length}개</div><div class="ks">하위 포함</div></div>
+    <div class="k"><div class="kl">전체 결제금액</div><div class="kv">${fmt(amount)}</div><div class="ks">하위 포함</div></div>
+    <div class="k"><div class="kl">대리점 수수료</div><div class="kv">${fmt(agencyFee)}</div><div class="ks">${Number(getEffRate(ag)||0).toFixed(2)}%</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(300px,.8fr);gap:14px">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card"><div class="ch"><b>기본 정보</b></div><div style="padding:14px;display:grid;grid-template-columns:120px 1fr;gap:9px;font-size:13px">
+        <span style="color:#6B7280">로그인 ID</span><b style="font-family:monospace">${esc(ag.loginId||'-')}</b>
+        <span style="color:#6B7280">상위 조직</span><span>${esc(agencyParentName(ag)||'-')}</span>
+        <span style="color:#6B7280">대표자</span><span>${esc(ag.owner||'-')}</span>
+        <span style="color:#6B7280">연락처</span><span>${esc(ag.phone||'-')}</span>
+        <span style="color:#6B7280">지역/주소</span><span>${esc(ag.region||ag.address||'-')}</span>
+        <span style="color:#6B7280">가입 코드</span><span style="font-family:monospace">${esc(ag.joinCode||'-')}</span>
+        <span style="color:#6B7280">가입 URL</span><span style="word-break:break-all">${esc(joinUrl)}</span>
+        <span style="color:#6B7280">운영 배달대행</span><span>${esc(ag.deliveryNote||'-')}</span>
+      </div></div>
+      <div class="card"><div class="ch"><b>소속 가맹점</b><span style="font-size:12px;color:#6B7280">${frs.length}개</span></div><div class="tw"><table><thead><tr><th>가맹점</th><th>대표자</th><th>대리점</th><th>카드</th><th>계좌</th><th>최근 결제</th></tr></thead><tbody>
+        ${frs.slice(0,20).map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${jsArg(f.id)})"><td style="font-weight:700;color:#2563EB">${esc(f.name||'-')}</td><td>${esc(f.owner||f.ceoName||'-')}</td><td>${esc(agencyNameById(f.agencyId)||f.agency||'-')}</td><td>${(f.cards||[]).length}개</td><td>${(f.deliveryAgencies||[]).length}개</td><td>${esc(f.lastPaymentDate||'-')}</td></tr>`).join('')||'<tr><td colspan="6" class="emp">소속 가맹점이 없습니다.</td></tr>'}
+      </tbody></table></div></div>
+      <div class="card"><div class="ch"><b>최근 결제/정산</b><button class="btn bo xs" onclick="window._settleAgId='${esc(ag.id)}';page='settlements';renderNav();renderPage()">정산 화면으로</button></div><div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>서비스수수료</th><th>대리점수수료</th><th>상태</th></tr></thead><tbody>
+        ${recent.map(p=>{const a=Number(p.amount||0);return`<tr><td>${esc(p.date||'-')}</td><td style="font-family:monospace;font-size:11px">${esc(p.approvalNo||'-')}</td><td>${esc(paymentFranchiseName(p))}</td><td class="tg">${fmt(a)}</td><td class="tr">${fmt(Math.round(a*defaultRate))}</td><td class="tg">${fmt(Math.round(a*(Number(getEffRate(ag)||0)/100)))}</td><td>${bdg(p.status||'결제완료')}</td></tr>`;}).join('')||'<tr><td colspan="7" class="emp">결제 내역이 없습니다.</td></tr>'}
+      </tbody></table></div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card"><div class="ch"><b>조직 경로</b></div><div style="padding:14px">
+        ${chain.map((a,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:${String(a.id)===String(ag.id)?'#F0FAF0':'#F9FAFB'};margin-bottom:6px;cursor:${String(a.id)===String(ag.id)?'default':'pointer'}" ${String(a.id)===String(ag.id)?'':`onclick="goAgDetail(${jsArg(a.id)})"`}><span style="width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${String(a.id)===String(ag.id)?'#3D9B35':'#E5E7EB'};color:${String(a.id)===String(ag.id)?'#fff':'#6B7280'};font-size:11px;font-weight:800">${i+1}</span><div><b style="font-size:12px">${esc(a.name)}</b><div style="font-size:10px;color:#9CA3AF">${agencyTypeLabel(a)}</div></div></div>`).join('')}
+      </div></div>
+      <div class="card"><div class="ch"><b>정산 계좌</b></div><div style="padding:14px;display:grid;gap:8px;font-size:13px">
+        <div><span style="color:#6B7280">은행</span><b style="float:right">${esc(ag.settleBankName||'-')}</b></div>
+        <div><span style="color:#6B7280">계좌번호</span><b style="float:right;font-family:monospace">${esc(ag.settleAccountNo||'-')}</b></div>
+        <div><span style="color:#6B7280">예금주</span><b style="float:right">${esc(ag.settleAccountHolder||'-')}</b></div>
+        <div><span style="color:#6B7280">계약서류</span><b style="float:right">${esc(ag.contractFileKey||ag.contractFileName||'-')}</b></div>
+      </div></div>
+      <div class="card"><div class="ch"><b>하위 대리점</b><span style="font-size:12px;color:#6B7280">${children.length}개</span></div><div style="padding:0">
+        ${children.map(ch=>`<div style="padding:10px 14px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="goAgDetail(${jsArg(ch.id)})"><div><b style="font-size:13px">${esc(ch.name)}</b><div style="font-size:11px;color:#6B7280">${agencyTypeLabel(ch)} · ${Number(getEffRate(ch)||0).toFixed(2)}%</div></div><span style="color:#3D9B35">→</span></div>`).join('')||'<div class="emp" style="padding:18px">하위 대리점이 없습니다.</div>'}
+      </div></div>
+    </div>
+  </div>`;}
 async function delAg(id){
   const a=D.agencies.find(x=>String(x.id)===String(id));
   if(!a){await adminAlert('삭제할 대리점을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
@@ -1734,7 +1868,7 @@ async function delBn(id){if(!await adminConfirm('배너를 삭제하시겠습니
 
 // ═══ 렌더 ═══
 function renderPage(){
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
   document.getElementById('ct').innerHTML=(m[page]||pgDash)();
   if(page==='payments')   setTimeout(rPay,30);
   if(page==='pgsettle')   setTimeout(rGS,30);
