@@ -1115,8 +1115,13 @@ function pgFr(){
   </div>
   <div style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start">
     <div>
-      ${role==='hq'?`<div style="text-align:right;margin-bottom:10px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
-      <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th>관리</th></tr></thead><tbody id="fb"></tbody></table></div></div>
+      <div class="card">
+        <div class="ch" style="padding:10px 14px">
+          <span style="font-weight:800">가맹점 목록</span>
+          ${role==='hq'?`<button class="btn bg2" onclick="addF()">+ 가맹점 추가</button>`:''}
+        </div>
+        <div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th>관리</th></tr></thead><tbody id="fb"></tbody></table></div>
+      </div>
     </div>
     <div style="position:sticky;top:16px">
       <div class="card" style="padding:16px">
