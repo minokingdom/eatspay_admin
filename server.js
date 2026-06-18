@@ -2258,11 +2258,6 @@ app.delete('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req
     return sendError(res, 400, 'BAD_REQUEST', 'agency id is required.');
   }
 
-  const assignedCount = await repo.countUsersByAgencyId(agencyId);
-  if (assignedCount > 0) {
-    return sendError(res, 409, 'AGENCY_IN_USE', 'Agency is assigned to franchises.', [{ assignedCount }]);
-  }
-
   const agency = await repo.deleteAgency(agencyId);
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
