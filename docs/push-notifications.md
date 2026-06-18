@@ -75,6 +75,24 @@ Check that the app server is healthy:
 curl -fsS https://www.eatspay.co.kr/healthz
 ```
 
+Check Firebase and registered device tokens:
+
+```bash
+npm run push:status
+```
+
+Check one login account specifically:
+
+```bash
+npm run push:status -- --email=admin@eatspay.co.kr
+```
+
+Important status meanings:
+
+- `firebase.configured: false`: Firebase server credentials are missing or invalid.
+- `tokens.enabled: 0`: no phone has logged in and registered a push token yet.
+- `target.enabledTokens: 0`: that specific account has no registered phone token.
+
 ## Test delivery
 
 Install the new Android build on a phone, log in once, and allow notifications. This registers the phone token in PostgreSQL.
