@@ -1573,7 +1573,7 @@ function agencyFranchises(agId,includeChildren=false){
 function goAgDetail(id){agDetailId=id;page='agencyDetail';renderNav();renderPage();}
 function pgAg(){return`
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-    <div class="aw aw-g" style="margin:0">대리점은 DB에 저장된 본부/지사/지점 트리 기준으로 표시됩니다. 행을 클릭하면 상세로 이동합니다.</div>
+    <div class="aw aw-g" style="margin:0">대리점은 DB에 저장된 본부/지사/지점 트리 기준입니다. <strong>유형 칩</strong> 또는 행을 클릭하면 상세로 이동합니다.</div>
     <button class="btn bg2" onclick="addAg()">+ 대리점 생성</button>
   </div>
   <div class="sb2">
@@ -1596,7 +1596,9 @@ function rAg(){
     const arg=jsArg(a.id);
     const hasAccount=a.settleBankName&&a.settleAccountNo;
     return `<tr style="cursor:pointer;background:${depth===0?'#F7FFF5':depth===1?'#FBFFFB':'#fff'}" onclick="goAgDetail(${arg})">
-      <td onclick="event.stopPropagation();goAgDetail(${arg})" title="상세 보기" style="cursor:pointer">${agencyTypeBadge(a)}</td>
+      <td onclick="event.stopPropagation();goAgDetail(${arg})" title="상세 보기" style="cursor:pointer">
+        <span style="display:inline-flex;align-items:center;gap:5px">${agencyTypeBadge(a)}<span style="font-size:10px;color:#3D9B35;font-weight:800">상세보기 →</span></span>
+      </td>
       <td style="font-weight:700;padding-left:${12+(depth*18)}px">${depth?'<span style="color:#9CA3AF;margin-right:6px">└</span>':''}${esc(a.name||'-')}</td>
       <td style="font-size:11px;color:#6B7280;font-family:monospace">${esc(a.loginId||'-')}</td>
       <td>${esc(a.owner||'-')}</td><td>${esc(a.phone||'-')}</td>
