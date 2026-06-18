@@ -3,7 +3,7 @@
    배달대행비 카드결제의 새로운 기준
    ========================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Nanum+Square&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Square:wght@400;700;800;900&display=swap');
 /* NanumSquare 보조 - CDN에서 로드하므로 @font-face 선언 제거 */
 
 /* === CSS Variables === */
@@ -25,7 +25,7 @@
   --bg-light: #f7f7f7;
   --bg-gray: #f0f0f0;
 
-  --font: 'NanumSquare', 'Nanum Square', 'Apple SD Gothic Neo', sans-serif;
+  --font: 'NanumSquare', 'Nanum Square', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -51,6 +51,27 @@ html, body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+}
+
+#app-shell,
+#app-shell *,
+.app-dialog,
+.app-dialog *,
+.photo-sheet,
+.photo-sheet * {
+  font-family: var(--font) !important;
+}
+
+input,
+button,
+select,
+textarea {
+  font-family: var(--font) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-family: var(--font) !important;
 }
 
 /* === Unified Logo Component === */
@@ -125,7 +146,7 @@ html, body {
 .status-bar {
   height: 44px;
   background: var(--bg-white);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
@@ -659,6 +680,18 @@ html.native-app .screen-container {
   font-family: var(--font);
 }
 
+.btn-back {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.bottom-nav {
+  z-index: 30;
+}
+
 .talk-list {
   padding: 0 16px;
   border-bottom: 6px solid var(--bg-light);
@@ -773,16 +806,131 @@ html.native-app .screen-container {
   font-family: var(--font);
   color: var(--text-muted);
   transition: color 0.2s;
+  pointer-events: auto;
 }
 
 .nav-item.active { color: var(--green-primary); }
 .nav-item:hover { color: var(--green-primary); }
 
-.nav-item svg { width: 22px; height: 22px; }
+.nav-item svg { width: 22px; height: 22px; pointer-events: none; }
 
 .nav-label {
   font-size: 10px;
   font-weight: 500;
+  pointer-events: none;
+}
+
+.agency-summary-card {
+  min-height: 78px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #ffffff 0%, #f3fbf2 100%);
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 1px 1px 6px rgba(70, 180, 58, 0.06);
+}
+
+.agency-summary-card span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agency-summary-card strong {
+  color: var(--green-dark);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.agency-settlement-card {
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-white);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agency-settlement-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.agency-settlement-row strong {
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.agency-table-wrap {
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-white);
+  overflow-x: auto;
+  box-shadow: 1px 1px 6px rgba(70, 180, 58, 0.05);
+}
+
+.agency-settlement-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.agency-settlement-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f0faf0;
+  color: var(--green-dark);
+  font-weight: 900;
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1.5px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.agency-settlement-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-weight: 800;
+  vertical-align: top;
+}
+
+.agency-settlement-table tbody tr:last-child td { border-bottom: none; }
+
+.agency-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0 4px;
+  flex-wrap: wrap;
+}
+
+.agency-page-btn {
+  min-width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-white);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.agency-page-btn.active {
+  background: var(--green-primary);
+  border-color: var(--green-primary);
+  color: #fff;
 }
 
 /* ==========================================
@@ -830,17 +978,55 @@ html.native-app .screen-container {
   padding: 0 14px;
   font-size: 14px;
   font-family: var(--font);
-  color: var(--text-primary);
+  color: #111827;
+  -webkit-text-fill-color: #111827;
+  caret-color: #111827;
   background: var(--bg-white);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form-input::placeholder { color: var(--text-light); }
+.form-input:-webkit-autofill,
+.form-input:-webkit-autofill:hover,
+.form-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #111827;
+  caret-color: #111827;
+  box-shadow: 0 0 0 1000px var(--bg-white) inset;
+}
+
+.form-input::placeholder {
+  color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
+  opacity: 1;
+}
 
 .form-input:focus {
   border-color: var(--green-primary);
   box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.12);
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field .form-input {
+  padding-right: 58px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 40px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: #eef8e8;
+  color: var(--green-primary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .input-row {

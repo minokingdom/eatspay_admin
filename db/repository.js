@@ -71,6 +71,56 @@ function toStoredFile(row) {
   };
 }
 
+function toTalkPost(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    franchiseId: row.franchise_id,
+    franchiseName: row.franchise_name,
+    title: row.title,
+    body: row.body,
+    price: Number(row.price || 0),
+    imageUrl: row.image_url,
+    imageUrls: Array.isArray(row.image_urls) ? row.image_urls : [],
+    status: row.status,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+function toTalkChat(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    postId: row.post_id,
+    sellerUserId: row.seller_user_id,
+    buyerUserId: row.buyer_user_id,
+    title: row.title,
+    postTitle: row.post_title,
+    franchiseName: row.franchise_name,
+    sellerName: row.seller_name,
+    buyerName: row.buyer_name,
+    lastMessage: row.last_message,
+    lastMessageAt: row.last_message_at instanceof Date ? row.last_message_at.toISOString() : row.last_message_at,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+function toTalkMessage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    chatId: row.chat_id,
+    senderUserId: row.sender_user_id,
+    senderName: row.sender_name,
+    message: row.message,
+    readAt: row.read_at instanceof Date ? row.read_at.toISOString() : row.read_at,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+  };
+}
+
 function toDeliveryAccount(row) {
   if (!row) return null;
   return {
@@ -111,6 +161,28 @@ function toPgSettlement(row) {
   };
 }
 
+function toAgency(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    parentId: row.parent_id,
+    name: row.name,
+    address: row.address,
+    loginId: row.login_id,
+    passwordHash: row.password_hash,
+    owner: row.owner,
+    phone: row.phone,
+    feeRate: Number(row.fee_rate || 0),
+    joinCode: row.join_code,
+    contractFileKey: row.contract_file_key,
+    settleBankName: row.settle_bank_name,
+    settleAccountNo: row.settle_account_no,
+    settleAccountHolder: row.settle_account_holder,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+  };
+}
+
 function toNotification(row) {
   if (!row) return null;
   return {
@@ -127,6 +199,147 @@ function toNotification(row) {
 
 function createRepository(pool) {
   return {
+    async listTalkPosts({ limit = 20, offset = 0 } = {}) {
+      const result = await pool.query(
+        `SELECT *
+         FROM talk_posts
+         WHERE status = 'ACTIVE'
+         ORDER BY created_at DESC, id DESC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      );
+      return result.rows.map(toTalkPost);
+    },
+
+    async countTalkPosts() {
+      const result = await pool.query("SELECT count(*)::int AS count FROM talk_posts WHERE status = 'ACTIVE'");
+      return Number(result.rows[0]?.count || 0);
+    },
+
+    async findTalkPostById(id) {
+      const result = await pool.query("SELECT * FROM talk_posts WHERE id = $1 AND status = 'ACTIVE'", [id]);
+      return toTalkPost(result.rows[0]);
+    },
+
+    async createTalkPost(post) {
+      const result = await pool.query(
+        `INSERT INTO talk_posts (
+           user_id, franchise_id, franchise_name, title, body, price, image_url, image_urls
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8::jsonb)
+         RETURNING *`,
+        [
+          post.userId,
+          post.franchiseId,
+          post.franchiseName,
+          post.title,
+          post.body,
+          post.price,
+          post.imageUrl || '',
+          JSON.stringify(Array.isArray(post.imageUrls) ? post.imageUrls : [])
+        ]
+      );
+      return toTalkPost(result.rows[0]);
+    },
+
+    async findOrCreateTalkChat({ postId, sellerUserId, buyerUserId }) {
+      const result = await pool.query(
+        `INSERT INTO talk_chats (post_id, seller_user_id, buyer_user_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (post_id, buyer_user_id)
+         DO UPDATE SET updated_at = talk_chats.updated_at
+         RETURNING *`,
+        [postId, sellerUserId, buyerUserId]
+      );
+      return toTalkChat(result.rows[0]);
+    },
+
+    async findTalkChatForUser(chatId, userId) {
+      const result = await pool.query(
+        `SELECT c.*, p.title AS post_title, p.franchise_name,
+                seller.franchise_name AS seller_name,
+                buyer.franchise_name AS buyer_name
+         FROM talk_chats c
+         JOIN talk_posts p ON p.id = c.post_id
+         LEFT JOIN users seller ON seller.id = c.seller_user_id
+         LEFT JOIN users buyer ON buyer.id = c.buyer_user_id
+         WHERE c.id = $1 AND (c.seller_user_id = $2 OR c.buyer_user_id = $2)`,
+        [chatId, userId]
+      );
+      return toTalkChat(result.rows[0]);
+    },
+
+    async listTalkChatsByUser(userId) {
+      const result = await pool.query(
+        `SELECT c.*, p.title AS post_title, p.franchise_name,
+                seller.franchise_name AS seller_name,
+                buyer.franchise_name AS buyer_name,
+                lm.message AS last_message,
+                lm.created_at AS last_message_at
+         FROM talk_chats c
+         JOIN talk_posts p ON p.id = c.post_id
+         LEFT JOIN users seller ON seller.id = c.seller_user_id
+         LEFT JOIN users buyer ON buyer.id = c.buyer_user_id
+         LEFT JOIN LATERAL (
+           SELECT message, created_at
+           FROM talk_messages
+           WHERE chat_id = c.id
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1
+         ) lm ON true
+         WHERE c.seller_user_id = $1 OR c.buyer_user_id = $1
+         ORDER BY COALESCE(lm.created_at, c.updated_at) DESC`,
+        [userId]
+      );
+      return result.rows.map(toTalkChat);
+    },
+
+    async listTalkMessages(chatId) {
+      const result = await pool.query(
+        `SELECT m.*, users.franchise_name AS sender_name
+         FROM talk_messages m
+         LEFT JOIN users ON users.id = m.sender_user_id
+         WHERE m.chat_id = $1
+         ORDER BY m.created_at ASC, m.id ASC`,
+        [chatId]
+      );
+      return result.rows.map(toTalkMessage);
+    },
+
+    async markTalkMessagesRead(chatId, readerUserId) {
+      const result = await pool.query(
+        `UPDATE talk_messages
+         SET read_at = now()
+         WHERE chat_id = $1
+           AND sender_user_id IS DISTINCT FROM $2
+           AND read_at IS NULL
+         RETURNING *`,
+        [chatId, readerUserId]
+      );
+      return result.rows.map(toTalkMessage);
+    },
+
+    async createTalkMessage({ chatId, senderUserId, message }) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query(
+          `INSERT INTO talk_messages (chat_id, sender_user_id, message)
+           VALUES ($1, $2, $3)
+           RETURNING *`,
+          [chatId, senderUserId, message]
+        );
+        await client.query('UPDATE talk_chats SET updated_at = now() WHERE id = $1', [chatId]);
+        await client.query('COMMIT');
+        return toTalkMessage(result.rows[0]);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
     async findUserByEmail(email) {
       const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       return toUser(result.rows[0]);
@@ -140,6 +353,28 @@ function createRepository(pool) {
     async findUserByFranchiseId(franchiseId) {
       const result = await pool.query('SELECT * FROM users WHERE franchise_id = $1', [franchiseId]);
       return toUser(result.rows[0]);
+    },
+
+    async findAgencyById(agencyId) {
+      const result = await pool.query(
+        `SELECT id, type, parent_id, name, address, login_id, password_hash, owner, phone, fee_rate, join_code,
+                contract_file_key, settle_bank_name, settle_account_no, settle_account_holder, created_at
+         FROM agencies
+         WHERE id = $1`,
+        [agencyId]
+      );
+      return toAgency(result.rows[0]);
+    },
+
+    async findAgencyByLoginId(loginId) {
+      const result = await pool.query(
+        `SELECT id, type, parent_id, name, address, login_id, password_hash, owner, phone, fee_rate, join_code,
+                contract_file_key, settle_bank_name, settle_account_no, settle_account_holder, created_at
+         FROM agencies
+         WHERE login_id = $1 OR join_code = $1`,
+        [loginId]
+      );
+      return toAgency(result.rows[0]);
     },
 
     async findUserByBusinessNumber(businessNumber) {
@@ -368,25 +603,43 @@ function createRepository(pool) {
     },
 
     async updateFranchiseDetails(franchiseId, fields) {
+      const updates = [
+        'franchise_name = $2',
+        'name = $3',
+        'phone = $4',
+        "business_number = NULLIF($5, '')",
+        'tel = COALESCE($6, tel)',
+        'address = COALESCE($7, address)'
+      ];
+      const params = [
+        franchiseId,
+        fields.franchiseName,
+        fields.ownerName,
+        fields.phone,
+        fields.businessNumber,
+        fields.tel || null,
+        fields.address || null
+      ];
+      if (fields.email !== undefined) {
+        params.push(fields.email);
+        updates.push(`email = $${params.length}`);
+      }
+      if (fields.passwordHash !== undefined) {
+        params.push(fields.passwordHash);
+        updates.push(`password_hash = $${params.length}`);
+      }
+      if (fields.agencyId !== undefined) {
+        params.push(fields.agencyId);
+        updates.push(`agency_id = $${params.length}`);
+      }
       const result = await pool.query(
         `UPDATE users
-         SET franchise_name = $2,
-             name = $3,
-             phone = $4,
-             business_number = NULLIF($5, ''),
-             tel = COALESCE($6, tel),
+         SET ${updates.join(', ')},
              updated_at = now()
          WHERE franchise_id = $1
            AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
          RETURNING *`,
-        [
-          franchiseId,
-          fields.franchiseName,
-          fields.ownerName,
-          fields.phone,
-          fields.businessNumber,
-          fields.tel || null
-        ]
+        params
       );
       return toUser(result.rows[0]);
     },
@@ -726,6 +979,16 @@ function createRepository(pool) {
       return result.rows.map(toDeliveryAccount);
     },
 
+    async countAccountsByFranchise(franchiseId) {
+      const result = await pool.query(
+        `SELECT
+          (SELECT count(*)::int FROM account_requests WHERE franchise_id = $1) +
+          (SELECT count(*)::int FROM delivery_accounts WHERE franchise_id = $1) AS total`,
+        [franchiseId]
+      );
+      return Number(result.rows[0]?.total || 0);
+    },
+
     async deleteDeliveryAccountByFranchise(id, franchiseId) {
       const result = await pool.query(
         'DELETE FROM delivery_accounts WHERE id = $1 AND franchise_id = $2 RETURNING *',
@@ -1042,6 +1305,44 @@ function createRepository(pool) {
       const count = await pool.query(`SELECT count(*)::int AS count FROM transactions WHERE ${where}`, whereParams);
       return {
         items: items.rows.map(toTransaction),
+        totalItems: count.rows[0]?.count || 0
+      };
+    },
+
+    async listAgencyTransactions(filters) {
+      const params = [filters.startDate, filters.endDate, filters.agencyId];
+      const items = await pool.query(
+        `SELECT
+           transactions.*,
+           users.franchise_name,
+           users.agency_id,
+           agencies.name AS agency_name,
+           agencies.fee_rate AS agency_fee_rate
+         FROM transactions
+         JOIN users ON users.franchise_id = transactions.franchise_id
+         LEFT JOIN agencies ON agencies.id = users.agency_id
+         WHERE transactions.created_at::date BETWEEN $1::date AND $2::date
+           AND users.agency_id = $3
+         ORDER BY transactions.created_at DESC
+         LIMIT $4 OFFSET $5`,
+        [...params, filters.limit || 100, filters.offset || 0]
+      );
+      const count = await pool.query(
+        `SELECT count(*)::int AS count
+         FROM transactions
+         JOIN users ON users.franchise_id = transactions.franchise_id
+         WHERE transactions.created_at::date BETWEEN $1::date AND $2::date
+           AND users.agency_id = $3`,
+        params
+      );
+      return {
+        items: items.rows.map(row => ({
+          ...toTransaction(row),
+          franchiseName: row.franchise_name,
+          agencyId: row.agency_id,
+          agencyName: row.agency_name,
+          agencyFeeRate: Number(row.agency_fee_rate || 0)
+        })),
         totalItems: count.rows[0]?.count || 0
       };
     },

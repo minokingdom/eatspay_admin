@@ -22,6 +22,129 @@ const PORT = Number(process.env.PORT || 3000);
 const pool = createPool();
 const repo = createRepository(pool);
 const DEFAULT_AGENCY_NAME = '이츠페이 본사';
+const MAX_ACCOUNTS_PER_FRANCHISE = 2;
+const DEFAULT_DELIVERY_AGENCIES = [
+  '생각대로',
+  '바로고',
+  '리드콜',
+  '모아라인',
+  '딜버',
+  '만나플러스',
+  '배달시대',
+  '제트콜',
+  '딜리온',
+  '기타',
+  '부릉',
+  '랜(RUN)',
+  '비욘드딜리버리',
+  '디플러스',
+  '에스런',
+  '알바콜',
+  '에스콜',
+  '모이콜',
+  '마이콜',
+  '모다자유',
+  '디지콜',
+  '타와',
+  '스피드운산',
+  '배달본색',
+  '배달고수',
+  '오짜콜',
+  '플고',
+  '배달이요',
+  '슈퍼자이로',
+  '라이딩',
+  '다배달',
+  'FM',
+  '날바람',
+  '배달전설',
+  'VIP',
+  '화파',
+  '비트',
+  '국가대표',
+  '스타딜리버리',
+  '오케이콜',
+  '토마토스포트',
+  '나르디',
+  '위드톡',
+  '푸드뱅크',
+  '칸',
+  '날라가',
+  '가유류',
+  '토마토플러스',
+  '콜플레이',
+  '논스톱',
+  '콜25',
+  '배달그수',
+  '위드런',
+  '두바위',
+  '푸드라인',
+  '이초런',
+  '매피콜',
+  '하이브',
+  '바른콜',
+  '드림',
+  'Korea delivery',
+  '젠딜리',
+  '공유다',
+  '배달요',
+  '국민배달',
+  '뉴트랙',
+  '배고파',
+  '배민상회',
+  '로드보이',
+  'pfc',
+  '로드파이터',
+  '에이스콜',
+  '플라이',
+  '독독',
+  '모두의콜',
+  '배태랑',
+  '크리오',
+  '인프라',
+  'Z',
+  '청초고',
+  '나이스',
+  '연범',
+  '국민라이더스',
+  'IM극속전설',
+  '런두유',
+  '상인회',
+  '토마토동동',
+  '온나',
+  '스피드딜리버리',
+  '닭아콜',
+  '링그',
+  '푸드바이크',
+  '군보이',
+  '해피고2',
+  '번개G',
+  '타이밍',
+  '배달하이로',
+  'link',
+  '푸드파일럿',
+  '스타콜',
+  '뭐하코리아',
+  '런다콜',
+  '배달의컨설',
+  '바람처럼',
+  '나르자',
+  '카카오콜',
+  '별리와',
+  '팀릭스',
+  '유니온go',
+  '순간이등',
+  '슈파맨',
+  '다드림',
+  '세이프',
+  'UFO',
+  '국도타이다스',
+  '밍동',
+  '가자이',
+  '파랑무드릭',
+  '파징F&S',
+  '전플런'
+];
 const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ALTER COLUMN franchise_id DROP NOT NULL');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT');
@@ -76,8 +199,50 @@ const dbBootstrapPromise = (async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_posts (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      franchise_id BIGINT,
+      franchise_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      price NUMERIC(14, 0) NOT NULL DEFAULT 0,
+      image_url TEXT,
+      image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_chats (
+      id BIGSERIAL PRIMARY KEY,
+      post_id BIGINT NOT NULL REFERENCES talk_posts(id) ON DELETE CASCADE,
+      seller_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      buyer_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(post_id, buyer_user_id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_messages (
+      id BIGSERIAL PRIMARY KEY,
+      chat_id BIGINT NOT NULL REFERENCES talk_chats(id) ON DELETE CASCADE,
+      sender_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      message TEXT NOT NULL,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_chats_user_updated ON talk_chats(buyer_user_id, seller_user_id, updated_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_messages_chat_created ON talk_messages(chat_id, created_at)');
+  await repo.ensureDefaultAgency();
   await seedDeliveryAgencies();
 })();
 const uploadDir = path.join(__dirname, 'uploads');
@@ -148,8 +313,184 @@ app.get('/', (req, res) => {
 });
 
 app.get('/admin', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   res.sendFile(path.join(__dirname, '이츠페이_관리자_시스템_10.html'));
 });
+
+app.get('/api/talk/posts', asyncHandler(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const [items, totalItems] = await Promise.all([
+    repo.listTalkPosts({ limit, offset: (page - 1) * limit }),
+    repo.countTalkPosts()
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      items: items.map(post => ({
+        ...post,
+        createdAtLabel: formatKstDateTime(post.createdAt)
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalItems / limit) || 1,
+        totalItems,
+        limit
+      }
+    }
+  });
+}));
+
+app.get('/api/talk/posts/:id', asyncHandler(async (req, res) => {
+  const post = await repo.findTalkPostById(Number(req.params.id));
+  if (!post) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
+  }
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    }
+  });
+}));
+
+app.post('/api/talk/posts', authenticate, multiUpload('images', 10), asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 글을 등록할 수 없습니다.');
+  }
+  if (req.user.role !== 'OWNER') {
+    return sendError(res, 403, 'ACCESS_DENIED', '승인된 가맹점 계정만 Talk 글을 등록할 수 있습니다.');
+  }
+
+  const title = String(req.body?.title || '').trim();
+  const body = String(req.body?.body || '').trim();
+  const price = Math.max(Math.round(Number(req.body?.price || 0)), 0);
+  const imageUrl = String(req.body?.imageUrl || '').trim();
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (!title || !body) {
+    return sendError(res, 400, 'MISSING_FIELDS', '제목과 내용을 입력해주세요.');
+  }
+  if (title.length > 80) {
+    return sendError(res, 400, 'TITLE_TOO_LONG', '제목은 80자 이내로 입력해주세요.');
+  }
+  if (body.length > 1000) {
+    return sendError(res, 400, 'BODY_TOO_LONG', '내용은 1000자 이내로 입력해주세요.');
+  }
+  if (files.length > 10) {
+    return sendError(res, 400, 'TOO_MANY_IMAGES', '이미지는 최대 10개까지 첨부할 수 있습니다.');
+  }
+  if (files.some(file => !String(file.mimetype || '').startsWith('image/'))) {
+    return sendError(res, 415, 'INVALID_FILE_FORMAT', '이미지 파일만 첨부할 수 있습니다.');
+  }
+  const uploadedFiles = [];
+  for (const file of files) {
+    uploadedFiles.push(await persistUpload(file, req.user.id));
+  }
+  const imageUrls = uploadedFiles.map(file => `/uploads/${encodeURIComponent(file.fileKey)}`);
+  if (!imageUrls.length && imageUrl) imageUrls.push(imageUrl);
+
+  const post = await repo.createTalkPost({
+    userId: req.user.id,
+    franchiseId: req.user.franchiseId,
+    franchiseName: req.user.franchiseName || req.user.name || '이츠페이 가맹점',
+    title,
+    body,
+    price,
+    imageUrl: imageUrls[0] || '',
+    imageUrls
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Talk 글이 등록되었습니다.',
+    data: {
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    }
+  });
+}));
+
+app.post('/api/talk/posts/:id/chats', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 채팅을 이용할 수 없습니다.');
+  }
+  const post = await repo.findTalkPostById(Number(req.params.id));
+  if (!post) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
+  }
+  if (post.franchiseId && req.user.franchiseId && Number(post.franchiseId) === Number(req.user.franchiseId)) {
+    return sendError(res, 400, 'SELF_CHAT_NOT_ALLOWED', '내가 등록한 글에는 채팅을 시작할 수 없습니다.');
+  }
+  const chat = await repo.findOrCreateTalkChat({
+    postId: post.id,
+    sellerUserId: post.userId,
+    buyerUserId: req.user.id
+  });
+  return res.status(200).json({ success: true, data: chat });
+}));
+
+app.get('/api/talk/chats', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 Talk 채팅을 이용할 수 없습니다.');
+  }
+  const chats = await repo.listTalkChatsByUser(req.user.id);
+  return res.status(200).json({
+    success: true,
+    data: chats.map(chat => ({
+      ...chat,
+      lastMessageAtLabel: chat.lastMessageAt ? formatKstDateTime(chat.lastMessageAt) : ''
+    }))
+  });
+}));
+
+app.get('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, res) => {
+  const chat = await repo.findTalkChatForUser(Number(req.params.id), req.user.id);
+  if (!chat) {
+    return sendError(res, 404, 'TALK_CHAT_NOT_FOUND', '채팅방을 찾을 수 없습니다.');
+  }
+  await repo.markTalkMessagesRead(chat.id, req.user.id);
+  const messages = await repo.listTalkMessages(chat.id);
+  return res.status(200).json({
+    success: true,
+    data: {
+      chat,
+      messages: messages.map(message => ({
+        ...message,
+        createdAtLabel: formatKstDateTime(message.createdAt)
+      }))
+    }
+  });
+}));
+
+app.post('/api/talk/chats/:id/messages', authenticate, asyncHandler(async (req, res) => {
+  const chat = await repo.findTalkChatForUser(Number(req.params.id), req.user.id);
+  if (!chat) {
+    return sendError(res, 404, 'TALK_CHAT_NOT_FOUND', '채팅방을 찾을 수 없습니다.');
+  }
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    return sendError(res, 400, 'MISSING_MESSAGE', '메시지를 입력해주세요.');
+  }
+  if (message.length > 1000) {
+    return sendError(res, 400, 'MESSAGE_TOO_LONG', '메시지는 1000자 이내로 입력해주세요.');
+  }
+  const created = await repo.createTalkMessage({
+    chatId: chat.id,
+    senderUserId: req.user.id,
+    message
+  });
+  return res.status(201).json({
+    success: true,
+    data: {
+      ...created,
+      createdAtLabel: formatKstDateTime(created.createdAt)
+    }
+  });
+}));
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -158,17 +499,30 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   }
 
   const user = await repo.findUserByEmail(email);
-  if (!user || !user.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
+  if (user?.passwordHash && await verifyPassword(password, user.passwordHash)) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        accessToken: signToken(user),
+        tokenType: 'Bearer',
+        expiresIn: 86400,
+        user: publicUser(user)
+      }
+    });
+  }
+
+  const agency = await repo.findAgencyByLoginId(email);
+  if (!agency || !agency.passwordHash || !(await verifyPassword(password, agency.passwordHash))) {
     return sendError(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
   }
 
   return res.status(200).json({
     success: true,
     data: {
-      accessToken: signToken(user),
+      accessToken: signToken(agencyPrincipal(agency)),
       tokenType: 'Bearer',
       expiresIn: 86400,
-      user: publicUser(user)
+      user: publicUser(agencyPrincipal(agency))
     }
   });
 }));
@@ -337,6 +691,34 @@ app.patch('/api/auth/me', authenticate, asyncHandler(async (req, res) => {
   });
 }));
 
+app.patch('/api/admin/me/password', authenticateAdmin, asyncHandler(async (req, res) => {
+  const user = await repo.findUserById(req.user.id);
+  if (!user || user.role !== 'ADMIN') {
+    return sendError(res, 404, 'ADMIN_NOT_FOUND', 'Admin account was not found.');
+  }
+
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!currentPassword || !newPassword) {
+    return sendError(res, 400, 'MISSING_PASSWORD', '현재 비밀번호와 새 비밀번호를 입력해주세요.');
+  }
+  if (newPassword.length < 8) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '관리자 비밀번호는 8자 이상으로 입력해주세요.');
+  }
+  if (!user.passwordHash || !(await verifyPassword(currentPassword, user.passwordHash))) {
+    return sendError(res, 401, 'INVALID_CURRENT_PASSWORD', '현재 비밀번호가 일치하지 않습니다.');
+  }
+
+  await repo.updateUserProfile(user.id, {
+    passwordHash: await hashPassword(newPassword)
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: '관리자 비밀번호가 변경되었습니다.'
+  });
+}));
+
 app.post('/api/franchise/accounts', authenticate, (req, res) => {
   upload.single('documentFile')(req, res, async err => {
     try {
@@ -374,6 +756,10 @@ app.post('/api/franchise/accounts', authenticate, (req, res) => {
       }
       if (!req.file) {
         return sendError(res, 400, 'DOCUMENT_FILE_REQUIRED', 'A POS photo attachment is required.');
+      }
+      const currentAccountCount = await repo.countAccountsByFranchise(req.user.franchiseId);
+      if (currentAccountCount >= MAX_ACCOUNTS_PER_FRANCHISE) {
+        return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
       }
 
       const uploadedFile = await persistUpload(req.file, req.user.id);
@@ -542,7 +928,7 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 402, 'CARD_LIMIT_EXCEEDED', 'Card limit exceeded.');
   }
 
-  const useProvider = Boolean(process.env.GH_PAYMENTS_PAY_KEY) && String(cardId).startsWith('rb_');
+  const useProvider = hasGhPaymentsPayKey() && String(cardId).startsWith('rb_');
   if (useProvider) {
     const transactionId = generateId('TXN', 7);
     const providerResponse = await ghPaymentsRequest('/api/billing/pay', {
@@ -619,6 +1005,9 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', 'Agency accounts must use the agency settlement API.');
+  }
   const { startDate, endDate, type = 'ALL', page = 1, limit = 10 } = req.query;
   if (!startDate || !endDate) {
     return sendError(res, 400, 'MISSING_DATE_FILTER', 'startDate and endDate are required.');
@@ -637,6 +1026,7 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
   });
   const historyItems = items.map(item => ({
     ...item,
+    statusLabel: item.status === 'SUCCESS' ? '결제완료' : item.status === 'ROLLED_BACK' ? '취소' : item.status,
     paymentDate: formatKstDateTime(item.createdAt)
   }));
 
@@ -644,6 +1034,76 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
     success: true,
     data: {
       items: historyItems,
+      pagination: {
+        currentPage: pNum,
+        totalPages: Math.ceil(totalItems / lNum) || 1,
+        totalItems,
+        limit: lNum
+      }
+    }
+  });
+}));
+
+app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role !== 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', 'Agency role is required.');
+  }
+  const { startDate, endDate, page = 1, limit = 10 } = req.query;
+  if (!startDate || !endDate) {
+    return sendError(res, 400, 'MISSING_DATE_FILTER', 'startDate and endDate are required.');
+  }
+
+  const pNum = Math.max(parseInt(page, 10) || 1, 1);
+  const lNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 300);
+  const { items, totalItems } = await repo.listAgencyTransactions({
+    startDate,
+    endDate,
+    agencyId: req.user.agencyId,
+    limit: lNum,
+    offset: (pNum - 1) * lNum
+  });
+  const agencyRate = Number(req.user.feeRate || 0.3);
+  const rows = items.map(item => {
+    const paymentAmount = Number(item.totalAmount || 0);
+    const serviceFee = Number(item.fee || 0);
+    const depositAmount = Number(item.amount || Math.max(paymentAmount - serviceFee, 0));
+    const agencyFee = Math.round(paymentAmount * (agencyRate / 100));
+    const agencyNet = Math.round(agencyFee * 0.967);
+    return {
+      id: item.transactionId,
+      date: formatKstDateTime(item.createdAt),
+      approvalNo: item.transactionId,
+      franchiseId: item.franchiseId,
+      franchiseName: item.franchiseName || `가맹점 ${item.franchiseId}`,
+      paymentAmount,
+      depositAmount,
+      serviceFee,
+      agencyFee,
+      agencyNet,
+      status: item.status === 'SUCCESS' ? '결제완료' : item.status === 'ROLLED_BACK' ? '취소' : item.status
+    };
+  });
+  const summary = rows.reduce((acc, row) => {
+    acc.count += 1;
+    acc.paymentAmount += row.paymentAmount;
+    acc.depositAmount += row.depositAmount;
+    acc.serviceFee += row.serviceFee;
+    acc.agencyFee += row.agencyFee;
+    acc.agencyNet += row.agencyNet;
+    return acc;
+  }, { count: 0, paymentAmount: 0, depositAmount: 0, serviceFee: 0, agencyFee: 0, agencyNet: 0 });
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      agency: {
+        id: req.user.agencyId,
+        name: req.user.agencyName,
+        feeRate: agencyRate
+      },
+      period: { startDate, endDate },
+      summary,
+      items: rows,
       pagination: {
         currentPage: pNum,
         totalPages: Math.ceil(totalItems / lNum) || 1,
@@ -726,7 +1186,7 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 400, 'MISSING_CARD_COMPANY', 'Card company is required.');
   }
 
-  if (process.env.GH_PAYMENTS_PAY_KEY) {
+  if (hasGhPaymentsPayKey()) {
     const response = await ghPaymentsRequest('/api/billing/reg', {
       method: 'POST',
       body: {
@@ -736,7 +1196,7 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
           cardExpireDate: formatCardExpireDate(expiryMonth, expiryYear),
           cardPassword: String(cardPw).replace(/[^0-9]/g, '').slice(0, 2),
           socialNumber: String(identity).replace(/[^0-9]/g, ''),
-          productName: 'eats PAY 移대뱶 ?깅줉',
+          productName: 'eats PAY 카드 등록',
           payerName: req.user.name || '',
           payerEmail: req.user.email || '',
           payerTel: req.user.phone || ''
@@ -930,6 +1390,10 @@ app.post('/api/franchise/:id/delivery-accounts', authenticateAdmin, singleUpload
   if (!agencyName || !bankName || !accountHolder || !accountNo) {
     return sendError(res, 400, 'MISSING_FIELDS', 'agencyName, bankName, accountHolder, and accountNo are required.');
   }
+  const currentAccountCount = await repo.countAccountsByFranchise(franchiseId);
+  if (currentAccountCount >= MAX_ACCOUNTS_PER_FRANCHISE) {
+    return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
+  }
 
   const file = req.file ? await persistUpload(req.file, req.user.id) : null;
   const account = await repo.addDeliveryAccount({
@@ -1085,6 +1549,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       agency: displayAgencyName(user.agencyName),
       owner: user.name,
       phone: user.phone || '',
+      address: user.address || '',
+      tel: user.tel || '',
       bizNo: user.businessNumber || '',
       joinDate: formatDate(user.createdAt),
       lastPaymentDate: '',
@@ -1093,6 +1559,83 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       role: user.role,
       deliveryAgencies: []
     }))
+  });
+}));
+
+app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const password = String(req.body?.password || '');
+  const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
+  const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const address = String(req.body?.address || '').trim();
+  const tel = String(req.body?.tel || '').trim();
+  const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
+  const agencyId = req.body?.agencyId ? Number(req.body.agencyId) : null;
+  const deliveryAccounts = Array.isArray(req.body?.deliveryAccounts) ? req.body.deliveryAccounts : [];
+
+  if (!email || !password || !franchiseName || !ownerName || !businessNumber) {
+    return sendError(res, 400, 'MISSING_FIELDS', 'email, password, franchiseName, ownerName, and businessNumber are required.');
+  }
+  if (password.length < 4) {
+    return sendError(res, 400, 'INVALID_PASSWORD', 'Password must be at least 4 characters.');
+  }
+  if (businessNumber.length !== 10) {
+    return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
+  }
+  const validDeliveryAccounts = deliveryAccounts.filter(account => (
+    String(account.agencyName || account.deliveryAgencyName || '').trim() &&
+    String(account.accountNo || '').trim()
+  ));
+  if (validDeliveryAccounts.length > MAX_ACCOUNTS_PER_FRANCHISE) {
+    return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
+  }
+  if (await repo.findUserByEmail(email)) {
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+  }
+  if (await repo.findUserByBusinessNumber(businessNumber)) {
+    return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
+  }
+
+  const defaultAgency = agencyId ? null : await repo.ensureDefaultAgency();
+  const user = await repo.createUser({
+    email,
+    passwordHash: await hashPassword(password),
+    name: ownerName,
+    franchiseName,
+    phone,
+    address,
+    tel,
+    businessNumber,
+    agencyId: Number.isFinite(agencyId) ? agencyId : (defaultAgency?.id || null)
+  });
+
+  for (const account of validDeliveryAccounts) {
+    const agencyName = String(account.agencyName || account.deliveryAgencyName || '').trim();
+    const accountNo = String(account.accountNo || '').trim();
+    if (!agencyName || !accountNo) continue;
+    await repo.addDeliveryAccount({
+      franchiseId: user.franchiseId,
+      agencyId: null,
+      agencyName,
+      bankName: String(account.bankName || agencyName).trim(),
+      accountHolder: String(account.accountHolder || ownerName).trim(),
+      accountNo
+    });
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: '가맹점이 생성되었습니다.',
+    data: {
+      id: user.franchiseId,
+      email: user.email,
+      name: user.franchiseName,
+      owner: user.name,
+      phone: user.phone,
+      bizNo: user.businessNumber,
+      role: user.role
+    }
   });
 }));
 
@@ -1156,9 +1699,13 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
 
   const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
   const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
+  const email = String(req.body?.email || '').trim();
+  const password = String(req.body?.password || '');
   const phone = String(req.body?.phone || '').trim();
+  const address = String(req.body?.address || '').trim();
   const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
   const tel = String(req.body?.tel || '').trim();
+  const agencyId = req.body?.agencyId !== undefined && req.body?.agencyId !== '' ? Number(req.body.agencyId) : null;
 
   if (!franchiseName) {
     return sendError(res, 400, 'MISSING_FRANCHISE_NAME', 'franchiseName is required.');
@@ -1169,13 +1716,41 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   if (businessNumber && businessNumber.length !== 10) {
     return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
   }
+  if (!email) {
+    return sendError(res, 400, 'MISSING_EMAIL', '로그인 ID를 입력해주세요.');
+  }
+  if (password && password.length < 4) {
+    return sendError(res, 400, 'INVALID_PASSWORD', '비밀번호는 4자 이상 입력해주세요.');
+  }
+  if (req.body?.agencyId !== undefined && req.body?.agencyId !== '' && !Number.isFinite(agencyId)) {
+    return sendError(res, 400, 'BAD_AGENCY_ID', '대리점 정보가 올바르지 않습니다.');
+  }
+
+  const existing = await repo.findUserByFranchiseId(franchiseId);
+  if (!existing) {
+    return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
+  }
+  const duplicateEmail = await repo.findUserByEmail(email);
+  if (duplicateEmail && Number(duplicateEmail.franchiseId) !== franchiseId) {
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+  }
+  if (businessNumber) {
+    const duplicateBusiness = await repo.findUserByBusinessNumber(businessNumber);
+    if (duplicateBusiness && Number(duplicateBusiness.franchiseId) !== franchiseId) {
+      return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
+    }
+  }
 
   const updated = await repo.updateFranchiseDetails(franchiseId, {
     franchiseName,
     ownerName,
     phone,
+    address,
     businessNumber,
-    tel
+    tel,
+    email,
+    passwordHash: password ? await hashPassword(password) : undefined,
+    agencyId
   });
   if (!updated) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
@@ -1186,11 +1761,14 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     message: '가맹점 정보가 수정되었습니다.',
     data: {
       id: updated.franchiseId,
+      email: updated.email,
       name: updated.franchiseName,
       owner: updated.name,
       phone: updated.phone,
+      address: updated.address,
       bizNo: updated.businessNumber,
-      tel: updated.tel
+      tel: updated.tel,
+      agencyId: updated.agencyId
     }
   });
 }));
@@ -1248,6 +1826,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       agency: displayAgencyName(user.agencyName),
       owner: user.name,
       phone: user.phone || '',
+      address: user.address || '',
+      tel: user.tel || '',
       bizNo: user.businessNumber || '',
       joinDate: formatDate(user.createdAt),
       lastPaymentDate: '',
@@ -1347,6 +1927,9 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     const franchise = franchiseById.get(String(tx.franchiseId));
     const agencyId = franchise?.agencyId || defaultAgency?.id || null;
     const agencyName = franchise?.agency || (defaultAgency ? displayAgencyName(defaultAgency.name) : DEFAULT_AGENCY_NAME);
+    const depositAmount = Number(tx.amount || 0);
+    const feeAmount = Number(tx.fee || tx.calculatedFee || 0);
+    const totalAmount = Number(tx.totalAmount || tx.total_amount || (depositAmount + feeAmount));
     return {
       id: tx.transactionId,
       date: formatKstDateTime(tx.createdAt),
@@ -1355,9 +1938,12 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       franchise: franchise?.name || `가맹점 ${tx.franchiseId}`,
       franchiseId: tx.franchiseId,
       type: tx.type === 'CHARGE' ? '\uCDA9\uC804' : tx.type,
-      amount: Number(tx.amount),
+      amount: totalAmount,
+      depositAmount,
+      fee: feeAmount,
+      totalAmount,
       installment: '\uC77C\uC2DC\uBD88',
-      status: tx.status === 'SUCCESS' ? '\uACB0\uC81C\uC644\uB8CC' : tx.status,
+      status: tx.status === 'SUCCESS' ? '\uACB0\uC81C\uC644\uB8CC' : tx.status === 'ROLLED_BACK' ? '\uCDE8\uC18C' : tx.status,
       pg: tx.method || 'PG',
       agencyId
     };
@@ -1374,7 +1960,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     svcFee: Number(item.svcFee),
     netAmt: Number(item.netAmt),
     deliveryAgency: item.deliveryAgency || '',
-    status: item.status === 'ROLLED_BACK' ? '\uB864\uBC31' : '\uC815\uC0B0\uC644\uB8CC',
+    status: item.status === 'ROLLED_BACK' ? '\uCDE8\uC18C' : '\uC815\uC0B0\uC644\uB8CC',
     note: '',
     agencyId: item.agencyId || null,
     pgTxId: item.pgTxId || ''
@@ -1384,6 +1970,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
   const todayPaymentTotal = paymentRows
     .filter(payment => payment.date.startsWith(today))
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const agenciesForAdmin = buildAdminAgencies(agencies);
 
   return res.status(200).json({
     success: true,
@@ -1395,10 +1982,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       todayPaymentTotal
     },
     franchises,
-    agencies: agencies.map(agency => ({
-      ...agency,
-      name: displayAgencyName(agency.name)
-    })),
+    agencies: agenciesForAdmin,
     deliveryAgencies,
     installments,
     payments: paymentRows,
@@ -1430,7 +2014,7 @@ app.put('/api/admin/installments', authenticateAdmin, asyncHandler(async (req, r
 }));
 
 app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res) => {
-  const { name, loginId, level, region, owner, phone, feeRate, parentId } = req.body || {};
+  const { name, loginId, level, region, owner, phone, feeRate, parentId, password } = req.body || {};
   if (!String(name || '').trim()) {
     return sendError(res, 400, 'BAD_REQUEST', 'name is required.');
   }
@@ -1446,6 +2030,9 @@ app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res)
     feeRate: Number(feeRate) || 0,
     joinCode: `JOIN-${Date.now()}`
   });
+  if (String(password || '').trim()) {
+    await repo.updateAgencyPasswordById(agency.id, await hashPassword(String(password)));
+  }
 
   return res.status(201).json({
     success: true,
@@ -1458,7 +2045,7 @@ app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res)
 
 app.patch('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req, res) => {
   const agencyId = Number(req.params.id);
-  const { name, loginId, level, region, owner, phone, feeRate, parentId } = req.body || {};
+  const { name, loginId, level, region, owner, phone, feeRate, parentId, password } = req.body || {};
   if (!Number.isFinite(agencyId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'agency id is required.');
   }
@@ -1478,6 +2065,9 @@ app.patch('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req,
   });
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
+  }
+  if (String(password || '').trim()) {
+    await repo.updateAgencyPasswordById(agencyId, await hashPassword(String(password)));
   }
 
   return res.status(200).json({
@@ -1699,6 +2289,24 @@ function singleUpload(fieldName) {
   };
 }
 
+function multiUpload(fieldName, maxCount) {
+  return (req, res, next) => {
+    upload.array(fieldName, maxCount)(req, res, err => {
+      if (!err) return next();
+      if (err.message === 'INVALID_FILE_FORMAT') {
+        return sendError(res, 415, 'INVALID_FILE_FORMAT', 'jpg, jpeg, png, pdf 파일만 업로드할 수 있습니다.');
+      }
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return sendError(res, 400, 'TOO_MANY_IMAGES', `이미지는 최대 ${maxCount}개까지 첨부할 수 있습니다.`);
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return sendError(res, 413, 'FILE_SIZE_LIMIT_EXCEEDED', '첨부 파일은 10MB 이하만 업로드할 수 있습니다.');
+      }
+      return sendError(res, 400, 'UPLOAD_ERROR', err.message);
+    });
+  };
+}
+
 function logError(code, message, details = []) {
   console.error(`[${new Date().toISOString()}] [${code}] ${message}`, JSON.stringify(details));
 }
@@ -1762,6 +2370,10 @@ async function userFromRequest(req) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.slice('Bearer '.length);
   const payload = verifyToken(token);
+  if (payload.authType === 'agency' || payload.role === 'AGENCY') {
+    const agency = await repo.findAgencyById(payload.sub);
+    return agency ? agencyPrincipal(agency) : null;
+  }
   return repo.findUserById(payload.sub);
 }
 
@@ -1816,6 +2428,7 @@ function signToken(user) {
   const payload = base64UrlEncode({
     sub: user.id,
     role: user.role,
+    authType: user.authType || 'user',
     exp: Math.floor(Date.now() / 1000) + 86400
   });
   const body = `${header}.${payload}`;
@@ -1925,7 +2538,41 @@ function csvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function agencyPrincipal(agency) {
+  return {
+    id: agency.id,
+    authType: 'agency',
+    role: 'AGENCY',
+    name: agency.owner || agency.name,
+    agencyId: agency.id,
+    agencyName: displayAgencyName(agency.name),
+    franchiseName: displayAgencyName(agency.name),
+    feeRate: Number(agency.feeRate || 0.3),
+    loginId: agency.loginId,
+    phone: agency.phone,
+    passwordHash: agency.passwordHash
+  };
+}
+
 function publicUser(user) {
+  if (user.role === 'AGENCY') {
+    return {
+      id: user.id,
+      name: user.name || user.agencyName,
+      franchiseName: user.agencyName,
+      franchiseId: null,
+      agencyId: user.agencyId,
+      agencyName: user.agencyName,
+      feeRate: Number(user.feeRate || 0.3),
+      businessNumber: null,
+      phone: user.phone || null,
+      address: null,
+      tel: null,
+      role: 'AGENCY',
+      approvalState: 'APPROVED',
+      approvalLabel: '\uC2B9\uC778\uC644\uB8CC'
+    };
+  }
   const isAdmin = user.role === 'ADMIN';
   const approvalState = isAdmin
     ? 'APPROVED'
@@ -1960,6 +2607,32 @@ function displayAgencyName(name) {
     return DEFAULT_AGENCY_NAME;
   }
   return normalized;
+}
+
+function buildAdminAgencies(agencies = []) {
+  const items = agencies.map(agency => ({
+    ...agency,
+    name: displayAgencyName(agency.name)
+  }));
+  const levelById = new Map();
+  const resolveLevel = agency => {
+    const key = String(agency.id);
+    if (levelById.has(key)) return levelById.get(key);
+    if (!agency.parentId) {
+      levelById.set(key, 1);
+      return 1;
+    }
+    const parent = items.find(item => String(item.id) === String(agency.parentId));
+    const level = parent ? Math.min(resolveLevel(parent) + 1, 4) : 1;
+    levelById.set(key, level);
+    return level;
+  };
+  return items.map(agency => ({
+    ...agency,
+    level: resolveLevel(agency),
+    region: agency.address || '',
+    deliveryNote: agency.deliveryNote || ''
+  }));
 }
 
 function formatDate(value) {
@@ -2009,40 +2682,40 @@ function formatCardExpireDate(month, year) {
 
 async function seedDeliveryAgencies() {
   const existing = await repo.listDeliveryAgencies();
-  if (existing.length) return;
+  const existingNames = new Set(existing.map(item => String(item.name || '').trim()));
 
-  const adminHtmlPath = path.join(__dirname, '?댁툩?섏씠_愿由ъ옄_?쒖뒪??10.html');
-  if (!fs.existsSync(adminHtmlPath)) return;
-
-  const html = fs.readFileSync(adminHtmlPath, 'utf8');
-  const start = html.indexOf('deliveryAgencyList: [');
-  const end = html.indexOf('],', start);
-  if (start === -1 || end === -1) return;
-
-  const slice = html.slice(start, end);
-  const regex = /\{id:(\d+),name:"([^"]+)",status:"([^"]+)"\}/g;
-  const items = [];
-  let match;
-  while ((match = regex.exec(slice))) {
-    items.push({
-      name: match[2],
-      status: match[3],
-      sortOrder: Number(match[1]) || items.length
-    });
-  }
-
-  for (const item of items) {
-    await repo.createDeliveryAgency(item.name, item.status, item.sortOrder);
+  for (const [index, name] of DEFAULT_DELIVERY_AGENCIES.entries()) {
+    if (existingNames.has(name)) continue;
+    await repo.createDeliveryAgency(name, 'active', index + 1);
   }
 }
 
+function hasGhPaymentsPayKey() {
+  const key = String(process.env.GH_PAYMENTS_PAY_KEY || '').trim();
+  if (!key) return false;
+  const normalized = key.toLowerCase();
+  if (
+    normalized === 'replace-with-gh-pay-key' ||
+    normalized === 'your-gh-pay-key' ||
+    normalized === 'your-real-key' ||
+    normalized === 'test' ||
+    normalized === 'none' ||
+    normalized === 'null'
+  ) {
+    return false;
+  }
+  if (normalized.startsWith('replace-') || normalized.includes('replace-with')) return false;
+  return true;
+}
+
 async function ghPaymentsRequest(pathname, { method = 'GET', body } = {}) {
-  if (!process.env.GH_PAYMENTS_PAY_KEY) {
+  if (!hasGhPaymentsPayKey()) {
     throw new Error('GH_PAYMENTS_PAY_KEY is required for GH Payments integration.');
   }
 
+  const payKey = String(process.env.GH_PAYMENTS_PAY_KEY || '').trim();
   const headers = {
-    Authorization: process.env.GH_PAYMENTS_PAY_KEY,
+    Authorization: payKey,
     Accept: 'application/json'
   };
 

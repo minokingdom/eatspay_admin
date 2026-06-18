@@ -28,92 +28,99 @@ const CONFIG = {
 };
 </script>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Square:wght@400;700;800;900&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;background:#F1F5F1;height:100vh;overflow:hidden;font-size:13px}
+body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;background:#F1F5F1;height:100vh;overflow:hidden;font-size:13.6px}
 .app{display:flex;height:100vh}
-.sb{width:190px;background:#152A15;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sb{width:195px;background:#152A15;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.topbar{background:#fff;border-bottom:1px solid #D1E8D1;padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.topbar{background:#fff;border-bottom:1px solid #D1E8D1;padding:8px 20px;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0}
 .ct{flex:1;overflow-y:auto;padding:20px}
 .logo{padding:13px 14px;background:#3D9B35;display:flex;align-items:center;gap:3px;flex-shrink:0}
 .logo-t,.logo-s{font-weight:700;font-size:17px}
 .logo-t{color:#fff}.logo-s{color:#DCFCE7}
 .role-tog{margin:8px;display:flex;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.15)}
-.rtb{flex:1;padding:5px 0;font-size:10px;font-weight:600;text-align:center;cursor:pointer;border:none;color:rgba(255,255,255,.4);background:transparent}
+.rtb{flex:1;padding:5px 0;font-size:10.4px;font-weight:600;text-align:center;cursor:pointer;border:none;color:rgba(255,255,255,.75);background:transparent}
 .rtb.on{background:#3D9B35;color:#fff}
-.ns{padding:8px 10px 2px;font-size:9px;font-weight:700;color:rgba(255,255,255,.3);letter-spacing:.8px;text-transform:uppercase;margin-top:4px}
-.ni{padding:7px 14px;cursor:pointer;font-size:11px;color:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-between;border-left:3px solid transparent;transition:.12s}
+.ns{padding:8px 10px 2px;font-size:9.4px;font-weight:700;color:rgba(255,255,255,.3);letter-spacing:.8px;text-transform:uppercase;margin-top:4px}
+.ni{padding:7px 14px;cursor:pointer;font-size:11.5px;color:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-between;border-left:3px solid transparent;transition:.12s}
 .ni:hover{color:rgba(255,255,255,.9);background:rgba(255,255,255,.05)}
 .ni.on{background:#3D9B35;color:#fff;border-left-color:#DCFCE7}
-.ni.sub{padding-left:24px;font-size:10.5px}
-.nb{background:#EF4444;color:#fff;font-size:8px;padding:1px 5px;border-radius:10px}
-.sb-ft{margin-top:auto;padding:10px;border-top:1px solid rgba(255,255,255,.08);font-size:9.5px;color:rgba(255,255,255,.25);text-align:center}
-.ptitle{font-size:16px;font-weight:700;color:#1A2E1A}
-.tbr{display:flex;align-items:center;gap:10px;font-size:11px;color:#6B7280}
-.rpill{padding:3px 9px;border-radius:12px;font-weight:700;font-size:10px}
+.ni.sub{padding-left:24px;font-size:11px}
+.nb{background:#EF4444;color:#fff;font-size:8.4px;padding:1px 5px;border-radius:10px}
+.sb-ft{margin-top:auto;padding:10px;border-top:1px solid rgba(255,255,255,.08);font-size:10px;color:rgba(255,255,255,.25);text-align:center}
+.ptitle{font-size:16.7px;font-weight:700;color:#1A2E1A}
+.tbr{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11.5px;color:#6B7280;flex-wrap:wrap;text-align:right}
+.rpill{padding:3px 9px;border-radius:12px;font-weight:700;font-size:10.4px}
+.top-action{cursor:pointer;color:#1A2E1A;font-size:11px;font-weight:700}
+.top-action:hover{color:#3D9B35;text-decoration:underline}
 .card{background:#fff;border:1px solid #D1E8D1;border-radius:8px;margin-bottom:14px}
 .ch{padding:12px 16px;border-bottom:1px solid #D1E8D1;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .kgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
 .kpi{background:#fff;border:1px solid #D1E8D1;border-radius:8px;padding:14px;border-left:4px solid #3D9B35}
-.kl{font-size:10px;color:#6B7280;margin-bottom:4px}
-.kv{font-size:17px;font-weight:700;color:#1A2E1A;word-break:break-all}
-.ks{font-size:10px;color:#9CA3AF;margin-top:3px}
+.kl{font-size:10.4px;color:#6B7280;margin-bottom:4px}
+.kv{font-size:17.8px;font-weight:700;color:#1A2E1A;word-break:break-all}
+.ks{font-size:10.4px;color:#9CA3AF;margin-top:3px}
 table{width:100%;border-collapse:collapse}
-th{background:#F0FAF0;padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:#1A2E1A;border-bottom:2px solid #D1E8D1;white-space:nowrap}
-td{padding:8px 12px;border-bottom:1px solid #D1E8D1;font-size:11.5px;color:#1A2E1A;vertical-align:middle}
+th{background:#F0FAF0;padding:9px 12px;text-align:left;font-size:11.5px;font-weight:700;color:#1A2E1A;border-bottom:2px solid #D1E8D1;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid #D1E8D1;font-size:12.1px;color:#1A2E1A;vertical-align:middle}
 tr:hover td{background:#FAFFFE}
 .tw{overflow-x:auto}
-.bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700}
+.bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:10.4px;font-weight:700}
 .bg{background:#DCFCE7;color:#166534}.by{background:#FEF3C7;color:#92400E}
 .br{background:#FEE2E2;color:#991B1B}.bb{background:#DBEAFE;color:#1E40AF}.bgr{background:#F3F4F6;color:#4B5563}
 .bpu{background:#F3E8FF;color:#6B21A8}.bor{background:#FEF3C7;color:#92400E}
-.btn{padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:5px;transition:.12s;white-space:nowrap}
+.btn{padding:7px 14px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:5px;transition:.12s;white-space:nowrap}
 .bg2{background:#3D9B35;color:#fff}.bg2:hover{background:#2d7a26}
 .bo{background:#fff;color:#1A2E1A;border:1px solid #D1E8D1}.bo:hover{background:#F9FAFB}
 .bd{background:#FEE2E2;color:#991B1B;border:1px solid #FECACA}
 .bor2{background:#FEF3C7;color:#92400E;border:1px solid #FDE68A}
-.sm{padding:4px 10px;font-size:11px}.xs{padding:2px 7px;font-size:10px}
+.sm{padding:4px 10px;font-size:11.5px}.xs{padding:2px 7px;font-size:10.4px}
 .fg{margin-bottom:12px}
-.fl{display:block;font-size:11px;font-weight:700;color:#1A2E1A;margin-bottom:3px}
-.fi,.fs,.fta{width:100%;padding:7px 10px;border:1px solid #D1E8D1;border-radius:6px;font-size:12px;outline:none;font-family:inherit;background:#fff}
+.fl{display:block;font-size:11.5px;font-weight:700;color:#1A2E1A;margin-bottom:3px}
+.fi,.fs,.fta{width:100%;padding:7px 10px;border:1px solid #D1E8D1;border-radius:6px;font-size:12.5px;outline:none;font-family:inherit;background:#fff}
 .fi:focus,.fs:focus,.fta:focus{border-color:#3D9B35;box-shadow:0 0 0 2px rgba(61,155,53,.1)}
 .fi:disabled,.fs:disabled{background:#F3F4F6;color:#9CA3AF;cursor:not-allowed}
+.admin-pw-field{position:relative}
+.admin-pw-field .fi{padding-right:58px;color:#111827;-webkit-text-fill-color:#111827}
+.admin-pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#E8F5E3;color:#2F8F2F;border-radius:7px;padding:5px 8px;font-size:11px;font-weight:800;cursor:pointer}
 .fta{resize:vertical;min-height:80px}
 .fr2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .mo{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:999;display:flex;align-items:center;justify-content:center}
-.mbox{background:#fff;border-radius:12px;width:580px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mbox{background:#fff;border-radius:12px;width:600px;max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.mbox.wide{width:900px}
 .mh{padding:14px 18px;border-bottom:1px solid #D1E8D1;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1}
-.mt{font-weight:700;font-size:15px;color:#1A2E1A}
+.mt{font-weight:700;font-size:15.7px;color:#1A2E1A}
 .mb2{padding:18px}
 .mf{padding:12px 18px;border-top:1px solid #D1E8D1;display:flex;justify-content:flex-end;gap:8px}
-.mc{background:none;border:none;cursor:pointer;font-size:18px;color:#6B7280}
+.mc{background:none;border:none;cursor:pointer;font-size:18.8px;color:#6B7280}
 .sb2{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
-.si{flex:1;min-width:150px;padding:7px 12px;border:1px solid #D1E8D1;border-radius:6px;font-size:12px;outline:none;font-family:inherit}
+.si{flex:1;min-width:130px;padding:7px 12px;border:1px solid #D1E8D1;border-radius:6px;font-size:12.5px;outline:none;font-family:inherit}
 .si:focus{border-color:#3D9B35}
-.aw{padding:9px 14px;border-radius:6px;font-size:11.5px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px}
+.aw{padding:9px 14px;border-radius:6px;font-size:12.1px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px}
 .aw-w{background:#FEF3C7;color:#92400E;border:1px solid #FDE68A}
 .aw-g{background:#DCFCE7;color:#166534;border:1px solid #BBF7D0}
 .aw-b{background:#DBEAFE;color:#1E40AF;border:1px solid #BFDBFE}
 .tabs{display:flex;border-bottom:2px solid #D1E8D1;margin-bottom:14px;flex-wrap:wrap}
-.tab{padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab{padding:7px 14px;cursor:pointer;font-size:12.5px;font-weight:600;color:#6B7280;border-bottom:2px solid transparent;margin-bottom:-2px}
 .tab.on{color:#3D9B35;border-bottom-color:#3D9B35}
 .da-row{display:grid;grid-template-columns:160px 1fr 1fr 32px;gap:8px;margin-bottom:6px;align-items:center}
 .da-del{background:#FEE2E2;border:1px solid #FECACA;border-radius:4px;cursor:pointer;padding:4px 7px;font-size:12px;color:#991B1B;font-weight:700}
 .da-ro{display:grid;grid-template-columns:160px 1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center;padding:8px;background:#F9FAFB;border-radius:6px}
 .role-card{border-radius:8px;overflow:hidden;border:1px solid #E5E7EB}
-.role-head{padding:8px 12px;font-size:11px;font-weight:700;color:#fff}
-.role-body{padding:10px 12px;font-size:10.5px;color:#6B7280}
-.inst-grid{display:grid;grid-template-columns:120px repeat(3,1fr);border:1px solid #D1E8D1;border-radius:8px;overflow:hidden}
-.inst-hdr{background:#F0FAF0;padding:8px 12px;font-size:11px;font-weight:700;color:#1A2E1A;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;text-align:center}
+.role-head{padding:8px 12px;font-size:11.5px;font-weight:700;color:#fff}
+.role-body{padding:10px 12px;font-size:11px;color:#6B7280}
+.inst-grid{display:grid;grid-template-columns:130px repeat(3,1fr);border:1px solid #D1E8D1;border-radius:8px;overflow:hidden}
+.inst-hdr{background:#F0FAF0;padding:8px 12px;font-size:11.5px;font-weight:700;color:#1A2E1A;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;text-align:center}
 .inst-hdr:last-child{border-right:none}
-.inst-cell{padding:8px 12px;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.inst-cell{padding:7px 12px;border-bottom:1px solid #D1E8D1;border-right:1px solid #D1E8D1;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .inst-cell:last-child{border-right:none}
-.ci{display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px}
+.ci{display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11.5px}
 .ci input{accent-color:#3D9B35;width:14px;height:14px}
 .fcalc{background:#E8F5E3;border:1px solid #D1E8D1;border-radius:8px;padding:14px}
-.fcr{font-size:22px;font-weight:700;color:#3D9B35;margin-top:6px}
-.toast{position:fixed;bottom:20px;right:20px;background:#152A15;color:#fff;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:600;z-index:2000;animation:si .3s ease}
+.fcr{font-size:23px;font-weight:700;color:#3D9B35;margin-top:6px}
+.toast{position:fixed;bottom:20px;right:20px;background:#152A15;color:#fff;padding:10px 18px;border-radius:8px;font-size:12.5px;font-weight:600;z-index:2000;animation:si .3s ease}
 @keyframes si{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
 .emp{text-align:center;padding:36px;color:#9CA3AF}
 .tg{color:#3D9B35;font-weight:700}.tr{color:#991B1B}
@@ -121,16 +128,30 @@ tr:hover td{background:#FAFFFE}
 .dv{height:1px;background:#D1E8D1;margin:12px 0}
 .pend-card{background:#FFF7ED;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-bottom:8px}
 .pend-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px}
-.pend-info{font-size:11px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+.pend-info{font-size:11.5px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
 .pend-label{font-weight:700;color:#92400E}
-.receipt{max-width:340px;margin:0 auto;border:1px solid #D1E8D1;border-radius:8px;overflow:hidden;font-size:12px}
+.pager{display:flex;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:12px}
+.page-btn{min-width:28px;height:28px;border:1px solid #D1E8D1;background:#fff;color:#1A2E1A;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.page-btn.on{background:#3D9B35;border-color:#3D9B35;color:#fff}
+.page-btn:hover{border-color:#3D9B35}
+.receipt{max-width:340px;margin:0 auto;border:1px solid #D1E8D1;border-radius:8px;overflow:hidden;font-size:12.5px}
 .receipt-hd{background:#3D9B35;padding:16px;text-align:center;color:#fff}
 .receipt-body{padding:16px}
 .receipt-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #F0FAF0}
 .receipt-total{display:flex;justify-content:space-between;padding:8px;background:#F0FAF0;border-radius:6px;margin-top:8px;font-weight:700}
 .settle-detail{background:#F9FAFB;padding:10px;border-radius:6px;margin-top:6px;font-size:11px}
-.status-sel{padding:4px 8px;border:1px solid #D1E8D1;border-radius:6px;font-size:11px;background:#fff;cursor:pointer;outline:none}
+.status-sel{padding:4px 8px;border:1px solid #D1E8D1;border-radius:6px;font-size:11.5px;background:#fff;cursor:pointer;outline:none}
 .da-inactive{text-decoration:line-through;opacity:.5}
+.settlement-detail-scroll{max-height:420px;overflow:auto;border:1px solid #D1E8D1;border-radius:8px}
+.settlement-detail-scroll table th{position:sticky;top:0;z-index:1}
+.accounts-table{table-layout:fixed;min-width:900px}.accounts-table .proof-col{width:118px}.accounts-table .proof-file{display:block;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;font-size:11px}
+body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;-webkit-font-smoothing:auto;text-rendering:optimizeLegibility}
+.ico{display:inline-block;vertical-align:-1px;margin-right:5px;flex-shrink:0}
+.ico-ok{width:9px;height:9px;border-radius:50%;background:#22C55E;box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+.ico-warn{width:9px;height:9px;background:#F97316;transform:rotate(45deg);border-radius:2px}
+.ico-del{width:11px;height:11px;position:relative;margin-right:6px}
+.ico-del:before,.ico-del:after{content:"";position:absolute;left:5px;top:0;width:2px;height:12px;background:#EF4444;border-radius:2px}
+.ico-del:before{transform:rotate(45deg)}.ico-del:after{transform:rotate(-45deg)}
 </style>
 </head>
 <body>
@@ -150,6 +171,10 @@ tr:hover td{background:#FAFFFE}
     <div class="tbr">
       <span class="rpill" id="rlabel" style="background:#DCFCE7;color:#166534">본사 관리자</span>
       <span>관리자</span>
+      <span style="color:#ccc">|</span>
+      <span class="top-action" onclick="openAdminPasswordModal()">비밀번호 변경</span>
+      <span style="color:#ccc">|</span>
+      <span class="top-action" onclick="adminLogout()">로그아웃</span>
       <span style="color:#ccc">|</span>
       <span style="cursor:pointer;color:#EF4444;font-size:11px" onclick="resetData()">데이터 초기화</span>
     </div>
@@ -175,6 +200,9 @@ tr:hover td{background:#FAFFFE}
 let D, page='dashboard', role='hq';
 let faqTab='서비스 안내', bannerTab='메인';
 let editingAgencies=[];
+let backendPollTimer=null;
+let backendSnapshot='';
+let pendingAccountPage=1;
 
 function getRoles(){return(D.customRoles&&D.customRoles.length)?D.customRoles:CONFIG.roles;}
 function getEffRate(ag){return D.agencyFeeRates[ag.id]||ag.feeRate;}
@@ -186,6 +214,7 @@ function emptyData(){
     inquiries:[],
     payments:[],
     pgSettlements:[],
+    summary:{},
     pgProviders:[],
     banners:[],
     faqs:[],
@@ -219,7 +248,7 @@ const HQ_NAV=[
   {s:'결제'},{id:'payments',sub:1},{id:'pgsettle',sub:1},{id:'settlements',sub:1},
   {s:'가맹점'},{id:'franchises',sub:1},{id:'accounts',sub:1},
   {s:'대리점'},{id:'agencies'},
-  {s:'운영'},{id:'deliveryMgmt',sub:1,nw:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
+  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
   {s:'게시판'},{id:'notices',sub:1},{id:'guides',sub:1},
 ];
 const AG_NAV=[
@@ -248,17 +277,142 @@ function renderNav(){
 
 // ═══ 헬퍼 ═══
 function fmt(n){return Number(n).toLocaleString()+'원';}
-function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','롤백':'bor2','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[t]||'bgr'}">${t}</span>`;}
+function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const label=t==='롤백'||t==='ROLLED_BACK'?'취소':t;const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[label]||'bgr'}">${label}</span>`;}
 function nid(){return++D.nextId;}
 function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
-function openM(title,body,foot){document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';}
-function closeM(){document.getElementById('mo').style.display='none';}
+function openM(title,body,foot){document.querySelector('#mo .mbox')?.classList.remove('wide');document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';}
+function closeM(){document.getElementById('mo').style.display='none';document.querySelector('#mo .mbox')?.classList.remove('wide');}
 function closeMO(e){if(e.target===document.getElementById('mo'))closeM();}
 function adminAlert(message,title='알림'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div style="white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15">${message}</div>`,`<button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
 function adminConfirm(message,title='확인'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div style="white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15">${message}</div>`,`<button class="btn bo" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(false)">취소</button><button class="btn bg2" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(true)">확인</button>`);});}
 function adminPrompt(message,defaultValue='',title='입력'){return new Promise(resolve=>{window.__adminModalResolve=resolve;openM(title,`<div style="white-space:pre-wrap;line-height:1.7;font-size:13px;font-weight:700;color:#153B15;margin-bottom:10px">${message}</div><input class="fi" id="admin-prompt-input" value="${String(defaultValue||'').replace(/"/g,'&quot;')}">`,`<button class="btn bo" onclick="closeM();window.__adminModalResolve&&window.__adminModalResolve(null)">취소</button><button class="btn bg2" onclick="const v=document.getElementById('admin-prompt-input').value;closeM();window.__adminModalResolve&&window.__adminModalResolve(v)">확인</button>`);setTimeout(()=>document.getElementById('admin-prompt-input')?.focus(),30);});}
+function adminToken(){return sessionStorage.getItem('eatspayAdminToken')||'';}
+function adminAuthHeaders(extra={}){return {'Authorization':`Bearer ${adminToken()}`,...extra};}
+function adminPasswordValue(id){
+  const el=document.getElementById(id);
+  return el?.dataset.realPassword ?? el?.value ?? '';
+}
+function bindAdminPassword(id,toggleId){
+  const input=document.getElementById(id);
+  const toggle=document.getElementById(toggleId);
+  if(!input)return;
+  let real=input.dataset.realPassword||'';
+  let visible=false;
+  const render=(cursor=real.length)=>{
+    input.type='text';
+    input.dataset.realPassword=real;
+    input.value=visible?real:'*'.repeat(real.length);
+    if(toggle)toggle.textContent=visible?'숨김':'보기';
+    requestAnimationFrame(()=>{
+      try{input.setSelectionRange(Math.min(cursor,input.value.length),Math.min(cursor,input.value.length));}catch(e){}
+    });
+  };
+  input.addEventListener('beforeinput',e=>{
+    if(visible)return;
+    e.preventDefault();
+    const start=input.selectionStart??real.length;
+    const end=input.selectionEnd??start;
+    let cursor=start;
+    if(e.inputType==='deleteContentBackward'){
+      if(start===end&&start>0){real=real.slice(0,start-1)+real.slice(end);cursor=start-1;}
+      else{real=real.slice(0,start)+real.slice(end);}
+    }else if(e.inputType==='deleteContentForward'){
+      real=real.slice(0,start)+real.slice(start===end?end+1:end);
+    }else{
+      const inserted=e.data||e.clipboardData?.getData('text')||'';
+      real=real.slice(0,start)+inserted+real.slice(end);
+      cursor=start+inserted.length;
+    }
+    render(cursor);
+  });
+  input.addEventListener('input',()=>{
+    if(!visible)return;
+    real=input.value;
+    input.dataset.realPassword=real;
+  });
+  toggle?.addEventListener('click',()=>{
+    if(visible)real=input.value;
+    visible=!visible;
+    render(real.length);
+    input.focus();
+  });
+  render(0);
+}
+function adminLogout(){
+  sessionStorage.removeItem('eatspayAdminToken');
+  toast('로그아웃되었습니다.');
+  setTimeout(()=>showAdminLogin('관리자 로그인이 필요합니다.'),100);
+}
+function openAdminPasswordModal(){
+  openM('관리자 비밀번호 변경',`
+    <div class="aw aw-b">현재 로그인한 관리자 계정의 비밀번호를 DB에 바로 변경합니다.</div>
+    <div class="fg"><label class="fl">현재 비밀번호</label><div class="admin-pw-field"><input class="fi" id="admin-current-password" type="text" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-current-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호</label><div class="admin-pw-field"><input class="fi" id="admin-new-password" type="text" autocomplete="new-password" placeholder="8자 이상"><button type="button" class="admin-pw-toggle" id="admin-new-password-toggle">보기</button></div></div>
+    <div class="fg"><label class="fl">새 비밀번호 확인</label><div class="admin-pw-field"><input class="fi" id="admin-new-password2" type="text" autocomplete="new-password"><button type="button" class="admin-pw-toggle" id="admin-new-password2-toggle">보기</button></div></div>
+  `,`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="submitAdminPasswordChange()">변경</button>`);
+  setTimeout(()=>{bindAdminPassword('admin-current-password','admin-current-password-toggle');bindAdminPassword('admin-new-password','admin-new-password-toggle');bindAdminPassword('admin-new-password2','admin-new-password2-toggle');document.getElementById('admin-current-password')?.focus();},30);
+}
+async function submitAdminPasswordChange(){
+  const currentPassword=adminPasswordValue('admin-current-password');
+  const newPassword=adminPasswordValue('admin-new-password');
+  const newPassword2=adminPasswordValue('admin-new-password2');
+  if(!currentPassword){await adminAlert('현재 비밀번호를 입력해주세요.');return;}
+  if(!newPassword||newPassword.length<8){await adminAlert('새 비밀번호는 8자 이상으로 입력해주세요.');return;}
+  if(newPassword!==newPassword2){await adminAlert('새 비밀번호 확인이 일치하지 않습니다.');return;}
+  try{
+    const res=await fetch('/api/admin/me/password',{
+      method:'PATCH',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({currentPassword,newPassword})
+    });
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'비밀번호 변경에 실패했습니다.');
+    closeM();
+    await adminAlert('비밀번호가 변경되었습니다.\n현재 화면은 그대로 사용할 수 있고, 다음 로그인부터 새 비밀번호를 사용하면 됩니다.','변경 완료');
+  }catch(e){
+    await adminAlert(e.message||'비밀번호 변경에 실패했습니다.');
+  }
+}
+function showAdminLogin(message='관리자 로그인이 필요합니다.'){
+  return new Promise(resolve=>{
+    window.__adminLoginResolve=resolve;
+    openM('관리자 로그인',`
+      <div class="aw aw-b">${message}</div>
+      <div class="fg"><label class="fl">이메일</label><input class="fi" id="admin-login-email" autocomplete="username" value="${sessionStorage.getItem('eatspayAdminEmail')||'admin@eatspay.co.kr'}"></div>
+      <div class="fg"><label class="fl">비밀번호</label><div class="admin-pw-field"><input class="fi" id="admin-login-password" type="text" autocomplete="current-password"><button type="button" class="admin-pw-toggle" id="admin-login-password-toggle">보기</button></div></div>
+    `,`<button class="btn bg2" onclick="submitAdminLogin()">로그인</button>`);
+    setTimeout(()=>{bindAdminPassword('admin-login-password','admin-login-password-toggle');document.getElementById('admin-login-password')?.focus();},30);
+  });
+}
+async function submitAdminLogin(){
+  const email=v('admin-login-email').trim();
+  const password=adminPasswordValue('admin-login-password');
+  if(!email||!password){await adminAlert('이메일과 비밀번호를 입력하세요.');return;}
+  try{
+    const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'로그인에 실패했습니다.');
+    if(json.data?.user?.role!=='ADMIN')throw new Error('관리자 권한 계정이 아닙니다.');
+    sessionStorage.setItem('eatspayAdminToken',json.data.accessToken);
+    sessionStorage.setItem('eatspayAdminEmail',email);
+    closeM();
+    window.__adminLoginResolve&&window.__adminLoginResolve(true);
+  }catch(e){
+    await adminAlert(e.message||'로그인에 실패했습니다.');
+  }
+}
+async function ensureAdminLogin(){
+  if(adminToken())return true;
+  return showAdminLogin();
+}
+async function handleAdminUnauthorized(res){
+  if(res.status!==401&&res.status!==403)return false;
+  sessionStorage.removeItem('eatspayAdminToken');
+  await showAdminLogin('세션이 만료되었거나 관리자 권한 확인이 필요합니다.');
+  return true;
+}
 
 // ═══ 계좌 팝업 ═══
 function showAccountDetail(fid,idx){
@@ -327,8 +481,13 @@ function showReceipt(id){
 // ═══ 대시보드 ═══
 function pgDash(){
   const tot=D.payments.reduce((s,p)=>s+p.amount,0);
+  const todayTotal=Number(D.summary?.todayPaymentTotal||0);
   const pf=D.franchises.filter(f=>f.status==='승인 대기').length;
   const pending=getPending();
+  const pendingTotalPages=Math.max(1,Math.ceil(pending.length/5));
+  pendingAccountPage=Math.min(Math.max(1,pendingAccountPage),pendingTotalPages);
+  const pendingRows=pending.slice((pendingAccountPage-1)*5,pendingAccountPage*5);
+  const pendingPager=pending.length>5?`<div class="pager">${Array.from({length:pendingTotalPages},(_,i)=>`<button class="page-btn ${pendingAccountPage===i+1?'on':''}" onclick="setPendingAccountPage(${i+1})">${i+1}</button>`).join('')}</div>`:'';
 
   if(role==='agent') return`
     <div class="kgrid">
@@ -347,11 +506,11 @@ function pgDash(){
     <div class="kpi" style="border-left-color:#EF4444"><div class="kl">계좌 승인 대기</div><div class="kv">${pending.length}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('accounts')">출금계좌 목록 →</div></div>
     <div class="kpi" style="border-left-color:#F59E0B"><div class="kl">가맹점 승인 대기</div><div class="kv">${pf}건</div><div class="ks" style="cursor:pointer;color:#3D9B35" onclick="nav('franchises')">가맹점 목록 →</div></div>
     <div class="kpi"><div class="kl">전체 가맹점</div><div class="kv">${D.franchises.length}개</div><div class="ks">정상: ${D.franchises.filter(f=>f.status==='정상 승인').length}개</div></div>
-    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액</div><div class="kv">${fmt(tot)}</div></div>
+    <div class="kpi" style="border-left-color:#3B82F6"><div class="kl">오늘 결제 총액</div><div class="kv">${fmt(todayTotal)}</div></div>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">🔔 계좌 승인 대기 <span style="color:#EF4444">${pending.length}건</span></span><span style="font-size:11px;color:#6B7280">항목 클릭 시 상세 확인 가능</span></div><div style="padding:12px 16px">
   ${pending.length?
-  pending.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
+  pendingRows.map(p=>`<div class="pend-card" style="cursor:pointer" onclick="showAccountDetail(${p.fid},${p.idx})">
     <div class="pend-hd">
       <div><div style="font-weight:700;font-size:13px">${p.fname} <span style="font-size:11px;color:#6B7280">▶ 클릭하여 상세 확인</span></div><div style="font-size:11px;color:#6B7280;margin-top:2px">요청일: ${p.reqDate||'-'}</div></div>
       <div class="ab">
@@ -360,7 +519,7 @@ function pgDash(){
       </div>
     </div>
     <div class="pend-info"><span class="pend-label">배달대행사</span><span>${p.agency}</span><span class="pend-label">가상계좌번호</span><span style="font-family:monospace">${p.accountNo||'미입력'}</span><span class="pend-label">증빙 파일명</span><span>${p.fileName||'미첨부'}</span></div>
-  </div>`).join(''):`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
+  </div>`).join('')+pendingPager:`<div class="emp" style="padding:34px 0">승인요청내역이 없습니다.</div>`}</div></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
     <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">최근 결제 현황</span><button class="btn bo sm" onclick="nav('payments')">전체보기</button></div>
     <div class="tw"><table><thead><tr><th>가맹점</th><th>금액</th><th>승인번호</th><th>상태</th></tr></thead><tbody>
@@ -373,8 +532,13 @@ function pgDash(){
   </div>`;
 }
 
+function setPendingAccountPage(n){
+  pendingAccountPage=n;
+  renderPage();
+}
+
 // ═══ 결제 내역 ═══
-function pgPay(){const tot=D.payments.reduce((s,p)=>s+p.amount,0);return`
+function pgPay(){return`
   <div class="aw aw-w">⚠️ 조회 전용. 승인번호 클릭 시 전표 확인 가능.</div>
   <div class="sb2">
     <input class="si" id="ps" placeholder="가맹점명 검색..." oninput="rPay()">
@@ -385,7 +549,7 @@ function pgPay(){const tot=D.payments.reduce((s,p)=>s+p.amount,0);return`
     <select class="fs" style="width:120px" id="pst" onchange="rPay()"><option value="">전체 상태</option><option>결제완료</option><option>취소</option></select>
     <button class="btn bo sm" onclick="clearPS()">초기화</button>
   </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg">${fmt(tot)}</span></span></div>
+  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">합계 <span class="tg" id="pay-total">0원</span></span></div>
   <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>대리점</th><th>가맹점명</th><th>구분</th><th>금액</th><th>할부</th><th>상태</th><th>PG</th></tr></thead><tbody id="pb"></tbody></table></div></div>`;}
 function clearPS(){['ps','pan','psd','ped'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pst').value='';rPay();}
 function rPay(){
@@ -399,18 +563,21 @@ function rPay(){
     if(ed&&p.date>ed+' 23:59')return false;
     return true;
   });
+  const total=rows.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const totalEl=document.getElementById('pay-total');
+  if(totalEl)totalEl.textContent=fmt(total);
   el.innerHTML=rows.map(p=>`<tr><td>${p.date}</td><td><span style="cursor:pointer;color:#3B82F6;font-family:monospace;font-size:11px;text-decoration:underline" onclick="showReceipt(${p.id})">${p.approvalNo}</span></td><td>${p.agency}</td><td>${paymentFranchiseName(p)}</td><td>${p.type}</td><td class="tg">${fmt(p.amount)}</td><td>${p.installment}</td><td>${bdg(p.status)}</td><td>${p.pg}</td></tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
 }
 
 // ═══ PG 정산 확인 ═══
 function pgPGSettle(){const tot=D.pgSettlements.reduce((s,p)=>s+p.netAmt,0);return`
-  <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 롤백 처리. 정산 행 클릭 시 상세 확인 가능.</div>
+  <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 취소 처리. 정산 행 클릭 시 상세 확인 가능.</div>
   <div class="sb2">
     <input class="si" id="gss" placeholder="가맹점명 또는 승인번호..." oninput="rGS()">
     <input class="si" id="gsd" type="date" oninput="rGS()" style="max-width:135px">
     <span style="color:#6B7280;font-size:11px">~</span>
     <input class="si" id="ged" type="date" oninput="rGS()" style="max-width:135px">
-    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>롤백</option></select>
+    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>취소</option></select>
   </div>
   <div class="card"><div class="ch">
     <span style="font-weight:700;font-size:14px">정산 합계 <span class="tg">${fmt(tot)}</span></span>
@@ -437,7 +604,7 @@ function rGS(){
     <td style="color:#EF4444">${fmt(s.svcFee)}</td>
     <td class="tg">${fmt(s.netAmt)}</td>
     <td>${bdg(s.status)}</td>
-    <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">롤백</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
+    <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">취소처리</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
   </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
 function showSettleDetail(id){
@@ -459,10 +626,10 @@ function showSettleDetail(id){
         ${s.note?`<div class="aw aw-w" style="margin-top:8px">${s.note}</div>`:''}
       </div>
     </div>`,
-  `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">롤백 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
+  `${s.status==='정산완료'?`<button class="btn bor2" onclick="rollbackSettle(${s.id});closeM()">취소 처리</button>`:''}<button class="btn bo" onclick="closeM()">닫기</button>`);
 }
-function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm(`승인번호 ${s.approvalNo} 정산을 롤백(고객 취소 처리)하시겠습니까?`))return;s.status='롤백';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 롤백`);}
-function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!confirm('롤백된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
+async function rollbackSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm(`승인번호 ${s.approvalNo} 정산을 고객 취소 처리하시겠습니까?`))return;s.status='취소';save();renderPage();setTimeout(rGS,30);toast(`${s.franchise} 정산 취소`);}
+async function restoreSettle(id){const s=D.pgSettlements.find(x=>x.id===id);if(!s)return;if(!await adminConfirm('취소된 정산을 복원하시겠습니까?'))return;s.status='정산완료';save();renderPage();setTimeout(rGS,30);toast('복원 완료');}
 
 // ═══ 대리점 정산 ═══
 function pgSettle(){
@@ -550,11 +717,12 @@ function showAgencyPayments(agId,agName){
   const agNet=Math.round(agFee*0.967);
   openM(`대리점 정산 상세 - ${agName}`,
     `<div class="aw aw-b" style="margin-bottom:12px"><div style="font-size:11px">전체건: <strong>${pays.length}건</strong> &nbsp;|&nbsp; 전체금액: <strong class="tg">${fmt(tot)}</strong> &nbsp;|&nbsp; 서비스수수료: <strong style="color:#EF4444">${fmt(svcFee)}</strong> &nbsp;|&nbsp; 영업 지급예정: <strong class="tg">${fmt(agNet)}</strong></div></div>
-    <div class="tw"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
+    <div class="settlement-detail-scroll"><table><thead><tr><th>거래일시</th><th>승인번호</th><th>가맹점</th><th>결제금액</th><th>입금액(×0.956)</th><th>수수료(×0.044)</th></tr></thead><tbody>
     ${pays.map(p=>{const fee=Math.round(Number(p.amount||0)*0.044);const net=Number(p.amount||0)-fee;return`<tr><td style="font-size:11px">${p.date}</td><td style="font-family:monospace;font-size:10px">${p.approvalNo}</td><td>${paymentFranchiseName(p)}</td><td class="tg">${fmt(p.amount)}</td><td>${fmt(net)}</td><td style="color:#EF4444">${fmt(fee)}</td></tr>`;}).join('')}
     <tr style="background:#F0FAF0;font-weight:700"><td colspan="3">합계</td><td class="tg">${fmt(tot)}</td><td>${fmt(tot-svcFee)}</td><td style="color:#EF4444">${fmt(svcFee)}</td></tr>
     </tbody></table></div>`,
   `<button class="btn bg2" onclick="closeM()">닫기</button>`);
+  document.querySelector('#mo .mbox')?.classList.add('wide');
 }// ═══ 가맹점 목록 ═══
 function pgFr(){return`
   ${role==='hq'?`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
@@ -590,9 +758,10 @@ function rFr(){
     </div></td>
   </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
-function changeFrStatus(id,newStatus,selectEl){
+async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>x.id===id);
-  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+  if(!f)return;
+  if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
   f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
@@ -620,7 +789,7 @@ function renderDARows(readonly){
         </select>
         <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="가상계좌번호" value="${a.accountNo||''}" oninput="editingAgencies[${i}].accountNo=this.value">
         <input class="fi" style="padding:5px 8px;font-size:11px" placeholder="파일명(예:계좌증빙.jpg)" value="${a.fileName||''}" oninput="editingAgencies[${i}].fileName=this.value">
-        <button class="da-del" onclick="if(confirm('삭제할까요?'))editingAgencies.splice(${i},1);renderDARows(false)">✕</button>
+        <button class="da-del" onclick="removeDARow(${i})">✕</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:0 2px">
         <span style="font-size:10px;color:#6B7280">계좌 상태:</span>
@@ -633,11 +802,19 @@ function renderDARows(readonly){
     }).join('');
   }
 }
-function addDARow(){const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
-function franchiseForm(f={},roDA){return`
+async function removeDARow(idx){if(!await adminConfirm('삭제할까요?'))return;editingAgencies.splice(idx,1);renderDARows(false);}
+function addDARow(){if(editingAgencies.length>=2){toast('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다');return;}const avail=getAvailDA(-1).filter(a=>a.status==='active');if(!avail.length){toast('추가할 수 있는 활성 배달대행사가 없습니다');return;}editingAgencies.push({agency:avail[0].name,accountNo:'',fileName:'',accountStatus:'승인대기',reqDate:today()});renderDARows(false);}
+function agencyOptions(selectedId,selectedName){
+  const agencies=Array.isArray(D.agencies)?D.agencies:[];
+  if(!agencies.length)return`<option value="">${CONFIG.companyName}</option>`;
+  return agencies.map(a=>`<option value="${a.id}" ${String(selectedId||'')===String(a.id)||(!selectedId&&selectedName===a.name)?'selected':''}>${a.name}</option>`).join('');
+}
+function franchiseForm(f={},roDA){const isNew=!f.id;return`
+  <div class="fr2"><div class="fg"><label class="fl">로그인 ID${isNew?' *':''}</label><input class="fi" id="fe" value="${f.email||''}" placeholder="예: store@example.com" autocomplete="username"></div><div class="fg"><label class="fl">${isNew?'비밀번호 *':'새 비밀번호'}</label><input class="fi" id="fpw" type="password" placeholder="${isNew?'초기 비밀번호':'변경할 때만 입력'}" autocomplete="new-password"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">전화번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">대리점명</label><input class="fi" id="fa" value="${f.agency||CONFIG.companyName}"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호 *</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">주소</label><input class="fi" id="faddr" value="${f.address||''}" placeholder="사업장 주소"></div><div class="fg"><label class="fl">매장 전화번호</label><input class="fi" id="ftel" value="${f.tel||''}" placeholder="02-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대리점</label><select class="fs" id="fagencyid">${agencyOptions(f.agencyId,f.agency)}</select></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
   <div class="dv"></div>
   <div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
     <label class="fl" style="margin:0">배달대행사 &amp; 가상계좌${roDA?'&nbsp;<span style="font-size:10px;color:#EF4444">(영업대리점 수정 불가)</span>':''}</label>
@@ -648,17 +825,36 @@ function franchiseForm(f={},roDA){return`
   ${!roDA?`<div style="font-size:10px;color:#9CA3AF;margin-top:4px">※ 파일명만 입력. 실제 파일은 서버에 별도 업로드 (개발 시 연동)</div>`:''}
   </div>`;}
 function addF(){editingAgencies=[];openM('가맹점 추가',franchiseForm({},false),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF()">저장</button>`);setTimeout(()=>renderDARows(false),20);}
-function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
+async function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){await adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
 async function savF(id){
   const n=v('fn').trim();
   if(!n){await adminAlert('상점명을 입력하세요.');return;}
-  const payload={name:n,owner:v('fo').trim(),phone:v('fp').trim(),bizNo:v('fb2').trim()};
+  const deliveryAccounts=editingAgencies.map(a=>({
+    agencyName:a.agency,
+    bankName:a.bankName||a.agency,
+    accountHolder:v('fo').trim(),
+    accountNo:a.accountNo
+  })).filter(a=>a.agencyName&&a.accountNo);
+  if(deliveryAccounts.length>2){await adminAlert('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다.');return;}
+  const payload={
+    email:v('fe').trim(),
+    password:v('fpw'),
+    name:n,
+    owner:v('fo').trim(),
+    phone:v('fp').trim(),
+    bizNo:v('fb2').trim(),
+    address:v('faddr').trim(),
+    tel:v('ftel').trim(),
+    agencyId:v('fagencyid'),
+    deliveryAccounts
+  };
   if(!payload.owner){await adminAlert('대표자명을 입력하세요.');return;}
-  if(!id){await adminAlert('가맹점 추가는 회원가입 또는 서버 등록 API를 통해 진행해주세요.');return;}
+  if(!payload.bizNo){await adminAlert('사업자등록번호를 입력하세요.');return;}
+  if(!id&&(!payload.email||!payload.password)){await adminAlert('로그인 ID와 비밀번호를 입력하세요.');return;}
   try{
-    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}`,{
-      method:'PUT',
-      headers:{'Authorization':'Bearer mocked_admin_token','Content-Type':'application/json'},
+    const res=await fetch(id?`/api/admin/franchises/${encodeURIComponent(id)}`:'/api/admin/franchises',{
+      method:id?'PUT':'POST',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
       body:JSON.stringify(payload)
     });
     if(!res.ok){
@@ -669,13 +865,13 @@ async function savF(id){
     await syncBackendTransactions();
     closeM();
     render();
-    toast('가맹점 정보가 수정되었습니다.');
+    toast(id?'가맹점 정보가 수정되었습니다.':'가맹점이 추가되었습니다.');
   }catch(e){
     console.error(e);
-    await adminAlert(e.message||'가맹점 수정에 실패했습니다.');
+    await adminAlert(e.message||'가맹점 저장에 실패했습니다.');
   }
 }
-function delF(id){const f=D.franchises.find(x=>x.id===id);if(!confirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
+async function delF(id){const f=D.franchises.find(x=>x.id===id);if(!f)return;if(!await adminConfirm(`'${f.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.franchises=D.franchises.filter(x=>x.id!==id);save();renderPage();setTimeout(rFr,50);toast('삭제');}
 
 // ═══ 출금계좌 목록 ═══
 function pgAccounts(){return`
@@ -685,7 +881,7 @@ function pgAccounts(){return`
     <select class="fs" style="width:130px" id="acst" onchange="rAcc()"><option value="">전체 상태</option><option>승인대기</option><option>승인완료</option><option>반려</option></select>
   </div>
   <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">출금계좌 목록</span></div>
-  <div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
+  <div class="tw"><table class="accounts-table"><colgroup><col style="width:120px"><col style="width:110px"><col style="width:105px"><col style="width:145px"><col class="proof-col"><col style="width:86px"><col style="width:76px"><col style="width:86px"></colgroup><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
 function rAcc(){
   const q=v('acs').toLowerCase(),st=v('acst');
   const el=document.getElementById('acb');if(!el)return;
@@ -695,7 +891,7 @@ function rAcc(){
     <td style="font-weight:600;cursor:pointer;color:#3B82F6" onclick="showAccountDetail(${a.fid},${a.idx})">${a.fname}</td>
     <td>${a.fagency}</td><td>${a.agency}</td>
     <td style="font-family:monospace;font-size:11px">${a.accountNo||'미입력'}</td>
-    <td style="font-size:11px;color:#6B7280">${a.fileName||'미첨부'}</td>
+    <td><span class="proof-file" title="${a.fileName||'미첨부'}">${a.fileName||'미첨부'}</span></td>
     <td style="font-size:11px">${a.reqDate||'-'}</td>
     <td>${bdg(a.accountStatus)}</td>
     <td><div class="ab">
@@ -764,7 +960,7 @@ async function saveManagedAccount(fid,idx){
     if(file)formData.append('documentFile',file,file.name);
     const res=await fetch(`/api/admin/accounts/${encodeURIComponent(ident.id)}?source=${encodeURIComponent(ident.source)}`,{
       method:'PUT',
-      headers:{'Authorization':'Bearer mocked_admin_token'},
+      headers:adminAuthHeaders(),
       body:formData
     });
     if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'계좌 수정에 실패했습니다.');}
@@ -786,7 +982,7 @@ async function deleteManagedAccount(fid,idx){
   try{
     const res=await fetch(`/api/admin/accounts/${encodeURIComponent(ident.id)}?source=${encodeURIComponent(ident.source)}`,{
       method:'DELETE',
-      headers:{'Authorization':'Bearer mocked_admin_token'}
+      headers:adminAuthHeaders()
     });
     if(!res.ok){
       const err=await res.json().catch(()=>({}));
@@ -807,7 +1003,7 @@ async function deleteManagedAccount(fid,idx){
 function pgAg(){return`
   <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn bg2" onclick="addAg()">+ 대리점 생성</button></div>
   <div class="sb2"><input class="si" id="ags" placeholder="대리점명 · 대표자 · 연락처 통합검색..." oninput="rAg()"></div>
-  <div class="card"><div class="tw"><table><thead><tr><th>단계</th><th>지역</th><th>대리점명</th><th>로그인 ID</th><th>대표자</th><th>연락처</th><th>수수료율</th><th>운영 배달대행 (비고)</th><th>관리</th></tr></thead><tbody id="agb"></tbody></table></div></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>단계</th><th>상위</th><th>지역</th><th>대리점명</th><th>로그인 ID</th><th>대표자</th><th>연락처</th><th>수수료율</th><th>운영 배달대행 (비고)</th><th>관리</th></tr></thead><tbody id="agb"></tbody></table></div></div>
   <div class="card"><div style="padding:14px;display:flex;gap:8px;flex-wrap:wrap">
   ${['1단계: 최상위 영업본부','2단계: 광역 영업본부','3단계: 지역 지사','4단계: 개별 지점'].map((t,i)=>`<span style="background:${['#3D9B35','#3B82F6','#F59E0B','#8B5CF6'][i]};color:#fff;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:700">${t}</span>`).join('')}
   </div></div>`;}
@@ -817,6 +1013,7 @@ function rAg(){
   const rows=D.agencies.filter(a=>!q||a.name.toLowerCase().includes(q)||a.owner.toLowerCase().includes(q)||a.phone.includes(q));
   el.innerHTML=rows.map(a=>`<tr>
     <td>${bdg(a.level+'단계')}</td>
+    <td style="font-size:11px;color:#6B7280">${agencyParentName(a)||'-'}</td>
     <td style="color:#6B7280;font-size:11px">${a.region||'-'}</td>
     <td style="font-weight:600">${a.name}</td>
     <td style="font-size:11px;color:#9CA3AF">${a.loginId}</td>
@@ -824,18 +1021,21 @@ function rAg(){
     <td class="tg">${getEffRate(a).toFixed(2)}%</td>
     <td style="font-size:11px;color:#6B7280">${a.deliveryNote||'-'}</td>
     <td><div class="ab"><button class="btn bo xs" onclick="edAg(${a.id})">수정</button><button class="btn bd xs" onclick="delAg(${a.id})">삭제</button></div></td>
-  </tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
+  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
+function agencyParentName(a){const p=(D.agencies||[]).find(x=>String(x.id)===String(a.parentId||''));return p?p.name:'';}
+function agencyParentOptions(a={}){const current=String(a.id||'');const opts=(D.agencies||[]).filter(x=>String(x.id)!==current).map(x=>`<option value="${x.id}" ${String(a.parentId||'')===String(x.id)?'selected':''}>${x.name}</option>`).join('');return`<option value="">상위 없음</option>${opts}`;}
 function agForm(a={}){return`
   <div class="fr2"><div class="fg"><label class="fl">대리점명 *</label><input class="fi" id="an" value="${a.name||''}" placeholder="예: 강남지사"></div><div class="fg"><label class="fl">로그인 ID</label><input class="fi" id="ai" value="${a.loginId||''}" placeholder="agency-xxx"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">단계</label><select class="fs" id="al">${[1,2,3,4].map(n=>`<option value="${n}" ${a.level===n?'selected':''}>${n}단계</option>`).join('')}</select></div><div class="fg"><label class="fl">지역</label><input class="fi" id="ar" value="${a.region||''}" placeholder="예: 서울 강남구"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">상위 대리점</label><select class="fs" id="aparent">${agencyParentOptions(a)}</select></div><div class="fg"><label class="fl">단계</label><select class="fs" id="al">${[1,2,3,4].map(n=>`<option value="${n}" ${a.level===n?'selected':''}>${n}단계</option>`).join('')}</select></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">지역</label><input class="fi" id="ar" value="${a.region||''}" placeholder="예: 서울 강남구"></div><div class="fg"><label class="fl">비밀번호 ${a.id?'변경':''}</label><input class="fi" id="apw" type="password" placeholder="${a.id?'변경 시에만 입력':'앱 로그인 비밀번호'}" autocomplete="new-password"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${a.owner||''}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${a.phone||''}" placeholder="010-1234-5678"></div></div>
   <div class="fg"><label class="fl">수수료율 (%)</label><input class="fi" id="af" type="number" step="0.01" value="${a.feeRate||4.2}"></div>
   <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="adn" value="${a.deliveryNote||''}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>`;}
 function addAg(){openM('대리점 생성',agForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg()">저장</button>`);}
 function edAg(id){const a=D.agencies.find(x=>x.id===id);openM('대리점 수정',agForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAg(${id})">저장</button>`);}
-function savAg(id){const n=v('an');if(!n.trim()){alert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn')};if(id){Object.assign(D.agencies.find(x=>x.id===id),data);toast('수정');}else{D.agencies.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();setTimeout(rAg,30);}
-function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!confirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savAg(id){const n=v('an');if(!n.trim()){await adminAlert('대리점명 필요');return;}const data={name:n.trim(),loginId:v('ai'),level:parseInt(v('al')),region:v('ar'),owner:v('ao'),phone:v('ap'),feeRate:parseFloat(v('af'))||4.2,deliveryNote:v('adn'),parentId:v('aparent')||null,password:v('apw')};if(!id&&(!data.loginId||!data.password)){await adminAlert('신규 대리점은 로그인 ID와 비밀번호가 필요합니다.');return;}try{const res=await fetch(id?`/api/admin/agencies/${encodeURIComponent(id)}`:'/api/admin/agencies',{method:id?'PATCH':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'대리점 저장에 실패했습니다.');}await syncBackendTransactions({forceRender:true});closeM();toast(id?'대리점이 수정되었습니다.':'대리점이 생성되었습니다.');}catch(e){await adminAlert(e.message||'대리점 저장에 실패했습니다.');}}
+async function delAg(id){const a=D.agencies.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.agencies=D.agencies.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 배달대행사 관리 ═══
 function pgDeliveryMgmt(){
@@ -844,16 +1044,16 @@ function pgDeliveryMgmt(){
   const iCnt=list.filter(a=>a.status==='inactive').length;
   return`
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-    <div style="display:flex;gap:10px;font-size:12px">
-      <span style="background:#DCFCE7;color:#166534;padding:4px 12px;border-radius:12px;font-weight:700">🟢 가입 가능 ${aCnt}개</span>
-      <span style="background:#FEF3C7;color:#92400E;padding:4px 12px;border-radius:12px;font-weight:700">🔶 가입 불가 ${iCnt}개</span>
+    <div style="display:flex;gap:10px;font-size:13px">
+      <span style="background:#DCFCE7;color:#166534;padding:4px 12px;border-radius:12px;font-weight:700;display:inline-flex;align-items:center"><i class="ico ico-ok"></i>가입 가능 ${aCnt}개</span>
+      <span style="background:#FEF3C7;color:#92400E;padding:4px 12px;border-radius:12px;font-weight:700;display:inline-flex;align-items:center"><i class="ico ico-warn"></i>가입 불가 ${iCnt}개</span>
     </div>
     <button class="btn bg2" onclick="addDA()">+ 배달대행사 추가</button>
   </div>
   <div class="aw aw-b" style="margin-bottom:14px">
-    🟢 <strong>가입 가능</strong>: 가맹점이 계좌 등록 시 선택 가능 &nbsp;|&nbsp;
-    🔶 <strong>가입 불가</strong>: 선택 시 "고객센터 문의" 안내 표시 &nbsp;|&nbsp;
-    ❌ <strong>삭제</strong>: 목록에서 제거 (기존 계좌 데이터 유지)
+    <i class="ico ico-ok"></i><strong>가입 가능</strong>: 가맹점이 계좌 등록 시 선택 가능 &nbsp;|&nbsp;
+    <i class="ico ico-warn"></i><strong>가입 불가</strong>: 선택 시 "고객센터 문의" 안내 표시 &nbsp;|&nbsp;
+    <i class="ico ico-del"></i><strong>삭제</strong>: 목록에서 제거 (기존 계좌 데이터 유지)
   </div>
   <div class="card"><div class="tw"><table>
     <thead><tr><th>배달대행사명</th><th style="text-align:center">현재 상태</th><th>이용 가맹점 수</th><th>상태 변경</th><th>삭제</th></tr></thead>
@@ -864,8 +1064,8 @@ function pgDeliveryMgmt(){
         <td style="font-weight:600">${a.name}</td>
         <td style="text-align:center">
           ${isActive
-            ?`<span style="background:#DCFCE7;color:#166534;padding:4px 14px;border-radius:12px;font-size:11px;font-weight:700;display:inline-block">🟢 가입 가능</span>`
-            :`<span style="background:#FEF3C7;color:#92400E;padding:4px 14px;border-radius:12px;font-size:11px;font-weight:700;display:inline-block">🔶 가입 불가</span>`}
+            ?`<span style="background:#DCFCE7;color:#166534;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:700;display:inline-flex;align-items:center"><i class="ico ico-ok"></i>가입 가능</span>`
+            :`<span style="background:#FEF3C7;color:#92400E;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:700;display:inline-flex;align-items:center"><i class="ico ico-warn"></i>가입 불가</span>`}
         </td>
         <td style="font-size:11px;color:#6B7280">${cnt > 0 ? cnt+'개 가맹점' : '-'}</td>
         <td>
@@ -877,10 +1077,26 @@ function pgDeliveryMgmt(){
       </tr>`;
     }).join('')}</tbody>
   </table></div></div>`;}
-function addDA(){const n=prompt('새 배달대행사 이름:','');if(!n||!n.trim())return;if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){alert('이미 존재하는 배달대행사 이름입니다');return;}D.deliveryAgencyList.push({id:nid(),name:n.trim(),status:'active'});save();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);}
-function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;a.status='inactive';save();renderPage();toast(`'${a.name}' → 가입 불가 상태로 전환`);}
-function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!confirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;a.status='active';save();renderPage();toast(`'${a.name}' → 가입 가능 상태로 전환`);}
-function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n\u26a0\ufe0f \ud604재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!confirm(msg))return;a.status='deleted';save();renderPage();toast("'"+a.name+"' 삭제");}
+async function addDA(){
+  const n=await adminPrompt('새 배달대행사 이름:','');if(!n||!n.trim())return;
+  if(D.deliveryAgencyList.find(a=>a.name===n.trim()&&a.status!=='deleted')){await adminAlert('이미 존재하는 배달대행사 이름입니다');return;}
+  try{
+    const res=await fetch('/api/admin/delivery-agencies',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({name:n.trim(),status:'active',sortOrder:D.deliveryAgencyList.length+1})});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'배달대행사 추가에 실패했습니다.');}
+    await syncBackendTransactions();renderPage();toast(`'${n.trim()}' 추가됨 — 현재 상태: 가입 가능`);
+  }catch(e){await adminAlert(e.message||'배달대행사 추가에 실패했습니다.');}
+}
+async function updateDeliveryAgencyStatus(id,status,label){
+  const a=D.deliveryAgencyList.find(x=>String(x.id)===String(id));if(!a)return;
+  try{
+    const res=await fetch(`/api/admin/delivery-agencies/${encodeURIComponent(id)}/status`,{method:'PATCH',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({status})});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'상태 변경에 실패했습니다.');}
+    await syncBackendTransactions();renderPage();toast(`'${a.name}' → ${label}`);
+  }catch(e){await adminAlert(e.message||'상태 변경에 실패했습니다.');}
+}
+async function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 불가] 상태로 전환하시겠습니까?\n\n전환 후: 가맹점 계좌 등록 시 선택 불가\n기존 등록 계좌는 유지됩니다.`))return;await updateDeliveryAgencyStatus(id,'inactive','가입 불가 상태로 전환');}
+async function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;await updateDeliveryAgencyStatus(id,'active','가입 가능 상태로 전환');}
+async function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});if(!a)return;var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n현재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!await adminConfirm(msg))return;try{const res=await fetch(`/api/admin/delivery-agencies/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'삭제에 실패했습니다.');}await syncBackendTransactions();renderPage();toast("'"+a.name+"' 삭제");}catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}}
 
 // ═══ 영업대리점 개설문의 ═══
 function pgInquiries(){return`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점 개설문의 <span class="tg">${D.inquiries.length}건</span></span><button class="btn bg2 sm" onclick="addInquiry()">+ 문의 등록</button></div>
@@ -898,9 +1114,9 @@ function inquiryForm(i={}){return`
   <div class="fr2"><div class="fg"><label class="fl">담당자</label><input class="fi" id="iqh" value="${i.handler||''}" placeholder="담당자명 입력"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
 function addInquiry(){openM('문의 등록',inquiryForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry()">저장</button>`);}
 function edInquiry(id){const i=D.inquiries.find(x=>x.id===id);openM('문의 수정',inquiryForm(i),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savInquiry(${id})">저장</button>`);}
-function savInquiry(id){const n=v('iqn');if(!n.trim()){alert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
-function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
-function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!confirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savInquiry(id){const n=v('iqn');if(!n.trim()){await adminAlert('이름 필요');return;}const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs'),date:today()};if(id){Object.assign(D.inquiries.find(x=>x.id===id),data);toast('수정');}else{D.inquiries.unshift({id:nid(),...data});toast('등록');}save();closeM();renderPage();}
+async function cmpI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 상담을 완료 처리하시겠습니까?`))return;i.status='상담 완료';save();renderPage();toast('상담 완료');}
+async function delI(id){const i=D.inquiries.find(x=>x.id===id);if(!i)return;if(!await adminConfirm(`'${i.name}' 문의를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`))return;D.inquiries=D.inquiries.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ FAQ ═══
 function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&cats.length)faqTab=cats[0];return`
@@ -909,12 +1125,12 @@ function pgFAQ(){const cats=[...new Set(D.faqs.map(f=>f.category))];if(!faqTab&&
     <button class="btn bg2" onclick="addFQ()">+ FAQ 추가</button>
   </div><div id="fql"></div>`;}
 function rFAQ(){const el=document.getElementById('fql');if(!el)return;const items=D.faqs.filter(f=>f.category===faqTab);el.innerHTML=items.map(f=>`<div class="card" style="margin-bottom:8px"><div class="ch" style="padding:10px 14px"><span style="font-weight:700;color:#3D9B35">Q</span><span style="font-weight:600;margin-left:6px">${f.question}</span><div class="ab" style="margin-left:auto"><button class="btn bo xs" onclick="edFQ(${f.id})">수정</button><button class="btn bd xs" onclick="delFQ(${f.id})">삭제</button></div></div><div style="padding:10px 14px;color:#6B7280;font-size:12px"><span style="color:#3D9B35;font-weight:700">A</span>&nbsp;${f.answer}</div></div>`).join('')||'<div class="card"><div class="emp">FAQ가 없습니다.</div></div>';}
-function addFaqCat(){const n=prompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
+async function addFaqCat(){const n=await adminPrompt('새 카테고리 이름:');if(!n)return;D.faqs.push({id:nid(),category:n,question:'새 질문',answer:'새 답변'});faqTab=n;save();renderPage();setTimeout(rFAQ,50);}
 function fqForm(f={}){const cats=[...new Set(D.faqs.map(x=>x.category))];return`<div class="fg"><label class="fl">카테고리</label><select class="fs" id="fqc">${cats.map(c=>`<option ${c===(f.category||faqTab)?'selected':''}>${c}</option>`).join('')}</select></div><div class="fg"><label class="fl">질문 *</label><input class="fi" id="fqq" value="${f.question||''}" placeholder="자주 묻는 질문"></div><div class="fg"><label class="fl">답변 *</label><textarea class="fta" id="fqa" rows="5">${f.answer||''}</textarea></div>`;}
 function addFQ(){openM('FAQ 추가',fqForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ()">저장</button>`);}
 function edFQ(id){const f=D.faqs.find(x=>x.id===id);openM('FAQ 수정',fqForm(f),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savFQ(${id})">저장</button>`);}
-function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){alert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
-function delFQ(id){if(!confirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
+async function savFQ(id){const q=v('fqq'),a=v('fqa');if(!q||!a){await adminAlert('질문과 답변 필요');return;}const cat=v('fqc');if(id){const f=D.faqs.find(x=>x.id===id);f.category=cat;f.question=q;f.answer=a;toast('수정');}else{D.faqs.push({id:nid(),category:cat,question:q,answer:a});toast('추가');}faqTab=cat;save();closeM();renderPage();setTimeout(rFAQ,50);}
+async function delFQ(id){if(!await adminConfirm('삭제하시겠습니까?'))return;D.faqs=D.faqs.filter(x=>x.id!==id);save();renderPage();setTimeout(rFAQ,50);toast('삭제');}
 
 // ═══ 게시판 ═══
 function pgNotices(){return pgBoard('notices');}
@@ -927,8 +1143,8 @@ function viewPost(t,id){const n=D[t].find(x=>x.id===id);openM(n.title,`<div styl
 function pForm(n={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="pt" value="${n.title||''}" placeholder="제목 입력"></div><div class="fg"><label class="fl">작성자</label><input class="fi" id="pa" value="${n.author||'운영팀'}"></div><div class="fg"><label class="fl">내용 *</label><textarea class="fta" id="pc" rows="6" placeholder="내용 입력">${n.content||''}</textarea></div>`;}
 function addPost(t){openM('게시글 작성',pForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}')">저장</button>`);}
 function edPost(t,id){const n=D[t].find(x=>x.id===id);openM('게시글 수정',pForm(n),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPost('${t}',${id})">저장</button>`);}
-function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){alert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
-function delPost(t,id){if(!confirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savPost(t,id){const ti=v('pt'),c=v('pc');if(!ti||!c){await adminAlert('제목과 내용 필요');return;}const a=v('pa')||'운영팀';if(id){const n=D[t].find(x=>x.id===id);n.title=ti;n.author=a;n.content=c;n.date=today();toast('수정');}else{D[t].unshift({id:nid(),title:ti,author:a,date:today(),content:c});toast('등록');}save();closeM();renderPage();}
+async function delPost(t,id){if(!await adminConfirm('게시글을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'))return;D[t]=D[t].filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 관리자 ═══
 function pgAdmins(){const roles=getRoles();return`
@@ -945,8 +1161,8 @@ function savRoles(){const roles=getRoles();const nr=roles.map((r,i)=>({...r,name
 function adForm(a={}){const roles=getRoles();return`<div class="fr2"><div class="fg"><label class="fl">로그인 아이디 *</label><input class="fi" id="adi" value="${a.loginId||''}" placeholder="admin001"></div><div class="fg"><label class="fl">이름 *</label><input class="fi" id="adn" value="${a.name||''}" placeholder="홍길동"></div></div><div class="fg"><label class="fl">권한 레벨</label><select class="fs" id="adr">${roles.map(r=>`<option ${r.name===(a.role||roles[1].name)?'selected':''}>${r.name}</option>`).join('')}</select></div>${!a.id?`<div class="fr2"><div class="fg"><label class="fl">비밀번호 *</label><input class="fi" id="adp" type="password"></div><div class="fg"><label class="fl">비밀번호 확인</label><input class="fi" id="adp2" type="password"></div></div>`:''}`;}
 function addAdm(){openM('관리자 생성',adForm(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm()">생성</button>`);}
 function edAdm(id){const a=D.admins.find(x=>x.id===id);openM('관리자 수정',adForm(a),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savAdm(${id})">저장</button>`);}
-function savAdm(id){const n=v('adn');if(!n){alert('이름 필요');return;}if(!id){const p=v('adp'),p2=v('adp2');if(p!==p2){alert('비밀번호 불일치');return;}}const data={loginId:v('adi'),name:n,role:v('adr')};if(id){Object.assign(D.admins.find(x=>x.id===id),data);toast('수정');}else{D.admins.push({id:nid(),...data,lastLogin:'-'});toast('생성');}save();closeM();renderPage();}
-function delAdm(id){if(D.admins.length<=1){alert('최소 1명 필요');return;}if(!confirm('이 관리자 계정을 삭제하시겠습니까?'))return;D.admins=D.admins.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savAdm(id){const n=v('adn');if(!n){await adminAlert('이름 필요');return;}if(!id){const p=v('adp'),p2=v('adp2');if(p!==p2){await adminAlert('비밀번호 불일치');return;}}const data={loginId:v('adi'),name:n,role:v('adr')};if(id){Object.assign(D.admins.find(x=>x.id===id),data);toast('수정');}else{D.admins.push({id:nid(),...data,lastLogin:'-'});toast('생성');}save();closeM();renderPage();}
+async function delAdm(id){if(D.admins.length<=1){await adminAlert('최소 1명 필요');return;}if(!await adminConfirm('이 관리자 계정을 삭제하시겠습니까?'))return;D.admins=D.admins.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ PG사 관리 ═══
 function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
@@ -957,8 +1173,8 @@ function pgPG(){return`<div class="aw aw-w">🆕 신규 개발 화면.</div>
 function pgF2(p={}){return`<div class="fg"><label class="fl">PG사명 *</label><input class="fi" id="pgn" value="${p.name||''}" placeholder="예: 스마트페이 (SmartPay)"></div><div class="fr2"><div class="fg"><label class="fl">MID</label><input class="fi" id="pgm" value="${p.mid||''}" placeholder="MID_XXX_001"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="pgs"><option ${(p.status||'')==='활성'?'selected':''}>활성</option><option ${p.status==='준비중'?'selected':''}>준비중</option><option ${p.status==='비활성'?'selected':''}>비활성</option></select></div></div><div class="fg"><label class="fl">API Key</label><input class="fi" id="pgk" value="${p.apiKey||''}" placeholder="live_key_****"></div><div class="fg"><label class="fl">콜백 URL</label><input class="fi" id="pgu" value="${p.callbackUrl||''}" placeholder="https://eatspay.co.kr/callback/pg"></div><div class="fg"><label class="fl">비고</label><input class="fi" id="pgo" value="${p.note||''}" placeholder="메인 PG사, 2차 연동 등"></div>`;}
 function addPG(){openM('PG사 추가',pgF2(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG()">저장</button>`);}
 function edPG(id){const p=D.pgProviders.find(x=>x.id===id);openM('PG사 수정',pgF2(p),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savPG(${id})">저장</button>`);}
-function savPG(id){const n=v('pgn');if(!n){alert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-function delPG(id){if(!confirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savPG(id){const n=v('pgn');if(!n){await adminAlert('PG사명 필요');return;}const data={name:n,mid:v('pgm'),apiKey:v('pgk'),callbackUrl:v('pgu'),status:v('pgs'),note:v('pgo')};if(id){Object.assign(D.pgProviders.find(x=>x.id===id),data);toast('수정');}else{D.pgProviders.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+async function delPG(id){if(!await adminConfirm('PG사를 삭제하시겠습니까?'))return;D.pgProviders=D.pgProviders.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 수수료율 설정 (본사 전용) ═══
 function pgFees(){
@@ -984,7 +1200,7 @@ function pgFees(){
     </div>`).join('')}
   </div></div></div>
   </div>`;}
-function savDfr(){const val=parseFloat(v('dfr'));if(isNaN(val)||val<=0||val>=100){alert('올바른 수수료율 입력');return;}D.defaultFeeRate=val;save();toast(`기본 수수료율 ${val}%로 저장`);}
+async function savDfr(){const val=parseFloat(v('dfr'));if(isNaN(val)||val<=0||val>=100){await adminAlert('올바른 수수료율 입력');return;}D.defaultFeeRate=val;save();toast(`기본 수수료율 ${val}%로 저장`);}
 function savAgF(id,val){D.agencyFeeRates[id]=parseFloat(val)||4.2;save();toast('대리점 수수료율 저장 완료');}
 function calcF(){const a=parseFloat((v('ca')||'').replace(/[^0-9.]/g,''))||0;if(!a){document.getElementById('cr').textContent='—';document.getElementById('cf').textContent='';return;}const r=D.defaultFeeRate/100;const ch=Math.round(a/(1-r));document.getElementById('cr').textContent=ch.toLocaleString()+'원';document.getElementById('cf').textContent='수수료: '+(ch-a).toLocaleString()+'원 ('+D.defaultFeeRate+'%)';}
 
@@ -1043,7 +1259,7 @@ async function savInst(){
   });
   const items=[...cardMap.values()].map(item=>({...item,months:[...new Set(item.months)].sort((a,b)=>a-b),active:item.months.length>0}));
   try{
-    const res=await fetch('/api/admin/installments',{method:'PUT',headers:{'Authorization':'Bearer mocked_admin_token','Content-Type':'application/json'},body:JSON.stringify({items})});
+    const res=await fetch('/api/admin/installments',{method:'PUT',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({items})});
     if(!res.ok)throw new Error('무이자 할부 저장에 실패했습니다.');
     const json=await res.json();
     D.installments=Array.isArray(json.data)?json.data:items;
@@ -1068,8 +1284,8 @@ function pgBanners(){const fl=D.banners.filter(b=>b.type===bannerTab);return`
 function bnF(b={}){return`<div class="fg"><label class="fl">제목 *</label><input class="fi" id="bnt" value="${b.title||''}" placeholder="배너 제목"></div><div class="fg"><label class="fl">링크 URL</label><input class="fi" id="bnu" value="${b.url||''}" placeholder="https://..."></div><div class="fr2"><div class="fg"><label class="fl">위치</label><select class="fs" id="bntp"><option ${(b.type||bannerTab)==='메인'?'selected':''}>메인</option><option ${b.type==='결제'?'selected':''}>결제</option></select></div><div class="fg"><label class="fl">순서</label><input class="fi" id="bno" type="number" value="${b.order||1}"></div></div>`;}
 function addBn(){openM('배너 추가',bnF(),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn()">저장</button>`);}
 function edBn(id){const b=D.banners.find(x=>x.id===id);openM('배너 수정',bnF(b),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savBn(${id})">저장</button>`);}
-function savBn(id){const t=v('bnt');if(!t){alert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
-function delBn(id){if(!confirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
+async function savBn(id){const t=v('bnt');if(!t){await adminAlert('제목 필요');return;}const data={title:t,url:v('bnu'),type:v('bntp'),order:parseInt(v('bno'))||1};if(id){Object.assign(D.banners.find(x=>x.id===id),data);toast('수정');}else{D.banners.push({id:nid(),...data});toast('추가');}save();closeM();renderPage();}
+async function delBn(id){if(!await adminConfirm('배너를 삭제하시겠습니까?'))return;D.banners=D.banners.filter(x=>x.id!==id);save();renderPage();toast('삭제');}
 
 // ═══ 렌더 ═══
 function renderPage(){
@@ -1083,11 +1299,24 @@ function renderPage(){
   if(page==='faqs')       setTimeout(rFAQ,30);
 }
 function render(){renderNav();renderPage();}
+function makeBackendSnapshot(){
+  return JSON.stringify({
+    franchises:D.franchises,
+    agencies:D.agencies,
+    deliveryAgencyList:D.deliveryAgencyList,
+    installments:D.installments,
+    summary:D.summary,
+    payments:D.payments,
+    pgSettlements:D.pgSettlements
+  });
+}
 async function syncBackendFranchises() {
   try {
+    if(!await ensureAdminLogin())return;
     const res = await fetch('/api/admin/franchises', {
-      headers: { 'Authorization': 'Bearer mocked_admin_token' }
+      headers: adminAuthHeaders()
     });
+    if(await handleAdminUnauthorized(res))return syncBackendFranchises();
     if (!res.ok) return;
     const json = await res.json();
     const items = json.data || [];
@@ -1099,15 +1328,21 @@ async function syncBackendFranchises() {
   }
 }
 
-async function syncBackendTransactions() {
+async function syncBackendTransactions(options={}) {
+  const forceRender=!!options.forceRender;
+  const silent=!!options.silent;
   try {
-    const res = await fetch('/api/admin/bootstrap', {
-      headers: { 'Authorization': 'Bearer mocked_admin_token' }
+    if(!await ensureAdminLogin())return;
+    const res = await fetch(`/api/admin/bootstrap?_=${Date.now()}`, {
+      headers: adminAuthHeaders(),
+      cache: 'no-store'
     });
+    if(await handleAdminUnauthorized(res))return syncBackendTransactions();
     if (!res.ok) {
       D.franchises = [];
       D.payments = [];
       D.pgSettlements = [];
+      D.summary = {};
       save();
       return;
     }
@@ -1117,23 +1352,45 @@ async function syncBackendTransactions() {
     D.agencies = Array.isArray(data.agencies) ? data.agencies : D.agencies;
     D.deliveryAgencyList = Array.isArray(data.deliveryAgencies) ? data.deliveryAgencies : D.deliveryAgencyList;
     D.installments = Array.isArray(data.installments) ? data.installments : [];
+    D.summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
     D.payments = Array.isArray(data.payments) ? data.payments : [];
     D.pgSettlements = Array.isArray(data.pgSettlements) ? data.pgSettlements : [];
+    const nextSnapshot=makeBackendSnapshot();
+    const changed=nextSnapshot!==backendSnapshot;
+    backendSnapshot=nextSnapshot;
     save();
+    if((changed||forceRender)&&!silent){
+      render();
+    }
+    return changed;
   } catch (e) {
     console.error("Failed to sync backend transactions:", e);
     D.franchises = [];
     D.payments = [];
     D.pgSettlements = [];
+    D.summary = {};
     save();
   }
 }
 
+function startBackendMonitor(){
+  if(backendPollTimer)clearInterval(backendPollTimer);
+  backendPollTimer=setInterval(async()=>{
+    if(document.hidden)return;
+    await syncBackendTransactions();
+  },3000);
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden)syncBackendTransactions();
+  });
+}
+
 async function syncBackendAccounts() {
   try {
+    if(!await ensureAdminLogin())return;
     const res = await fetch('/api/admin/accounts', {
-      headers: { 'Authorization': 'Bearer mocked_admin_token' }
+      headers: adminAuthHeaders()
     });
+    if(await handleAdminUnauthorized(res))return syncBackendAccounts();
     if (!res.ok) return;
     const json = await res.json();
     const reqs = json.data || [];
@@ -1172,7 +1429,7 @@ async function syncBackendAccounts() {
 
 async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>x.id===id);
-  if(!confirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
+  if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
 
@@ -1182,7 +1439,7 @@ async function changeFrStatus(id,newStatus,selectEl){
       const res = await fetch('/api/admin/franchise/approve', {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer mocked_admin_token',
+          ...adminAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1191,7 +1448,7 @@ async function changeFrStatus(id,newStatus,selectEl){
         })
       });
       if (!res.ok) {
-        alert('백엔드 상태 변경 전송 실패');
+        await adminAlert('백엔드 상태 변경 전송 실패');
       }
     } catch (e) {
       console.error(e);
@@ -1221,7 +1478,7 @@ async function approveAccount(fid,idx){
     const res=await fetch('/api/admin/accounts/approve', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer mocked_admin_token',
+        ...adminAuthHeaders(),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -1269,7 +1526,7 @@ async function rejectAccount(fid,idx){
     const res=await fetch('/api/admin/accounts/approve', {
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer mocked_admin_token',
+        ...adminAuthHeaders(),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -1296,11 +1553,12 @@ async function rejectAccount(fid,idx){
 
 async function bootAdmin(){
   load();
-  await syncBackendTransactions();
+  await ensureAdminLogin();
+  await syncBackendTransactions({silent:true});
   render();
+  startBackendMonitor();
 }
 bootAdmin();
 </script>
 </body>
 </html>
-

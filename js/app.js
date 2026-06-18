@@ -34,12 +34,18 @@ function normalizeSelectedAgency(value) {
 }
 let selectedAgency = normalizeSelectedAgency(sessionStorage.getItem('selectedDeliveryAgency'));
 sessionStorage.setItem('selectedDeliveryAgency', selectedAgency);
+let agencySettlementPage = 1;
 let deliveryAgencyCache = [];
 let installmentPolicyCache = [];
 let installmentBannerIndex = 0;
 let installmentBannerTimer = null;
 let daumPostcodeScriptPromise = null;
 let cardEditDraft = null;
+let talkPostCache = [];
+let talkImageFiles = [];
+let selectedTalkPostId = null;
+let selectedTalkChatId = null;
+let talkChatPollTimer = null;
 
 function loadDaumPostcodeScript() {
   if (window.daum?.Postcode) return Promise.resolve();
@@ -89,6 +95,43 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+const API_ERROR_MESSAGES = {
+  INVALID_CREDENTIALS: '아이디 또는 비밀번호가 올바르지 않습니다.',
+  UNAUTHORIZED: '로그인이 필요합니다. 다시 로그인해 주세요.',
+  ACCESS_DENIED: '접근 권한이 없습니다.',
+  BAD_REQUEST: '입력값을 다시 확인해 주세요.',
+  USER_NOT_FOUND: '사용자 정보를 찾을 수 없습니다.',
+  CARD_NOT_FOUND: '카드 정보를 찾을 수 없습니다.',
+  MISSING_CARD_COMPANY: '카드사를 선택해 주세요.',
+  MISSING_ALIAS: '카드 별칭을 입력해 주세요.',
+  INVALID_CARD_NUMBER: '카드번호를 다시 확인해 주세요.',
+  GH_PAYMENTS_CARD_REGISTRATION_FAILED: '카드 등록을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+  GH_PAYMENTS_BILLING_PAY_FAILED: '결제를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+  ACCOUNT_NOT_FOUND: '가상계좌 정보를 찾을 수 없습니다.',
+  ACCOUNT_LIMIT_EXCEEDED: '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.',
+  DOCUMENT_FILE_REQUIRED: '포스 사진을 첨부해 주세요.',
+  MISSING_FIELDS: '필수 항목을 모두 입력해 주세요.',
+  INVALID_CURRENT_PASSWORD: '현재 비밀번호가 일치하지 않습니다.'
+};
+
+function getFriendlyErrorMessage(payload, fallback = '요청을 처리하지 못했습니다.') {
+  const code = payload?.error?.code || payload?.code || '';
+  if (code && API_ERROR_MESSAGES[code]) return API_ERROR_MESSAGES[code];
+
+  const raw = String(payload?.error?.message || payload?.message || payload || '').trim();
+  if (!raw) return fallback;
+  const normalized = raw.toLowerCase();
+  if (normalized.includes('invalid email or password')) return API_ERROR_MESSAGES.INVALID_CREDENTIALS;
+  if (normalized.includes('valid bearer token') || normalized.includes('unauthorized')) return API_ERROR_MESSAGES.UNAUTHORIZED;
+  if (normalized.includes('card details')) return '카드 정보를 모두 입력해 주세요.';
+  if (normalized.includes('card company')) return API_ERROR_MESSAGES.MISSING_CARD_COMPANY;
+  if (normalized.includes('card was not found')) return API_ERROR_MESSAGES.CARD_NOT_FOUND;
+  if (normalized.includes('virtual account') && normalized.includes('not found')) return API_ERROR_MESSAGES.ACCOUNT_NOT_FOUND;
+  if (normalized.includes('required') || normalized.includes('missing')) return API_ERROR_MESSAGES.MISSING_FIELDS;
+  if (/^[\x00-\x7F\s.,'":;!?()/-]+$/.test(raw)) return fallback;
+  return raw;
+}
+
 function renderChargeCards(selector, cards) {
   const safeCards = Array.isArray(cards) ? cards : [];
   if (safeCards.length === 0) {
@@ -103,13 +146,16 @@ function renderChargeCards(selector, cards) {
   selector.innerHTML = safeCards.map((card, index) => {
     const isPrimary = index === 0;
     const borderColor = isPrimary ? '#3a9430' : 'var(--border-color)';
-    const label = card.alias || card.cardCompany || card.cardName || '\uCE74\uB4DC';
+    const label = card.cardCompany || card.cardName || card.alias || '\uCE74\uB4DC';
+    const alias = String(card.alias || '').trim();
+    const aliasLabel = alias && alias !== label && !['카드', 'Card', 'card'].includes(alias) ? alias : '';
     const masked = card.maskedNumber || '****-****-****-0000';
     return `
       <div class="charge-card-option${isPrimary ? ' active' : ''}" data-card="${escapeHtml(card.id)}" style="border: 1.5px solid ${borderColor}; border-radius: var(--radius); padding: 12px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; gap: 6px; box-shadow: 1px 1px 4px rgba(0,0,0,0.05); transition: border-color 0.2s;">
         <div style="display: flex; align-items: center; gap: 4px;">
           <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isPrimary ? '#3a9430' : '#bbb'}; display: inline-block;"></span>
           <span style="font-size: 11px; font-weight: 800; color: #333;">${escapeHtml(label)}</span>
+          ${aliasLabel ? `<span style="font-size: 10px; font-weight: 700; color: #777;">${escapeHtml(aliasLabel)}</span>` : ''}
         </div>
         <div style="font-size: 10px; font-family: monospace; color: #555; letter-spacing: 0.5px;">${escapeHtml(masked)}</div>
       </div>
@@ -322,12 +368,12 @@ function renderCardList(cards) {
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error?.message || payload.message || '카드 삭제에 실패했습니다.');
+          throw new Error(getFriendlyErrorMessage(payload, '카드 삭제에 실패했습니다.'));
         }
         showToast('카드가 삭제되었습니다.');
         await refreshCardList();
       } catch (err) {
-        showToast(err.message);
+        showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
       }
     });
   });
@@ -401,12 +447,12 @@ function renderVaccountList(accounts) {
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error?.message || payload.message || '가상계좌 삭제에 실패했습니다.');
+          throw new Error(getFriendlyErrorMessage(payload, '가상계좌 삭제에 실패했습니다.'));
         }
         showToast('가상계좌가 삭제되었습니다.');
         await refreshVaccountList();
       } catch (err) {
-        showToast(err.message);
+        showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
       }
     });
   });
@@ -756,7 +802,7 @@ function resetCardFormForAdd() {
     cardNumber.placeholder = '카드번호 전체를 입력해주세요';
     cardNumber.value = '';
   }
-  if (pw) pw.value = '';
+  clearPasswordValue('#add-card-pw');
   if (month) month.value = '';
   if (year) year.value = '';
   if (identity) identity.value = '';
@@ -795,7 +841,7 @@ function applyCardEditDraftToForm() {
     input.style.background = '';
     input.style.color = '';
   });
-  if (pw) pw.value = '';
+  clearPasswordValue('#add-card-pw');
   if (month) month.value = '';
   if (year) year.value = '';
   if (identity) identity.value = '';
@@ -988,6 +1034,18 @@ function normalizeDeliveryAgencyListText() {
   if (navLabels[2]) navLabels[2].textContent = '\uACE0\uAC1D\uC13C\uD130';
 }
 
+function normalizeBackButtons() {
+  $$('.btn-back').forEach(btn => {
+    btn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6"></path>
+      </svg>
+      <span>이전</span>
+    `;
+    btn.setAttribute('aria-label', '이전 화면으로 이동');
+  });
+}
+
 function renderDeliveryAgencyList() {
   const container = $('#delivery-agency-list-container');
   if (!container) return;
@@ -1039,13 +1097,19 @@ function renderDeliveryAgencyList() {
 
 // --- Screen Navigation ---
 function navigate(screenId, direction = 'forward') {
-  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge'];
+  const restrictedScreens = ['my', 'payment-history', 'card-list', 'card-add', 'vaccount-list', 'vaccount-add', 'edit-myinfo', 'charge', 'agency', 'talk-write', 'talk-chats', 'talk-chat'];
   const approvalState = getApprovalState();
 
   if (restrictedScreens.includes(screenId)) {
     if (!isAuthenticated()) {
       showToast('로그인이 필요합니다.');
       screenId = 'login';
+    } else if (screenId === 'talk-write' && isAgencyAccount()) {
+      showToast('가맹점 계정으로 로그인해야 등록할 수 있습니다.');
+      screenId = 'talk';
+    } else if (screenId === 'agency' && !isAgencyAccount()) {
+      showToast('대리점 계정으로 로그인해야 이용할 수 있습니다.');
+      screenId = 'home';
     } else if (approvalState !== 'approved') {
       showToast(approvalState === 'pending' ? '승인 대기중입니다.' : '승인이 반려된 계정입니다.');
       screenId = 'account-status';
@@ -1073,6 +1137,7 @@ function navigate(screenId, direction = 'forward') {
   }
 
   state.currentScreen = screenId;
+  normalizeBackButtons();
   if (screenId !== 'card-add') {
     cardEditDraft = null;
   }
@@ -1089,6 +1154,27 @@ function navigate(screenId, direction = 'forward') {
   if (screenId === 'home') {
     renderCurrentInstallmentBanner();
     startInstallmentBannerRotation();
+    void fetchTalkPosts(5);
+  }
+  if (screenId === 'talk') {
+    renderTalkBoard(talkPostCache);
+    void fetchTalkPosts(20);
+  }
+  if (screenId === 'talk-detail') {
+    renderTalkDetail();
+  }
+  if (screenId === 'talk-write') {
+    renderTalkImagePreview();
+  }
+  if (screenId === 'talk-chats') {
+    void fetchTalkChats();
+  }
+  if (screenId === 'talk-chat') {
+    stopTalkChatPolling();
+    void fetchTalkMessages();
+    talkChatPollTimer = setInterval(fetchTalkMessages, 3000);
+  } else {
+    stopTalkChatPolling();
   }
   if (screenId === 'card-list') {
     void refreshCardList();
@@ -1111,6 +1197,10 @@ function navigate(screenId, direction = 'forward') {
   }
   if (screenId === 'benefit-cards') {
     renderBenefitCardList();
+  }
+  if (screenId === 'agency') {
+    syncAgencyDateRange();
+    void fetchAgencySettlement();
   }
   if (screenId === 'cs-promo') {
     renderCsInstallmentList();
@@ -1146,18 +1236,18 @@ function handleAndroidBackButton() {
 window.EATSPAY_HANDLE_ANDROID_BACK = handleAndroidBackButton;
 
 function updateBottomNav(screenId) {
+  renderBottomNavs(screenId);
   $$('.nav-item').forEach(btn => btn.classList.remove('active'));
-  const isHome = ['home', 'charge', 'benefit-cards'].includes(screenId);
+  const isHome = ['home', 'charge', 'benefit-cards', 'talk', 'talk-detail', 'talk-write', 'talk-chats', 'talk-chat'].includes(screenId);
+  const isAgencyFlow = ['agency'].includes(screenId);
   const isMyFlow = ['my', 'find-id', 'find-pw', 'card-list', 'card-add', 'payment-history', 'vaccount-list', 'vaccount-add', 'delivery-agency-list', 'edit-myinfo', 'login'].includes(screenId);
   const isCsFlow = ['cs-main', 'cs-guide', 'cs-promo'].includes(screenId);
-  const showMyNav = getApprovalState() === 'approved';
-
-  $$('[id^="nav-my"]').forEach(el => {
-    el.style.display = showMyNav ? '' : 'none';
-  });
+  const showMyNav = isAuthenticated();
   
   if (isHome) {
     $$('[id^="nav-home"]').forEach(el => el.classList.add('active'));
+  } else if (isAgencyFlow) {
+    $$('[id^="nav-agency"]').forEach(el => el.classList.add('active'));
   } else if (isMyFlow) {
     if (showMyNav) {
       $$('[id^="nav-my"]').forEach(el => el.classList.add('active'));
@@ -1165,6 +1255,40 @@ function updateBottomNav(screenId) {
   } else if (isCsFlow) {
     $$('[id^="nav-cs"]').forEach(el => el.classList.add('active'));
   }
+}
+
+function bottomNavSvg(type) {
+  const icons = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>',
+    agency: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V8l8-4 8 4v12"/><path d="M8 20v-6h8v6"/><path d="M9 9h.01M15 9h.01"/></svg>',
+    my: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>',
+    cs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>'
+  };
+  return icons[type] || '';
+}
+
+function renderBottomNavs(activeScreen = state.currentScreen) {
+  const user = getSessionUser();
+  const items = [{ id: 'home', label: '홈' }];
+  if (isAgencyAccount(user)) items.push({ id: 'agency', label: '대리점' });
+  if (isAuthenticated() && user) items.push({ id: 'my', label: '내정보' });
+  items.push({ id: 'cs', label: '고객센터' });
+  const active = activeScreen === 'agency'
+    ? 'agency'
+    : ['cs-main', 'cs-guide', 'cs-promo'].includes(activeScreen)
+      ? 'cs'
+      : ['my', 'find-id', 'find-pw', 'card-list', 'card-add', 'payment-history', 'vaccount-list', 'vaccount-add', 'delivery-agency-list', 'edit-myinfo', 'login'].includes(activeScreen)
+        ? 'my'
+        : 'home';
+  const html = items.map(item => `
+    <div class="nav-item${active === item.id ? ' active' : ''}" id="nav-${item.id}" data-nav-target="${item.id}">
+      ${bottomNavSvg(item.id)}
+      <span class="nav-label">${item.label}</span>
+    </div>
+  `).join('');
+  $$('.bottom-nav').forEach(nav => {
+    nav.innerHTML = html;
+  });
 }
 
 let appDialogQueue = Promise.resolve();
@@ -1298,10 +1422,15 @@ function getSessionUser() {
 function getApprovalState(user = getSessionUser()) {
   if (!user) return 'guest';
   if (user.role === 'ADMIN') return 'approved';
+  if (user.role === 'AGENCY') return 'approved';
   if (user.role === 'OWNER') return 'approved';
   if (user.role === 'OWNER_REJECTED') return 'rejected';
   if (user.role === 'OWNER_PENDING') return 'pending';
   return 'guest';
+}
+
+function isAgencyAccount(user = getSessionUser()) {
+  return Boolean(user && user.role === 'AGENCY' && user.agencyId);
 }
 
 function getLoginDisplayName() {
@@ -1346,6 +1475,7 @@ function syncLoggedInViews() {
   const banner = $('#home-login-banner');
   const storeLabels = $$('.session-store-name');
   const editMyInfoPhone = $('#edit-myinfo-phone');
+  const agencyOnly = isAgencyAccount(user);
 
   if (homeTitle) {
     homeTitle.textContent = user ? displayName : '로그인을 해주세요';
@@ -1385,9 +1515,14 @@ function syncLoggedInViews() {
   }
 
   const showMyNav = Boolean(user);
-  $$('[id^="nav-my"]').forEach(el => {
-    el.style.display = showMyNav ? '' : 'none';
+  renderBottomNavs(state.currentScreen);
+
+  ['#my-card-manage-btn', '#my-payment-history-btn', '#my-vaccount-manage-btn'].forEach(selector => {
+    const el = $(selector);
+    if (el) el.style.display = agencyOnly ? 'none' : 'flex';
   });
+  const agencySettlementBtn = $('#my-agency-settlement-btn');
+  if (agencySettlementBtn) agencySettlementBtn.style.display = agencyOnly ? 'flex' : 'none';
 
   const statusChip = $('#account-status-chip');
   const statusTitle = $('#account-status-title');
@@ -1497,26 +1632,437 @@ async function showUnreadNotifications() {
   const notifications = await fetchUnreadNotifications();
   if (!notifications.length) return;
   for (const item of notifications) {
+    const id = item.id ? String(item.id) : '';
+    if (id && sessionStorage.getItem(`notificationShown:${id}`) === '1') {
+      await markNotificationsRead([id]);
+      continue;
+    }
     await showAppAlert(item.body || item.title || '새 알림이 있습니다.', item.title || '알림');
+    if (id) sessionStorage.setItem(`notificationShown:${id}`, '1');
+    await markNotificationsRead([item.id]);
   }
-  await markNotificationsRead(notifications.map(item => item.id));
 }
 
 function todayYMD() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const koreaTime = new Date(now.getTime() + (9 * 60 + now.getTimezoneOffset()) * 60000);
+  const year = koreaTime.getFullYear();
+  const month = String(koreaTime.getMonth() + 1).padStart(2, '0');
+  const day = String(koreaTime.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function syncPaymentHistoryDateRange() {
+function syncPaymentHistoryDateRange(forceToday = false) {
   const startInput = $('#filter-start-date');
   const endInput = $('#filter-end-date');
   if (!startInput || !endInput) return;
 
   const today = todayYMD();
-  if (!startInput.value || startInput.value === '2026-05-01') {
+  if (forceToday || !startInput.value || startInput.value === '2026-05-01') {
     startInput.value = today;
   }
-  if (!endInput.value || endInput.value === '2026-05-30') {
+  if (forceToday || !endInput.value || endInput.value === '2026-05-30') {
     endInput.value = today;
+  }
+}
+
+function formatWon(value) {
+  return `${Number(value || 0).toLocaleString('ko-KR')}원`;
+}
+
+function normalizeTalkImage(url) {
+  const value = String(url || '').trim();
+  if (/^https?:\/\//i.test(value) || value.startsWith('/uploads/')) return value;
+  return '';
+}
+
+function getTalkImages(post) {
+  const images = Array.isArray(post?.imageUrls) ? post.imageUrls : [];
+  const normalized = images.map(normalizeTalkImage).filter(Boolean);
+  const fallback = normalizeTalkImage(post?.imageUrl);
+  if (!normalized.length && fallback) normalized.push(fallback);
+  return normalized.slice(0, 10);
+}
+
+function renderTalkHome(posts = talkPostCache) {
+  const list = $('#home-talk-list');
+  if (!list) return;
+  const items = (Array.isArray(posts) ? posts : []).slice(0, 5);
+  if (!items.length) {
+    list.innerHTML = '<div style="padding: 12px 0 18px; color: var(--text-muted); font-size: 12px; font-weight: 700;">등록된 Talk 글이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = items.map((post, index) => `
+    <div class="talk-item" data-talk-id="${escapeHtml(post.id)}" style="padding: 10px 0; border-bottom: ${index === items.length - 1 ? 'none' : '1px solid var(--border-light)'}; cursor: pointer;">
+      <div class="talk-title" style="font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(post.title || '')}</div>
+      <div class="talk-meta" style="font-size: 11px; color: var(--text-muted); font-weight: 700;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')}</div>
+    </div>
+  `).join('');
+}
+
+function renderTalkBoard(posts = talkPostCache) {
+  const list = $('#talk-board-list');
+  if (!list) return;
+  const items = Array.isArray(posts) ? posts : [];
+  if (!items.length) {
+    list.innerHTML = '<div style="border:1.5px solid var(--border-color); border-radius:var(--radius); padding:32px 16px; text-align:center; color:var(--text-muted); font-size:13px; font-weight:800;">등록된 Talk 글이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = items.map(post => {
+    const image = getTalkImages(post)[0] || '';
+    return `
+      <article class="talk-board-card" data-talk-id="${escapeHtml(post.id)}" style="display:flex; gap:12px; border-bottom:1px solid var(--border-light); padding:12px 0; cursor:pointer;">
+        <div style="width:92px; height:92px; border-radius:12px; background:${image ? '#f5f5f5' : 'linear-gradient(135deg,#e8f5e9,#d9f2d4)'}; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-light);">
+          ${image ? `<img src="${escapeHtml(image)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : '<span style="font-size:28px;">🥕</span>'}
+        </div>
+        <div style="min-width:0; flex:1; display:flex; flex-direction:column; gap:4px;">
+          <div style="font-size:15px; font-weight:900; color:var(--text-primary); line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(post.title || '')}</div>
+          <div style="font-size:11px; color:var(--text-muted); font-weight:800;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')} · ${escapeHtml(post.createdAtLabel || '')}</div>
+          <div style="font-size:12px; color:var(--text-secondary); line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${escapeHtml(post.body || '')}</div>
+          <div style="font-size:14px; font-weight:900; color:var(--text-primary); margin-top:auto;">${Number(post.price || 0) > 0 ? formatWon(post.price) : '나눔'}</div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderTalkImagePreview() {
+  const preview = $('#talk-image-preview');
+  if (!preview) return;
+  if (!talkImageFiles.length) {
+    preview.innerHTML = '<div style="font-size:11px;color:var(--text-muted);font-weight:700;">선택된 이미지가 없습니다.</div>';
+    return;
+  }
+  preview.innerHTML = talkImageFiles.map((file, index) => `
+    <div style="position:relative;flex:0 0 auto;width:72px;height:72px;border-radius:10px;overflow:hidden;border:1px solid var(--border-light);background:#f5f5f5;">
+      <img src="${escapeHtml(URL.createObjectURL(file))}" alt="" style="width:100%;height:100%;object-fit:cover;">
+      <button type="button" class="talk-image-remove" data-index="${index}" style="position:absolute;top:4px;right:4px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:900;">×</button>
+    </div>
+  `).join('');
+}
+
+function openTalkDetail(id) {
+  selectedTalkPostId = String(id || '');
+  renderTalkDetail();
+  navigate('talk-detail');
+}
+
+function renderTalkDetail() {
+  const wrap = $('#talk-detail-body');
+  if (!wrap) return;
+  const post = talkPostCache.find(item => String(item.id) === String(selectedTalkPostId));
+  if (!post) {
+    wrap.innerHTML = '<div style="padding:32px 0;color:var(--text-muted);font-weight:800;text-align:center;">게시글을 찾을 수 없습니다.</div>';
+    return;
+  }
+  const images = getTalkImages(post);
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;overflow-x:auto;margin:4px -24px 18px;padding:0 24px 4px;">
+      ${images.length ? images.map(src => `<img src="${escapeHtml(src)}" alt="" style="width:260px;height:240px;object-fit:cover;border-radius:18px;border:1px solid var(--border-light);flex:0 0 auto;">`).join('') : '<div style="width:100%;height:190px;border-radius:18px;background:linear-gradient(135deg,#e8f5e9,#d9f2d4);display:flex;align-items:center;justify-content:center;font-size:42px;">🥕</div>'}
+    </div>
+    <div style="font-size:13px;color:var(--text-muted);font-weight:800;margin-bottom:6px;">${escapeHtml(post.franchiseName || '이츠페이 가맹점')} · ${escapeHtml(post.createdAtLabel || '')}</div>
+    <h2 style="font-size:22px;line-height:1.35;font-weight:900;color:var(--text-primary);margin:0 0 8px;">${escapeHtml(post.title || '')}</h2>
+    <div style="font-size:19px;font-weight:900;color:var(--text-primary);margin-bottom:18px;">${Number(post.price || 0) > 0 ? formatWon(post.price) : '나눔'}</div>
+    <div style="white-space:pre-wrap;font-size:14px;line-height:1.65;color:var(--text-secondary);font-weight:700;border-top:1px solid var(--border-light);padding-top:18px;">${escapeHtml(post.body || '')}</div>
+  `;
+  $('#btn-talk-start-chat')?.addEventListener('click', () => startTalkChat(post.id));
+}
+
+async function fetchTalkPosts(limit = 20) {
+  try {
+    const response = await fetch(apiUrl(`/api/talk/posts?limit=${encodeURIComponent(limit)}&_=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('Talk 목록을 불러오지 못했습니다.');
+    const payload = await response.json().catch(() => null);
+    talkPostCache = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  } catch (err) {
+    console.error(err);
+    talkPostCache = [];
+  }
+  renderTalkHome(talkPostCache);
+  if (state.currentScreen === 'talk') renderTalkBoard(talkPostCache);
+  if (state.currentScreen === 'talk-detail') renderTalkDetail();
+  return talkPostCache;
+}
+
+async function submitTalkPost() {
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    showToast('승인된 가맹점 계정만 Talk 글을 등록할 수 있습니다.');
+    navigate(isAuthenticated() ? 'home' : 'login');
+    return;
+  }
+  const title = ($('#talk-title-input')?.value || '').trim();
+  const body = ($('#talk-body-input')?.value || '').trim();
+  const price = Number(($('#talk-price-input')?.value || '0').replace?.(/[^\d]/g, '') || $('#talk-price-input')?.value || 0);
+  if (!title || !body) {
+    showToast('제목과 내용을 입력해주세요.');
+    return;
+  }
+  const btn = $('#btn-talk-submit');
+  const originalText = btn?.textContent || '등록하기';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '등록 중...';
+  }
+  try {
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('body', body);
+    formData.append('price', String(price || 0));
+    talkImageFiles.slice(0, 10).forEach(file => formData.append('images', file));
+    const response = await fetch(apiUrl('/api/talk/posts'), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+      },
+      body: formData
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, 'Talk 글 등록에 실패했습니다.'));
+    ['#talk-title-input', '#talk-body-input', '#talk-price-input'].forEach(sel => {
+      const el = $(sel);
+      if (el) el.value = '';
+    });
+    const input = $('#talk-image-input');
+    if (input) input.value = '';
+    talkImageFiles = [];
+    renderTalkImagePreview();
+    showToast('Talk 글이 등록되었습니다.');
+    await fetchTalkPosts(20);
+    navigate('talk');
+  } catch (err) {
+    showToast(err.message || 'Talk 글 등록에 실패했습니다.');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
+async function startTalkChat(postId) {
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    showToast('승인된 가맹점 계정만 채팅할 수 있습니다.');
+    navigate(isAuthenticated() ? 'home' : 'login');
+    return;
+  }
+  const post = talkPostCache.find(item => String(item.id) === String(postId));
+  const user = getSessionUser();
+  if (post?.franchiseId && user?.franchiseId && String(post.franchiseId) === String(user.franchiseId)) {
+    showToast('내가 등록한 글에는 채팅을 시작할 수 없습니다.');
+    return;
+  }
+  try {
+    const response = await fetch(apiUrl(`/api/talk/posts/${encodeURIComponent(postId)}/chats`), {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` }
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, '채팅방을 열 수 없습니다.'));
+    selectedTalkChatId = payload?.data?.id;
+    navigate('talk-chat');
+  } catch (err) {
+    showToast(err.message || '채팅방을 열 수 없습니다.');
+  }
+}
+
+async function fetchTalkChats() {
+  const list = $('#talk-chat-list');
+  if (!list) return;
+  if (!isApprovedAccount() || isAgencyAccount()) {
+    list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">승인된 가맹점 계정만 채팅을 이용할 수 있습니다.</div>';
+    return;
+  }
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats?_=${Date.now()}`), {
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` },
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => null);
+    const chats = Array.isArray(payload?.data) ? payload.data : [];
+    if (!chats.length) {
+      list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">아직 Talk 채팅이 없습니다.</div>';
+      return;
+    }
+    list.innerHTML = chats.map(chat => `
+      <div class="talk-chat-row" data-chat-id="${escapeHtml(chat.id)}" style="padding:14px 0;border-bottom:1px solid var(--border-light);cursor:pointer;">
+        <div style="font-size:15px;font-weight:900;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(chat.postTitle || 'Talk')}</div>
+        <div style="font-size:12px;color:var(--text-muted);font-weight:800;margin-top:4px;">${escapeHtml(chat.lastMessage || '메시지가 없습니다.')}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    list.innerHTML = '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">채팅 목록을 불러오지 못했습니다.</div>';
+  }
+}
+
+async function fetchTalkMessages() {
+  if (!selectedTalkChatId) return;
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats/${encodeURIComponent(selectedTalkChatId)}/messages?_=${Date.now()}`), {
+      headers: { 'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}` },
+      cache: 'no-store'
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error('채팅을 불러오지 못했습니다.');
+    const chat = payload?.data?.chat || {};
+    const messages = Array.isArray(payload?.data?.messages) ? payload.data.messages : [];
+    const user = getSessionUser();
+    $('#talk-chat-title') && ($('#talk-chat-title').textContent = chat.postTitle || 'Talk 채팅');
+    const wrap = $('#talk-chat-messages');
+    if (!wrap) return;
+    wrap.innerHTML = messages.map(msg => {
+      const mine = String(msg.senderUserId) === String(user?.id);
+      const readLabel = mine ? (msg.readAt ? '읽음' : '안읽음') : '';
+      return `
+        <div style="display:flex;justify-content:${mine ? 'flex-end' : 'flex-start'};align-items:flex-end;gap:5px;">
+          ${mine ? `<span style="font-size:10px;color:var(--text-muted);font-weight:800;margin-bottom:3px;">${readLabel}</span>` : ''}
+          <div style="max-width:78%;background:${mine ? 'var(--green-primary)' : '#f1f3f1'};color:${mine ? '#fff' : 'var(--text-primary)'};border-radius:16px;padding:10px 12px;font-size:14px;font-weight:700;line-height:1.45;white-space:pre-wrap;">${escapeHtml(msg.message || '')}</div>
+        </div>
+      `;
+    }).join('') || '<div style="padding:28px 0;text-align:center;color:var(--text-muted);font-weight:800;">첫 메시지를 보내보세요.</div>';
+  } catch (err) {
+    showToast('채팅을 불러오지 못했습니다.');
+  }
+}
+
+async function sendTalkMessage() {
+  const input = $('#talk-chat-input');
+  const message = (input?.value || '').trim();
+  if (!selectedTalkChatId || !message) return;
+  const btn = $('#btn-talk-chat-send');
+  if (btn) btn.disabled = true;
+  try {
+    const response = await fetch(apiUrl(`/api/talk/chats/${encodeURIComponent(selectedTalkChatId)}/messages`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+      },
+      body: JSON.stringify({ message })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, '메시지 전송에 실패했습니다.'));
+    if (input) input.value = '';
+    await fetchTalkMessages();
+  } catch (err) {
+    showToast(err.message || '메시지 전송에 실패했습니다.');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function stopTalkChatPolling() {
+  if (talkChatPollTimer) {
+    clearInterval(talkChatPollTimer);
+    talkChatPollTimer = null;
+  }
+}
+
+function syncAgencyDateRange(forceToday = false) {
+  const startInput = $('#agency-start-date');
+  const endInput = $('#agency-end-date');
+  if (!startInput || !endInput) return;
+  const today = todayYMD();
+  if (forceToday || !startInput.value) startInput.value = today;
+  if (forceToday || !endInput.value) endInput.value = today;
+}
+
+function renderAgencySettlement(data = {}) {
+  const user = getSessionUser();
+  const agencyName = $('#agency-screen-name');
+  const summary = data.summary || {};
+  if (agencyName) {
+    agencyName.textContent = data.agency?.name || user?.agencyName || user?.franchiseName || '대리점';
+  }
+  $('#agency-summary-count') && ($('#agency-summary-count').textContent = `${Number(summary.count || 0).toLocaleString('ko-KR')}건`);
+  $('#agency-summary-payment') && ($('#agency-summary-payment').textContent = formatWon(summary.paymentAmount));
+  $('#agency-summary-service') && ($('#agency-summary-service').textContent = formatWon(summary.serviceFee));
+  $('#agency-summary-net') && ($('#agency-summary-net').textContent = formatWon(summary.agencyNet));
+  $('#agency-fee-rate') && ($('#agency-fee-rate').textContent = `수수료율 ${Number(data.agency?.feeRate || user?.feeRate || 0.3).toFixed(2)}%`);
+
+  const list = $('#agency-settlement-list');
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px 10px;color:var(--text-muted);">해당 기간의 결제내역이 없습니다.</td></tr>';
+    renderAgencyPagination(data.pagination || { currentPage: 1, totalPages: 1 });
+    return;
+  }
+  list.innerHTML = items.map(item => `
+    <tr>
+      <td>
+        <div style="white-space:nowrap;">${escapeHtml(item.date || '')}</div>
+        <div style="font-size:10px;color:${item.status === '취소' ? '#e53935' : 'var(--green-primary)'};margin-top:3px;">${escapeHtml(item.status || '-')}</div>
+      </td>
+      <td>
+        <div style="max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.franchiseName || '-')}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${escapeHtml(item.approvalNo || '-')}</div>
+      </td>
+      <td style="text-align:right;">${formatWon(item.paymentAmount)}</td>
+      <td style="text-align:right;color:var(--green-primary);">${formatWon(item.agencyFee)}</td>
+      <td style="text-align:right;color:var(--green-dark);">${formatWon(item.agencyNet)}</td>
+    </tr>
+  `).join('');
+  renderAgencyPagination(data.pagination || { currentPage: 1, totalPages: 1 });
+}
+
+function renderAgencyPagination(pagination = {}) {
+  const wrap = $('#agency-pagination');
+  if (!wrap) return;
+  const current = Number(pagination.currentPage || 1);
+  const total = Math.max(Number(pagination.totalPages || 1), 1);
+  if (total <= 1) {
+    wrap.innerHTML = '';
+    return;
+  }
+  const pages = [];
+  const start = Math.max(1, current - 2);
+  const end = Math.min(total, start + 4);
+  for (let page = start; page <= end; page += 1) pages.push(page);
+  wrap.innerHTML = [
+    `<button class="agency-page-btn" data-page="${Math.max(1, current - 1)}" ${current <= 1 ? 'disabled' : ''}>‹</button>`,
+    ...pages.map(page => `<button class="agency-page-btn${page === current ? ' active' : ''}" data-page="${page}">${page}</button>`),
+    `<button class="agency-page-btn" data-page="${Math.min(total, current + 1)}" ${current >= total ? 'disabled' : ''}>›</button>`
+  ].join('');
+  $$('.agency-page-btn', wrap).forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      agencySettlementPage = Number(btn.dataset.page || 1);
+      void fetchAgencySettlement(agencySettlementPage);
+    });
+  });
+}
+
+async function fetchAgencySettlement(page = agencySettlementPage) {
+  if (!isAgencyAccount()) return;
+  syncAgencyDateRange();
+  agencySettlementPage = Math.max(Number(page || 1), 1);
+  const startDate = $('#agency-start-date')?.value;
+  const endDate = $('#agency-end-date')?.value;
+  const list = $('#agency-settlement-list');
+  if (!startDate || !endDate) {
+    showToast('조회 기간을 선택해주세요.');
+    return;
+  }
+  if (list) {
+    list.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;"><div class="spinner" style="border-top-color:var(--green-primary);width:28px;height:28px;margin:0 auto;"></div></td></tr>';
+  }
+  try {
+    const response = await fetch(apiUrl(`/api/agency/me/settlements?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&page=${agencySettlementPage}&limit=10&_=${Date.now()}`), {
+      headers: {
+        'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+      },
+      cache: 'no-store'
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(getFriendlyErrorMessage(err, '대리점 정산 내역을 불러오지 못했습니다.'));
+    }
+    const payload = await response.json();
+    renderAgencySettlement(payload.data || {});
+  } catch (error) {
+    console.error(error);
+    renderAgencySettlement({ items: [], summary: {} });
+    showToast(error.message || '대리점 정산 내역을 불러오지 못했습니다.');
   }
 }
 
@@ -1547,6 +2093,8 @@ document.addEventListener('DOMContentLoaded', () => {
   resetAppToSplash();
   startInitialFlow();
   loadInstallmentBanner();
+  normalizeBackButtons();
+  void fetchTalkPosts(5);
 
   // Hardware/Virtual Device back button history bindings
   window.history.replaceState({ screen: 'splash' }, '');
@@ -1573,9 +2121,33 @@ document.addEventListener('DOMContentLoaded', () => {
   $$('.btn-back').forEach(btn => btn.addEventListener('click', goBack));
 
   // Bottom Nav & Home Banner Click Bindings
-  $$('[id^="nav-home"]').forEach(btn => btn.addEventListener('click', () => navigate('home')));
-  $$('[id^="nav-my"]').forEach(btn => btn.addEventListener('click', () => navigate('my')));
-  $$('[id^="nav-cs"]').forEach(btn => btn.addEventListener('click', () => navigate('cs-main')));
+  document.addEventListener('click', event => {
+    const navItem = event.target.closest('.bottom-nav .nav-item');
+    if (!navItem) return;
+    const target = navItem.dataset.navTarget || '';
+    if (target) {
+      event.preventDefault();
+      if (target === 'home') navigate('home');
+      else if (target === 'agency') navigate('agency');
+      else if (target === 'my') navigate('my');
+      else if (target === 'cs') navigate('cs-main');
+      return;
+    }
+    const id = navItem.id || '';
+    if (id.startsWith('nav-home')) {
+      event.preventDefault();
+      navigate('home');
+    } else if (id.startsWith('nav-agency')) {
+      event.preventDefault();
+      navigate('agency');
+    } else if (id.startsWith('nav-my')) {
+      event.preventDefault();
+      navigate('my');
+    } else if (id.startsWith('nav-cs')) {
+      event.preventDefault();
+      navigate('cs-main');
+    }
+  });
   $$('img[src*="logo.png"]').forEach(logo => {
     logo.style.cursor = 'pointer';
     logo.setAttribute('role', 'button');
@@ -1605,6 +2177,45 @@ document.addEventListener('DOMContentLoaded', () => {
     renderBenefitCardList();
     navigate('benefit-cards');
   });
+  $('#btn-talk-more')?.addEventListener('click', () => navigate('talk'));
+  $('#btn-talk-write')?.addEventListener('click', () => navigate('talk-write'));
+  $('#btn-talk-chats')?.addEventListener('click', () => navigate('talk-chats'));
+  $('#btn-talk-submit')?.addEventListener('click', submitTalkPost);
+  $('#btn-talk-image-pick')?.addEventListener('click', () => $('#talk-image-input')?.click());
+  $('#talk-image-input')?.addEventListener('change', event => {
+    const files = Array.from(event.target.files || []).filter(file => file.type.startsWith('image/'));
+    talkImageFiles = [...talkImageFiles, ...files].slice(0, 10);
+    if (files.length > 10 || talkImageFiles.length >= 10) showToast('이미지는 최대 10개까지 첨부할 수 있습니다.');
+    renderTalkImagePreview();
+  });
+  $('#talk-image-preview')?.addEventListener('click', event => {
+    const btn = event.target.closest('.talk-image-remove');
+    if (!btn) return;
+    talkImageFiles.splice(Number(btn.getAttribute('data-index')), 1);
+    renderTalkImagePreview();
+  });
+  $('#home-talk-list')?.addEventListener('click', event => {
+    const item = event.target.closest('.talk-item');
+    if (!item) return;
+    openTalkDetail(item.getAttribute('data-talk-id'));
+  });
+  $('#talk-board-list')?.addEventListener('click', event => {
+    const card = event.target.closest('.talk-board-card');
+    if (!card) return;
+    openTalkDetail(card.getAttribute('data-talk-id'));
+  });
+  $('#talk-chat-list')?.addEventListener('click', event => {
+    const row = event.target.closest('.talk-chat-row');
+    if (!row) return;
+    selectedTalkChatId = row.getAttribute('data-chat-id');
+    navigate('talk-chat');
+  });
+  $('#btn-talk-chat-send')?.addEventListener('click', sendTalkMessage);
+  $('#talk-chat-input')?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void sendTalkMessage();
+  });
   document.addEventListener('click', event => {
     const btn = event.target.closest('.btn-benefit-card-select');
     if (!btn) return;
@@ -1618,13 +2229,17 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#to-register')?.addEventListener('click', () => navigate('reg-step1'));
   $('#to-find-id')?.addEventListener('click', () => navigate('find-id'));
   $('#to-find-pw')?.addEventListener('click', () => navigate('find-pw'));
+  $('#my-agency-settlement-btn')?.addEventListener('click', () => navigate('agency'));
+  $('#agency-search-btn')?.addEventListener('click', () => {
+    agencySettlementPage = 1;
+    void fetchAgencySettlement(1);
+  });
   
   $('#login-submit-btn')?.addEventListener('click', async () => {
     const btn = $('#login-submit-btn');
     const idInput = $('#login-id');
-    const pwInput = $('#login-pw');
     const username = idInput ? idInput.value.trim() : '';
-    const password = pwInput ? pwInput.value.trim() : '';
+    const password = getPasswordValue('#login-pw');
 
     if (!username || !password) {
       showToast('아이디와 비밀번호를 입력해주세요.');
@@ -1646,7 +2261,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error?.message || errData.message || '로그인에 실패했습니다.');
+        throw new Error(getFriendlyErrorMessage(errData, '로그인에 실패했습니다.'));
       }
 
       const resPayload = await response.json();
@@ -1656,7 +2271,7 @@ document.addEventListener('DOMContentLoaded', () => {
         syncLoggedInViews();
         const approvalState = getApprovalState(resPayload.data.user || null);
         if (approvalState === 'approved') {
-          if (typeof fetchPaymentHistory === 'function') {
+          if (!isAgencyAccount(resPayload.data.user || null) && typeof fetchPaymentHistory === 'function') {
             fetchPaymentHistory();
           }
           navigate('home');
@@ -1687,6 +2302,96 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.disabled = false;
     }
   });
+
+  const getPasswordValue = (inputId) => {
+    const input = $(inputId);
+    return input?.dataset.realPassword ?? input?.value ?? '';
+  };
+
+  const clearPasswordValue = (inputId) => {
+    const input = $(inputId);
+    if (!input) return;
+    input.dataset.realPassword = '';
+    input.value = '';
+  };
+
+  const bindMaskedPasswordInput = (inputId, toggleId, options = {}) => {
+    const input = $(inputId);
+    const toggle = toggleId ? $(toggleId) : null;
+    if (!input) return;
+    const maxLength = Number(options.maxLength || 0);
+    const digitsOnly = !!options.digitsOnly;
+    let realPassword = input.dataset.realPassword || '';
+    let isVisible = false;
+
+    const render = (cursor = realPassword.length) => {
+      input.dataset.realPassword = realPassword;
+      input.type = 'text';
+      input.value = isVisible ? realPassword : '*'.repeat(realPassword.length);
+      if (toggle) {
+        toggle.textContent = isVisible ? '숨김' : '보기';
+        toggle.setAttribute('aria-label', isVisible ? '비밀번호 숨기기' : '비밀번호 보기');
+      }
+      requestAnimationFrame(() => {
+        const pos = Math.max(0, Math.min(cursor, input.value.length));
+        input.setSelectionRange(pos, pos);
+      });
+    };
+
+    input.addEventListener('beforeinput', (event) => {
+      if (isVisible) return;
+      event.preventDefault();
+      const start = input.selectionStart ?? realPassword.length;
+      const end = input.selectionEnd ?? start;
+      let nextCursor = start;
+
+      if (event.inputType === 'deleteContentBackward') {
+        if (start === end && start > 0) {
+          realPassword = realPassword.slice(0, start - 1) + realPassword.slice(end);
+          nextCursor = start - 1;
+        } else {
+          realPassword = realPassword.slice(0, start) + realPassword.slice(end);
+        }
+      } else if (event.inputType === 'deleteContentForward') {
+        realPassword = realPassword.slice(0, start) + realPassword.slice(start === end ? end + 1 : end);
+      } else {
+        let inserted = event.data || event.clipboardData?.getData('text') || '';
+        if (digitsOnly) inserted = inserted.replace(/\D/g, '');
+        if (maxLength > 0) inserted = inserted.slice(0, Math.max(0, maxLength - (realPassword.length - (end - start))));
+        realPassword = realPassword.slice(0, start) + inserted + realPassword.slice(end);
+        if (maxLength > 0) realPassword = realPassword.slice(0, maxLength);
+        nextCursor = start + inserted.length;
+      }
+
+      render(nextCursor);
+    });
+
+    input.addEventListener('input', () => {
+      if (!isVisible) return;
+      realPassword = digitsOnly ? input.value.replace(/\D/g, '') : input.value;
+      if (maxLength > 0) realPassword = realPassword.slice(0, maxLength);
+      input.dataset.realPassword = realPassword;
+      if (input.value !== realPassword) input.value = realPassword;
+    });
+
+    toggle?.addEventListener('click', () => {
+      if (isVisible) realPassword = input.value;
+      isVisible = !isVisible;
+      render(realPassword.length);
+      input.focus();
+    });
+
+    render(0);
+  };
+
+  bindMaskedPasswordInput('#login-pw', '#login-pw-toggle');
+  bindMaskedPasswordInput('#reg-pw', '#reg-pw-toggle');
+  bindMaskedPasswordInput('#add-card-pw', null, { maxLength: 2, digitsOnly: true });
+  bindMaskedPasswordInput('#find-pw-new', null);
+  bindMaskedPasswordInput('#find-pw-new2', null);
+  bindMaskedPasswordInput('#edit-myinfo-current-pw', null);
+  bindMaskedPasswordInput('#edit-myinfo-new-pw', null);
+  bindMaskedPasswordInput('#edit-myinfo-new-pw-confirm', null);
 
   // --------- SOCIAL LOGINS ---------
   const handleSocialLogin = (btnId, name) => {
@@ -1793,7 +2498,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --------- REG STEP 3 ---------
   $('#reg-step2-next')?.addEventListener('click', () => {
     const id = $('#reg-id')?.value;
-    const pw = $('#reg-pw')?.value;
+    const pw = getPasswordValue('#reg-pw');
     const phone = $('#reg-phone')?.value;
     const sms = $('#reg-sms-input')?.value;
 
@@ -1952,7 +2657,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const businessNumber = $('#reg-biz-no')?.value;
     const email = $('#reg-id')?.value;
-    const password = $('#reg-pw')?.value;
+    const password = getPasswordValue('#reg-pw');
     const phone = $('#reg-phone')?.value;
     const storeName = $('#reg-store-name')?.value;
     const ceoName = $('#reg-ceo-name')?.value;
@@ -1991,14 +2696,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || '회원가입에 실패했습니다.');
+        throw new Error(getFriendlyErrorMessage(err, '회원가입에 실패했습니다.'));
       }
 
       showToast('가입이 완료되었습니다.');
       state.history = [];
       navigate('login');
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     } finally {
       btn.textContent = '가입하기';
       btn.disabled = false;
@@ -2052,8 +2757,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const id = $('#find-pw-id')?.value;
     const phone = findPwPhone?.value;
     const sms = $('#find-pw-sms-input')?.value;
-    const pw = $('#find-pw-new')?.value;
-    const pw2 = $('#find-pw-new2')?.value;
+    const pw = getPasswordValue('#find-pw-new');
+    const pw2 = getPasswordValue('#find-pw-new2');
     
     if (!id) { showToast('아이디를 입력해주세요.'); return; }
     if (!phone) { showToast('휴대번호를 입력해주세요.'); return; }
@@ -2153,7 +2858,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardCompany = cardCompanySelect && cardCompanySelect.selectedIndex === cardCompanySelect.options.length - 1
       ? (cardCompanyCustom || '')
       : cardCompanyValue;
-    const cardPw = $('#add-card-pw')?.value;
+    const cardPw = getPasswordValue('#add-card-pw');
     const month = $('#add-card-month')?.value;
     const year = $('#add-card-year')?.value;
     const identity = $('#add-card-identity')?.value;
@@ -2192,14 +2897,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
-          throw new Error(err.error?.message || err.message || '카드 수정에 실패했습니다.');
+          throw new Error(getFriendlyErrorMessage(err, '카드 수정에 실패했습니다.'));
         }
         cardEditDraft = null;
         showToast('카드 정보가 수정되었습니다.');
         navigate('card-list');
         await refreshCardList();
       } catch (err) {
-        showToast(err.message);
+        showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
       } finally {
         btn.textContent = '카드수정';
         btn.disabled = false;
@@ -2238,14 +2943,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || '카드 등록에 실패했습니다.');
+        throw new Error(getFriendlyErrorMessage(err, '카드 등록에 실패했습니다.'));
       }
 
       const resJson = await response.json();
       showToast('카드가 성공적으로 등록되었습니다.');
 
       if (cardNumInput) cardNumInput.value = '';
-      if ($('#add-card-pw')) $('#add-card-pw').value = '';
+      clearPasswordValue('#add-card-pw');
       if ($('#add-card-month')) $('#add-card-month').value = '';
       if ($('#add-card-year')) $('#add-card-year').value = '';
       if (inputIdentity) inputIdentity.value = '';
@@ -2270,7 +2975,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await refreshCardList();
       }
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     } finally {
       btn.textContent = '\uCE74\uB4DC\uB4F1\uB85D';
       btn.disabled = false;
@@ -2348,7 +3053,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }).join('');
 
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
       historyContainer.innerHTML = `
         <div style="text-align:center; padding:40px 20px; color:#e53935; font-weight:700; font-size:14px;">
           데이터를 불러오지 못했습니다.
@@ -2359,7 +3064,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Navigations
   $('#my-payment-history-btn')?.addEventListener('click', () => {
-    syncPaymentHistoryDateRange();
+    syncPaymentHistoryDateRange(true);
     navigate('payment-history');
     if (isAuthenticated()) {
       fetchPaymentHistory();
@@ -2461,6 +3166,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = getSessionUser();
 
     if (!isAuthenticated() || !user) { showToast('로그인이 필요합니다.'); navigate('login'); return; }
+    try {
+      const accounts = await fetchVaccountsFromDb();
+      if (accounts.length >= 2) {
+        await showAppAlert('가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다. 기존 계좌를 삭제한 뒤 다시 등록해 주세요.', '계좌 등록 제한');
+        navigate('vaccount-list');
+        return;
+      }
+    } catch (error) {
+      console.warn('Failed to check account count before submit:', error);
+    }
     if (!bank) { showToast('은행을 선택해주세요.'); return; }
     if (!accountNum || accountNum.length < 8) { showToast('가상계좌번호를 올바르게 입력해주세요.'); return; }
     if (!selectedAgency) { showToast('배달대행사를 선택해주세요.'); return; }
@@ -2499,7 +3214,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || '가상계좌 등록요청에 실패했습니다.');
+        throw new Error(getFriendlyErrorMessage(err, '가상계좌 등록요청에 실패했습니다.'));
       }
 
       const payload = await response.json().catch(() => null);
@@ -2550,7 +3265,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navigate('vaccount-list');
       await refreshVaccountList();
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     } finally {
       btn.textContent = '계좌등록요청';
       btn.disabled = false;
@@ -2599,7 +3314,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const err = await response.json().catch(() => ({}));
       throw new Error(err.error?.code === 'INVALID_CURRENT_PASSWORD'
         ? '현재 비밀번호가 일치하지 않습니다.'
-        : (err.error?.message || '회원정보 변경에 실패했습니다.'));
+        : getFriendlyErrorMessage(err, '회원정보 변경에 실패했습니다.'));
     }
     const data = await response.json().catch(() => null);
     const user = data?.data?.user;
@@ -2623,15 +3338,15 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       await updateMyInfo({ phone }, '휴대번호가 성공적으로 변경되었습니다.');
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     }
   });
 
   $('#edit-myinfo-submit')?.addEventListener('click', async () => {
     const phone = editPhoneInput?.value || undefined;
-    const currentPassword = $('#edit-myinfo-current-pw')?.value || '';
-    const newPassword = $('#edit-myinfo-new-pw')?.value || '';
-    const confirmPassword = $('#edit-myinfo-new-pw-confirm')?.value || '';
+    const currentPassword = getPasswordValue('#edit-myinfo-current-pw');
+    const newPassword = getPasswordValue('#edit-myinfo-new-pw');
+    const confirmPassword = getPasswordValue('#edit-myinfo-new-pw-confirm');
 
     if (phone && phone.length < 10) {
       showToast('휴대번호를 올바르게 입력해주세요.');
@@ -2660,13 +3375,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const ok = await updateMyInfo(payload, '회원정보가 수정되었습니다.');
       if (ok) {
-        ['edit-myinfo-current-pw','edit-myinfo-new-pw','edit-myinfo-new-pw-confirm'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) el.value = '';
-        });
+        ['#edit-myinfo-current-pw','#edit-myinfo-new-pw','#edit-myinfo-new-pw-confirm'].forEach(clearPasswordValue);
       }
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = prevText || '회원정보 수정'; }
     }
@@ -2787,7 +3499,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.message || '결제 처리에 실패했습니다.');
+        throw new Error(getFriendlyErrorMessage(errData, '결제 처리에 실패했습니다.'));
       }
 
       showToast('결제가 성공적으로 완료되어 충전되었습니다.');
@@ -2824,7 +3536,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navigate('home');
 
     } catch (err) {
-      showToast(err.message);
+      showToast(getFriendlyErrorMessage(err, '요청을 처리하지 못했습니다.'));
     } finally {
       btn.innerHTML = originalHtml;
       btn.disabled = false;
@@ -2834,4 +3546,3 @@ document.addEventListener('DOMContentLoaded', () => {
   // Removed Interactive Calendar Date Picker code block since separate input elements are now used.
 
 });
-
