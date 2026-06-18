@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eatspay-pwa-v1';
+const CACHE_NAME = 'eatspay-pwa-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
