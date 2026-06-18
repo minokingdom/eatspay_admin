@@ -2442,7 +2442,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const getPasswordValue = (inputId) => {
     const input = $(inputId);
-    return input?.dataset.realPassword ?? input?.value ?? '';
+    return input?.value ?? input?.dataset.realPassword ?? '';
   };
 
   const clearPasswordValue = (inputId) => {
@@ -2458,67 +2458,32 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!input) return;
     const maxLength = Number(options.maxLength || 0);
     const digitsOnly = !!options.digitsOnly;
-    let realPassword = input.dataset.realPassword || '';
     let isVisible = false;
 
-    const render = (cursor = realPassword.length) => {
-      input.dataset.realPassword = realPassword;
-      input.type = 'text';
-      input.value = isVisible ? realPassword : '*'.repeat(realPassword.length);
+    const syncInputMode = () => {
+      input.type = isVisible ? 'text' : 'password';
+      input.style.color = '#111827';
+      input.style.webkitTextFillColor = '#111827';
+      input.style.caretColor = '#111827';
       if (toggle) {
         toggle.textContent = isVisible ? '숨김' : '보기';
         toggle.setAttribute('aria-label', isVisible ? '비밀번호 숨기기' : '비밀번호 보기');
       }
-      requestAnimationFrame(() => {
-        const pos = Math.max(0, Math.min(cursor, input.value.length));
-        input.setSelectionRange(pos, pos);
-      });
     };
 
-    input.addEventListener('beforeinput', (event) => {
-      if (isVisible) return;
-      event.preventDefault();
-      const start = input.selectionStart ?? realPassword.length;
-      const end = input.selectionEnd ?? start;
-      let nextCursor = start;
-
-      if (event.inputType === 'deleteContentBackward') {
-        if (start === end && start > 0) {
-          realPassword = realPassword.slice(0, start - 1) + realPassword.slice(end);
-          nextCursor = start - 1;
-        } else {
-          realPassword = realPassword.slice(0, start) + realPassword.slice(end);
-        }
-      } else if (event.inputType === 'deleteContentForward') {
-        realPassword = realPassword.slice(0, start) + realPassword.slice(start === end ? end + 1 : end);
-      } else {
-        let inserted = event.data || event.clipboardData?.getData('text') || '';
-        if (digitsOnly) inserted = inserted.replace(/\D/g, '');
-        if (maxLength > 0) inserted = inserted.slice(0, Math.max(0, maxLength - (realPassword.length - (end - start))));
-        realPassword = realPassword.slice(0, start) + inserted + realPassword.slice(end);
-        if (maxLength > 0) realPassword = realPassword.slice(0, maxLength);
-        nextCursor = start + inserted.length;
-      }
-
-      render(nextCursor);
-    });
-
     input.addEventListener('input', () => {
-      if (!isVisible) return;
-      realPassword = digitsOnly ? input.value.replace(/\D/g, '') : input.value;
-      if (maxLength > 0) realPassword = realPassword.slice(0, maxLength);
-      input.dataset.realPassword = realPassword;
-      if (input.value !== realPassword) input.value = realPassword;
+      let nextValue = digitsOnly ? input.value.replace(/\D/g, '') : input.value;
+      if (maxLength > 0) nextValue = nextValue.slice(0, maxLength);
+      if (input.value !== nextValue) input.value = nextValue;
     });
 
     toggle?.addEventListener('click', () => {
-      if (isVisible) realPassword = input.value;
       isVisible = !isVisible;
-      render(realPassword.length);
+      syncInputMode();
       input.focus();
     });
 
-    render(0);
+    syncInputMode();
   };
 
   bindMaskedPasswordInput('#login-pw', '#login-pw-toggle');
