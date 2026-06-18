@@ -1596,7 +1596,7 @@ function rAg(){
     const arg=jsArg(a.id);
     const hasAccount=a.settleBankName&&a.settleAccountNo;
     return `<tr style="cursor:pointer;background:${depth===0?'#F7FFF5':depth===1?'#FBFFFB':'#fff'}" onclick="goAgDetail(${arg})">
-      <td>${agencyTypeBadge(a)}</td>
+      <td onclick="event.stopPropagation();goAgDetail(${arg})" title="상세 보기" style="cursor:pointer">${agencyTypeBadge(a)}</td>
       <td style="font-weight:700;padding-left:${12+(depth*18)}px">${depth?'<span style="color:#9CA3AF;margin-right:6px">└</span>':''}${esc(a.name||'-')}</td>
       <td style="font-size:11px;color:#6B7280;font-family:monospace">${esc(a.loginId||'-')}</td>
       <td>${esc(a.owner||'-')}</td><td>${esc(a.phone||'-')}</td>
@@ -1656,24 +1656,29 @@ function pgAgDetail(){
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn bo" onclick="page='agencies';agDetailId=null;renderNav();renderPage()">← 목록으로</button><h2 style="margin:0;font-size:18px">${esc(ag.name)}</h2>${agencyTypeBadge(ag)}</div>
     <div class="ab"><button class="btn bo" onclick="edAg(${jsArg(ag.id)})">정보 수정</button><button class="btn bd" onclick="delAg(${jsArg(ag.id)})">삭제</button></div>
   </div>
-  <div class="kg" style="margin-bottom:14px">
-    <div class="k"><div class="kl">하위 대리점</div><div class="kv">${children.length}개</div><div class="ks">직속 기준</div></div>
-    <div class="k"><div class="kl">이용 가맹점</div><div class="kv">${frs.length}개</div><div class="ks">하위 포함</div></div>
-    <div class="k"><div class="kl">전체 결제금액</div><div class="kv">${fmt(amount)}</div><div class="ks">하위 포함</div></div>
-    <div class="k"><div class="kl">대리점 수수료</div><div class="kv">${fmt(agencyFee)}</div><div class="ks">${Number(getEffRate(ag)||0).toFixed(2)}%</div></div>
-  </div>
-  <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(300px,.8fr);gap:14px">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px">
     <div style="display:flex;flex-direction:column;gap:14px">
       <div class="card"><div class="ch"><b>기본 정보</b></div><div style="padding:14px;display:grid;grid-template-columns:120px 1fr;gap:9px;font-size:13px">
         <span style="color:#6B7280">로그인 ID</span><b style="font-family:monospace">${esc(ag.loginId||'-')}</b>
-        <span style="color:#6B7280">상위 조직</span><span>${esc(agencyParentName(ag)||'-')}</span>
         <span style="color:#6B7280">대표자</span><span>${esc(ag.owner||'-')}</span>
         <span style="color:#6B7280">연락처</span><span>${esc(ag.phone||'-')}</span>
-        <span style="color:#6B7280">지역/주소</span><span>${esc(ag.region||ag.address||'-')}</span>
-        <span style="color:#6B7280">가입 코드</span><span style="font-family:monospace">${esc(ag.joinCode||'-')}</span>
-        <span style="color:#6B7280">가입 URL</span><span style="word-break:break-all">${esc(joinUrl)}</span>
-        <span style="color:#6B7280">운영 배달대행</span><span>${esc(ag.deliveryNote||'-')}</span>
+        <span style="color:#6B7280">주소</span><span>${esc(ag.region||ag.address||'-')}</span>
+        <span style="color:#6B7280">영업수수료율</span><b class="tg">${Number(getEffRate(ag)||0).toFixed(2)}%</b>
       </div></div>
+      <div class="card"><div class="ch"><b>가입 링크</b></div><div style="padding:14px">
+        <div style="display:flex;align-items:center;gap:8px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:8px 12px">
+          <span style="flex:1;font-family:monospace;font-size:12px;color:#374151;word-break:break-all">${esc(joinUrl)}</span>
+          <button class="btn bg2 sm" onclick="navigator.clipboard?.writeText('${esc(joinUrl)}');toast('복사되었습니다')">복사</button>
+        </div>
+      </div></div>
+      <div class="card"><div class="ch"><b>정산 계좌</b><button class="btn bg2 sm" onclick="edAg(${jsArg(ag.id)})">계좌 등록</button></div><div style="padding:14px">
+        ${ag.settleBankName||ag.settleAccountNo?`<div style="display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:13px">
+          <span style="color:#6B7280">은행</span><b>${esc(ag.settleBankName||'-')}</b>
+          <span style="color:#6B7280">계좌번호</span><b style="font-family:monospace">${esc(ag.settleAccountNo||'-')}</b>
+          <span style="color:#6B7280">예금주</span><b>${esc(ag.settleAccountHolder||'-')}</b>
+        </div>`:`<div class="emp" style="padding:18px">등록된 정산 계좌 없음</div>`}
+      </div></div>
+      <div class="card"><div class="ch"><b>계약서류</b><button class="btn bo sm" onclick="edAg(${jsArg(ag.id)})">업로드</button></div><div style="padding:14px;color:#9CA3AF;font-size:13px">${esc(ag.contractFileKey||ag.contractFileName||'등록된 계약서류 없음')}</div></div>
       <div class="card"><div class="ch"><b>소속 가맹점</b><span style="font-size:12px;color:#6B7280">${frs.length}개</span></div><div class="tw"><table><thead><tr><th>가맹점</th><th>대표자</th><th>대리점</th><th>카드</th><th>계좌</th><th>최근 결제</th></tr></thead><tbody>
         ${frs.slice(0,20).map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${jsArg(f.id)})"><td style="font-weight:700;color:#2563EB">${esc(f.name||'-')}</td><td>${esc(f.owner||f.ceoName||'-')}</td><td>${esc(agencyNameById(f.agencyId)||f.agency||'-')}</td><td>${(f.cards||[]).length}개</td><td>${(f.deliveryAgencies||[]).length}개</td><td>${esc(f.lastPaymentDate||'-')}</td></tr>`).join('')||'<tr><td colspan="6" class="emp">소속 가맹점이 없습니다.</td></tr>'}
       </tbody></table></div></div>
@@ -1682,14 +1687,8 @@ function pgAgDetail(){
       </tbody></table></div></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:14px">
-      <div class="card"><div class="ch"><b>조직 경로</b></div><div style="padding:14px">
+      <div class="card"><div class="ch"><b>조직 계층</b></div><div style="padding:14px">
         ${chain.map((a,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:${String(a.id)===String(ag.id)?'#F0FAF0':'#F9FAFB'};margin-bottom:6px;cursor:${String(a.id)===String(ag.id)?'default':'pointer'}" ${String(a.id)===String(ag.id)?'':`onclick="goAgDetail(${jsArg(a.id)})"`}><span style="width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${String(a.id)===String(ag.id)?'#3D9B35':'#E5E7EB'};color:${String(a.id)===String(ag.id)?'#fff':'#6B7280'};font-size:11px;font-weight:800">${i+1}</span><div><b style="font-size:12px">${esc(a.name)}</b><div style="font-size:10px;color:#9CA3AF">${agencyTypeLabel(a)}</div></div></div>`).join('')}
-      </div></div>
-      <div class="card"><div class="ch"><b>정산 계좌</b></div><div style="padding:14px;display:grid;gap:8px;font-size:13px">
-        <div><span style="color:#6B7280">은행</span><b style="float:right">${esc(ag.settleBankName||'-')}</b></div>
-        <div><span style="color:#6B7280">계좌번호</span><b style="float:right;font-family:monospace">${esc(ag.settleAccountNo||'-')}</b></div>
-        <div><span style="color:#6B7280">예금주</span><b style="float:right">${esc(ag.settleAccountHolder||'-')}</b></div>
-        <div><span style="color:#6B7280">계약서류</span><b style="float:right">${esc(ag.contractFileKey||ag.contractFileName||'-')}</b></div>
       </div></div>
       <div class="card"><div class="ch"><b>하위 대리점</b><span style="font-size:12px;color:#6B7280">${children.length}개</span></div><div style="padding:0">
         ${children.map(ch=>`<div style="padding:10px 14px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="goAgDetail(${jsArg(ch.id)})"><div><b style="font-size:13px">${esc(ch.name)}</b><div style="font-size:11px;color:#6B7280">${agencyTypeLabel(ch)} · ${Number(getEffRate(ch)||0).toFixed(2)}%</div></div><span style="color:#3D9B35">→</span></div>`).join('')||'<div class="emp" style="padding:18px">하위 대리점이 없습니다.</div>'}
