@@ -542,11 +542,7 @@ function showAccountDetail(fid,idx){
     ${da.rejectReason?`<div class="aw aw-w" style="margin-top:12px">반려 사유: ${da.rejectReason}</div>`:''}`,
   `${da.accountStatus!=='승인완료'?`<button class="btn bg2" onclick="approveAccount(${fid},${idx})">승인</button>`:''}
    ${da.accountStatus!=='반려'?`<button class="btn bd" onclick="rejectAccount(${fid},${idx})">반려</button>`:''}
-   ${da.accountStatus==='승인완료'
-      ? `<button class="btn bo" disabled style="opacity:.45;cursor:not-allowed" title="승인완료 계좌는 수정할 수 없습니다.">수정</button>`
-      : `<button class="btn bo" onclick="closeM();setTimeout(()=>editManagedAccount(${fid},${idx}),30)">수정</button>`}
-   <button class="btn bd" onclick="closeM();setTimeout(()=>deleteManagedAccount(${fid},${idx}),30)">삭제</button>
-   <button class="btn bo" onclick="closeM()">닫기</button>`);
+   <button class="btn bd" onclick="closeM();setTimeout(()=>deleteManagedAccount(${fid},${idx}),30)">삭제</button>`);
 }
 
 // ═══ 전표 팝업 ═══
