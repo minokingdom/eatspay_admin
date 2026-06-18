@@ -1881,6 +1881,37 @@ function franchiseStatusToRole(status) {
   return '';
 }
 
+function franchiseRoleStatusLabel(role) {
+  if (role === 'OWNER') return '정상 승인';
+  if (role === 'OWNER_REJECTED') return '승인 거절';
+  return '승인 대기';
+}
+
+async function notifyFranchiseStatusChanged(user, role) {
+  if (!user?.id) return null;
+  const statusLabel = franchiseRoleStatusLabel(role);
+  const notification = await repo.createNotification({
+    userId: user.id,
+    type: 'FRANCHISE_STATUS_CHANGED',
+    title: `가맹점 상태가 ${statusLabel}(으)로 변경되었습니다.`,
+    body: role === 'OWNER'
+      ? '이츠페이 가맹점 서비스 이용이 가능합니다.'
+      : role === 'OWNER_REJECTED'
+        ? '가맹점 상태가 승인 거절로 변경되었습니다. 자세한 내용은 고객센터로 문의해주세요.'
+        : '가맹점 상태가 승인 대기로 변경되었습니다.',
+    data: {
+      franchiseId: user.franchiseId || '',
+      role,
+      status: statusLabel,
+      changedAt: new Date().toISOString()
+    }
+  });
+  sendNotificationPushToUser(repo, user.id, notification).catch(err => {
+    console.warn('[push] Franchise status push failed:', err.message);
+  });
+  return notification;
+}
+
 app.patch('/api/admin/franchises/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
   const franchiseId = Number(req.params.id);
   const role = franchiseStatusToRole(req.body?.status || req.body?.role);
@@ -1892,6 +1923,7 @@ app.patch('/api/admin/franchises/:id/status', authenticateAdmin, asyncHandler(as
   if (!user) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
   }
+  await notifyFranchiseStatusChanged(user, role);
 
   return res.status(200).json({
     success: true,
@@ -1899,7 +1931,7 @@ app.patch('/api/admin/franchises/:id/status', authenticateAdmin, asyncHandler(as
       id: user.franchiseId,
       email: user.email,
       role: user.role,
-      status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기'
+      status: franchiseRoleStatusLabel(user.role)
     }
   });
 }));
@@ -2859,11 +2891,12 @@ app.post('/api/admin/franchise/approve', authenticateAdmin, asyncHandler(async (
   if (!user) {
     return sendError(res, 404, 'USER_NOT_FOUND', 'User was not found.');
   }
+  await notifyFranchiseStatusChanged(user, role);
 
   return res.status(200).json({
     success: true,
     message: 'Franchise status updated.',
-    data: { email: user.email, role: user.role }
+    data: { email: user.email, role: user.role, status: franchiseRoleStatusLabel(user.role) }
   });
 }));
 

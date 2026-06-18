@@ -2246,32 +2246,6 @@ async function syncBackendAccounts() {
   }
 }
 
-async function changeFrStatus(id,newStatus,selectEl){
-  const f=D.franchises.find(x=>String(x.id)===String(id));
-  if(!f)return;
-  if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
-    selectEl.value=f.status;return;
-  }
-  try{
-    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}/status`,{
-      method:'PATCH',
-      headers:adminAuthHeaders({'Content-Type':'application/json'}),
-      body:JSON.stringify({status:newStatus})
-    });
-    const json=await res.json().catch(()=>({}));
-    if(await handleAdminUnauthorized(res))return;
-    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'가맹점 상태 변경에 실패했습니다.');
-    f.status=json.data?.status||newStatus;
-    f.role=json.data?.role||f.role;
-    toast(`${f.name} → ${f.status}`);
-    await syncBackendTransactions({forceRender:true});
-    setTimeout(rFr,30);
-  }catch(e){
-    selectEl.value=f.status;
-    await adminAlert(e.message||'가맹점 상태 변경에 실패했습니다.');
-  }
-}
-
 async function approveAccount(fid,idx){
   const f=D.franchises.find(x=>String(x.id)===String(fid));
   if(!f||!f.deliveryAgencies||!f.deliveryAgencies[idx]){await adminAlert('계좌 요청 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
