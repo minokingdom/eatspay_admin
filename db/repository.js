@@ -862,6 +862,19 @@ function createRepository(pool) {
       return toUser(result.rows[0]);
     },
 
+    async updateFranchiseRoleById(franchiseId, role) {
+      const result = await pool.query(
+        `UPDATE users
+         SET role = $2,
+             updated_at = now()
+         WHERE franchise_id = $1
+           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+         RETURNING *`,
+        [franchiseId, role]
+      );
+      return toUser(result.rows[0]);
+    },
+
     async updateFranchiseAgency(franchiseId, agencyId) {
       const result = await pool.query(
         `UPDATE users

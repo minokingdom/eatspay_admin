@@ -1018,14 +1018,29 @@ function rFr(){
   </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
 }
 async function changeFrStatus(id,newStatus,selectEl){
-  const f=D.franchises.find(x=>x.id===id);
+  const f=D.franchises.find(x=>String(x.id)===String(id));
   if(!f)return;
   if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
-  f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
-  // 테이블 새로고침
-  setTimeout(rFr,30);
+  try{
+    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}/status`,{
+      method:'PATCH',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({status:newStatus})
+    });
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'가맹점 상태 변경에 실패했습니다.');
+    f.status=json.data?.status||newStatus;
+    f.role=json.data?.role||f.role;
+    toast(`${f.name} → ${f.status}`);
+    await syncBackendTransactions({forceRender:true});
+    setTimeout(rFr,30);
+  }catch(e){
+    selectEl.value=f.status;
+    await adminAlert(e.message||'가맹점 상태 변경에 실패했습니다.');
+  }
 }
 function pgFrDetail(){
   const f=(D.franchises||[]).find(x=>String(x.id)===String(frDetailId));
@@ -2232,36 +2247,29 @@ async function syncBackendAccounts() {
 }
 
 async function changeFrStatus(id,newStatus,selectEl){
-  const f=D.franchises.find(x=>x.id===id);
+  const f=D.franchises.find(x=>String(x.id)===String(id));
+  if(!f)return;
   if(!await adminConfirm(`'${f.name}'의 상태를 '${newStatus}'로 변경하시겠습니까?`)){
     selectEl.value=f.status;return;
   }
-
-  // Update backend if it has an email
-  if (f.email) {
-    try {
-      const res = await fetch('/api/admin/franchise/approve', {
-        method: 'POST',
-        headers: {
-          ...adminAuthHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email: f.email,
-          action: newStatus === '정상 승인' ? 'APPROVED' : 'REJECTED'
-        })
-      });
-      if (!res.ok) {
-        await adminAlert('백엔드 상태 변경 전송 실패');
-      }
-    } catch (e) {
-      console.error(e);
-    }
+  try{
+    const res=await fetch(`/api/admin/franchises/${encodeURIComponent(id)}/status`,{
+      method:'PATCH',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({status:newStatus})
+    });
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'가맹점 상태 변경에 실패했습니다.');
+    f.status=json.data?.status||newStatus;
+    f.role=json.data?.role||f.role;
+    toast(`${f.name} → ${f.status}`);
+    await syncBackendTransactions({forceRender:true});
+    setTimeout(rFr,30);
+  }catch(e){
+    selectEl.value=f.status;
+    await adminAlert(e.message||'가맹점 상태 변경에 실패했습니다.');
   }
-
-  f.status=newStatus;save();toast(`${f.name} → ${newStatus}`);renderNav();
-  // 테이블 새로고침
-  setTimeout(rFr,30);
 }
 
 async function approveAccount(fid,idx){

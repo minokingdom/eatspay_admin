@@ -1873,6 +1873,37 @@ app.post('/api/admin/franchises/agency/bulk', authenticateAdmin, asyncHandler(as
   });
 }));
 
+function franchiseStatusToRole(status) {
+  const value = String(status || '').trim();
+  if (value === '정상 승인' || value === 'OWNER') return 'OWNER';
+  if (value === '승인 대기' || value === 'OWNER_PENDING') return 'OWNER_PENDING';
+  if (value === '승인 거절' || value === 'OWNER_REJECTED') return 'OWNER_REJECTED';
+  return '';
+}
+
+app.patch('/api/admin/franchises/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
+  const franchiseId = Number(req.params.id);
+  const role = franchiseStatusToRole(req.body?.status || req.body?.role);
+  if (!Number.isFinite(franchiseId) || !role) {
+    return sendError(res, 400, 'BAD_REQUEST', 'franchiseId and valid status are required.');
+  }
+
+  const user = await repo.updateFranchiseRoleById(franchiseId, role);
+  if (!user) {
+    return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      id: user.franchiseId,
+      email: user.email,
+      role: user.role,
+      status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기'
+    }
+  });
+}));
+
 app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req, res) => {
   const franchiseId = Number(req.params.id);
   if (!Number.isFinite(franchiseId)) {
