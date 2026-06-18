@@ -1096,7 +1096,23 @@ function showAgencyPayments(agId,agName){
   `<button class="btn bg2" onclick="closeM()">닫기</button>`);
   document.querySelector('#mo .mbox')?.classList.add('wide');
 }// ═══ 가맹점 목록 ═══
-function pgFr(){return`
+function pgFr(){
+  const list=D.franchises||[];
+  const daily=list.filter(f=>dateOnly(f.joinDate||f.createdAt)===today()).length;
+  const month=today().slice(0,7);
+  const monthly=list.filter(f=>dateOnly(f.joinDate||f.createdAt).slice(0,7)===month).length;
+  const pending=list.filter(f=>franchiseAccountStatus(f)==='승인대기').length;
+  const cardReg=list.filter(franchiseCardRegistered).length;
+  const newCnt=list.filter(isNewFranchise).length;
+  return`
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;margin-bottom:14px">
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (일별)</div><div class="kv">${daily}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (월별)</div><div class="kv">${monthly}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">가맹점 (누적)</div><div class="kv">${list.length}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">신규 가맹점</div><div class="kv">${newCnt}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">계좌 승인대기</div><div class="kv">${pending}건</div></div>
+    <div class="kpi" style="border-left:none"><div class="kl">카드 등록</div><div class="kv">${cardReg}건</div></div>
+  </div>
   <div style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start">
     <div>
       ${role==='hq'?`<div style="text-align:right;margin-bottom:10px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
