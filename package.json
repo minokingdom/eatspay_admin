@@ -20,7 +20,9 @@
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
     "@capacitor/ios": "^8.4.0",
+    "@capacitor/push-notifications": "^8.1.1",
     "express": "^4.19.2",
+    "firebase-admin": "^14.0.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.21.0"
   }

@@ -7,6 +7,7 @@ const multer = require('multer');
 
 const { createPool } = require('./db/pool');
 const { createRepository } = require('./db/repository');
+const { sendPushToUser } = require('./push');
 
 loadEnv();
 
@@ -1279,7 +1280,7 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
   const owner = await repo.findUserByFranchiseId(request.franchiseId);
   if (owner) {
     const approved = action === 'APPROVED';
-    await repo.createNotification({
+    const notification = {
       userId: owner.id,
       type: approved ? 'ACCOUNT_APPROVED' : 'ACCOUNT_REJECTED',
       title: approved ? '가상계좌가 승인되었습니다.' : '가상계좌가 반려되었습니다.',
@@ -1293,6 +1294,10 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
         accountNo: request.accountNo,
         assignedVirtualAccount: action === 'APPROVED' ? assignedVirtualAccount : null
       }
+    };
+    await repo.createNotification(notification);
+    sendPushToUser(repo, owner.id, notification).catch(err => {
+      console.error('[push] Account approval push failed:', err.message);
     });
   }
 

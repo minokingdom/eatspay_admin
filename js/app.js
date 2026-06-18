@@ -46,6 +46,7 @@ let talkImageFiles = [];
 let selectedTalkPostId = null;
 let selectedTalkChatId = null;
 let talkChatPollTimer = null;
+let pushRegistrationStarted = false;
 
 function loadDaumPostcodeScript() {
   if (window.daum?.Postcode) return Promise.resolve();
@@ -1643,6 +1644,54 @@ async function showUnreadNotifications() {
   }
 }
 
+function getPushNotificationsPlugin() {
+  return window.Capacitor?.Plugins?.PushNotifications || null;
+}
+
+function getDevicePlatform() {
+  return window.Capacitor?.getPlatform?.() || 'web';
+}
+
+async function registerDevicePushToken() {
+  if (!isAuthenticated()) return;
+  const pushNotifications = getPushNotificationsPlugin();
+  if (!pushNotifications) return;
+  if (pushRegistrationStarted) return;
+  pushRegistrationStarted = true;
+
+  try {
+    const permission = await pushNotifications.requestPermissions();
+    if (permission.receive !== 'granted') return;
+
+    await pushNotifications.addListener('registration', async (token) => {
+      const value = token?.value || '';
+      if (!value) return;
+      await fetch(apiUrl('/api/push-token'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionStorage.getItem('accessToken') || ''}`
+        },
+        body: JSON.stringify({
+          token: value,
+          platform: getDevicePlatform()
+        })
+      }).catch(() => {});
+    });
+
+    await pushNotifications.addListener('pushNotificationReceived', (notification) => {
+      const title = notification?.title || '알림';
+      const body = notification?.body || '새 알림이 있습니다.';
+      showAppAlert(body, title);
+    });
+
+    await pushNotifications.register();
+  } catch (err) {
+    pushRegistrationStarted = false;
+    console.warn('Push registration failed:', err);
+  }
+}
+
 function todayYMD() {
   const now = new Date();
   const koreaTime = new Date(now.getTime() + (9 * 60 + now.getTimezoneOffset()) * 60000);
@@ -2128,6 +2177,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
+  if (isAuthenticated()) {
+    registerDevicePushToken();
+  }
 
   resetAppToSplash();
   startInitialFlow();
@@ -2308,6 +2360,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.setItem('accessToken', resPayload.data.accessToken);
         sessionStorage.setItem('userProfile', JSON.stringify(resPayload.data.user || null));
         syncLoggedInViews();
+        registerDevicePushToken();
         const approvalState = getApprovalState(resPayload.data.user || null);
         if (approvalState === 'approved') {
           if (!isAgencyAccount(resPayload.data.user || null) && typeof fetchPaymentHistory === 'function') {

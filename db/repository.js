@@ -440,6 +440,33 @@ function createRepository(pool) {
       return result.rows[0];
     },
 
+    async listEnabledPushTokens(userId) {
+      const result = await pool.query(
+        `SELECT token, platform
+         FROM push_tokens
+         WHERE user_id = $1 AND enabled = true
+         ORDER BY updated_at DESC`,
+        [userId]
+      );
+      return result.rows;
+    },
+
+    async disablePushTokens(tokens) {
+      const cleanTokens = (Array.isArray(tokens) ? tokens : [])
+        .map(token => String(token || '').trim())
+        .filter(Boolean);
+      if (!cleanTokens.length) return [];
+      const result = await pool.query(
+        `UPDATE push_tokens
+         SET enabled = false,
+             updated_at = now()
+         WHERE token = ANY($1::text[])
+         RETURNING token`,
+        [cleanTokens]
+      );
+      return result.rows;
+    },
+
     async createUser(user) {
       const result = await pool.query(
         `INSERT INTO users (
