@@ -8,6 +8,8 @@ const files = [
   'index.html',
   'logo.png',
   'Asset 1@2x.png',
+  'manifest.webmanifest',
+  'sw.js',
   '구글.png',
   '네이버.png',
   '카카오톡.png'

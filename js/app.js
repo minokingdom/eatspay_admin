@@ -1540,6 +1540,10 @@ function startSmsCountdown(el) {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+  if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
   resetAppToSplash();
   startInitialFlow();
   loadInstallmentBanner();
