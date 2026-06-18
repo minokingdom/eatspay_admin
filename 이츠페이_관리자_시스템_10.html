@@ -540,6 +540,10 @@ function showAccountDetail(fid,idx){
     ${da.rejectReason?`<div class="aw aw-w" style="margin-top:12px">반려 사유: ${da.rejectReason}</div>`:''}`,
   `${da.accountStatus!=='승인완료'?`<button class="btn bg2" onclick="approveAccount(${fid},${idx})">승인</button>`:''}
    ${da.accountStatus!=='반려'?`<button class="btn bd" onclick="rejectAccount(${fid},${idx})">반려</button>`:''}
+   ${da.accountStatus==='승인완료'
+      ? `<button class="btn bo" disabled style="opacity:.45;cursor:not-allowed" title="승인완료 계좌는 수정할 수 없습니다.">수정</button>`
+      : `<button class="btn bo" onclick="closeM();setTimeout(()=>editManagedAccount(${fid},${idx}),30)">수정</button>`}
+   <button class="btn bd" onclick="closeM();setTimeout(()=>deleteManagedAccount(${fid},${idx}),30)">삭제</button>
    <button class="btn bo" onclick="closeM()">닫기</button>`);
 }
 
@@ -1375,32 +1379,48 @@ async function delF(id){
 
 // ═══ 출금계좌 목록 ═══
 function pgAccounts(){return`
-  <div class="aw aw-b">출금계좌 목록은 등록된 계좌의 수정·삭제 관리 화면입니다. 승인/반려 처리는 대시보드의 계좌 승인 대기 영역에서 진행합니다.</div>
-  <div class="sb2">
-    <input class="si" id="acs" placeholder="가맹점명 · 배달대행사 · 계좌번호 통합검색..." oninput="rAcc()">
-    <select class="fs" style="width:130px" id="acst" onchange="rAcc()"><option value="">전체 상태</option><option>승인대기</option><option>승인완료</option><option>반려</option></select>
-  </div>
-  <div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">출금계좌 목록</span></div>
-  <div class="tw"><table class="accounts-table"><colgroup><col style="width:120px"><col style="width:110px"><col style="width:105px"><col style="width:145px"><col class="proof-col"><col style="width:86px"><col style="width:76px"><col style="width:86px"></colgroup><thead><tr><th>가맹점명</th><th>대리점</th><th>배달대행사</th><th>가상계좌번호</th><th>증빙파일명</th><th>요청일</th><th>상태</th><th>처리</th></tr></thead><tbody id="acb"></tbody></table></div></div>`;}
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:start">
+    <div class="card">
+      <div class="tw"><table class="accounts-table" style="min-width:1060px"><colgroup><col style="width:120px"><col style="width:130px"><col style="width:170px"><col style="width:130px"><col style="width:110px"><col style="width:160px"><col style="width:120px"><col style="width:110px"><col style="width:76px"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>확인</th></tr></thead><tbody id="acb"></tbody></table></div>
+    </div>
+    <div style="position:sticky;top:16px">
+      <div class="card" style="padding:16px">
+        ${fRow('상태',`<select class="fs" id="acst" onchange="rAcc()"><option value="">전체</option><option value="승인완료">정상 승인</option><option value="승인대기">승인 대기</option><option value="반려">반려</option></select>`)}
+        ${fRow('회원 아이디',`<input class="fi" id="acuid" placeholder="회원 아이디" oninput="rAcc()">`)}
+        ${fRow('가맹점명',`<input class="fi" id="acfn" placeholder="가맹점명" oninput="rAcc()">`)}
+        ${fRow('배달대행사',makeSdd('acda',(D.deliveryAgencyList||[]).filter(a=>a.status!=='deleted').map(a=>({val:a.name,label:a.name})),'rAcc()'))}
+        ${fRow('계좌번호/예금주명',`<input class="fi" id="acacct" placeholder="계좌번호 또는 예금주" oninput="rAcc()">`)}
+        <button class="btn bg2" onclick="rAcc()" style="width:100%;justify-content:center;margin-bottom:8px">검색</button>
+        <button class="btn bo" onclick="clearAccFilters()" style="width:100%;justify-content:center">초기화</button>
+      </div>
+    </div>
+  </div>`;}
+function clearAccFilters(){['acst','acuid','acfn','acacct'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.acda='';rAcc();}
 function rAcc(){
-  const q=v('acs').toLowerCase(),st=v('acst');
+  const st=v('acst'),userQ=v('acuid').toLowerCase(),nameQ=v('acfn').toLowerCase(),accountQ=v('acacct').toLowerCase(),agencyQ=String(_sddSel.acda||'');
   const el=document.getElementById('acb');if(!el)return;
   const rows=[];
-  D.franchises.forEach(f=>{(f.deliveryAgencies||[]).forEach((da,i)=>{if(st&&da.accountStatus!==st)return;if(q&&!f.name.toLowerCase().includes(q)&&!da.agency.toLowerCase().includes(q)&&!(da.accountNo||'').includes(q))return;rows.push({fid:f.id,fname:f.name,fagency:f.agency,idx:i,...da});});});
+  D.franchises.forEach(f=>{(f.deliveryAgencies||[]).forEach((da,i)=>{
+    const memberId=String(f.customerId||f.email||'-');
+    const accountText=`${da.accountNo||''} ${da.accountHolder||f.owner||''}`.toLowerCase();
+    if(st&&da.accountStatus!==st)return;
+    if(userQ&&!memberId.toLowerCase().includes(userQ))return;
+    if(nameQ&&!String(f.name||'').toLowerCase().includes(nameQ))return;
+    if(agencyQ&&String(da.agency||'')!==agencyQ)return;
+    if(accountQ&&!accountText.includes(accountQ))return;
+    rows.push({fid:f.id,fname:f.name,fagency:f.agency,memberId,owner:f.owner,idx:i,...da});
+  });});
   el.innerHTML=rows.map(a=>`<tr>
-    <td style="font-weight:600;cursor:pointer;color:#3B82F6" onclick="showAccountDetail(${a.fid},${a.idx})">${a.fname}</td>
-    <td>${a.fagency}</td><td>${a.agency}</td>
-    <td style="font-family:monospace;font-size:11px">${a.accountNo||'미입력'}</td>
-    <td><span class="proof-file" title="${a.fileName||'미첨부'}">${a.fileName||'미첨부'}</span></td>
-    <td style="font-size:11px">${a.reqDate||'-'}</td>
     <td>${bdg(a.accountStatus)}</td>
-    <td><div class="ab">
-      ${a.accountStatus==='승인완료'
-        ? `<button class="btn bo xs" disabled style="opacity:.45;cursor:not-allowed" title="승인완료 계좌는 수정할 수 없습니다.">수정</button>`
-        : `<button class="btn bo xs" onclick="event.stopPropagation();editManagedAccount(${a.fid},${a.idx})">수정</button>`}
-      <button class="btn bd xs" onclick="event.stopPropagation();deleteManagedAccount(${a.fid},${a.idx})">삭제</button>
-    </div></td>
-  </tr>`).join('')||'<tr><td colspan="8" class="emp">검색 결과 없음</td></tr>';
+    <td style="font-family:monospace;font-size:11px;color:#374151">${esc(a.memberId)}</td>
+    <td style="font-weight:700">${esc(a.fname)}</td>
+    <td>${esc(a.agency||'-')}</td>
+    <td>${esc(a.bankName||'-')}</td>
+    <td style="font-family:monospace;font-size:11px">${esc(a.accountNo||'미입력')}</td>
+    <td>${esc(a.accountHolder||a.owner||'-')}</td>
+    <td style="font-size:11px">${esc(a.reqDate||a.createdAt||'-')}</td>
+    <td><button class="btn bo xs" onclick="showAccountDetail(${a.fid},${a.idx})">확인</button></td>
+  </tr>`).join('')||'<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
 }
 
 function getManagedAccount(fid,idx){
