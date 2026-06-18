@@ -287,9 +287,9 @@ function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
 function fRow(label,input){return`<div style="margin-bottom:14px"><label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:5px">${label}</label>${input}</div>`;}
-function makeSdd(id,items){
+function makeSdd(id,items,changeHandler='rPay()'){
   const value=_sddSel[id]||'';
-  return`<select class="fs" id="${id}" onchange="_sddSel['${id}']=this.value;rPay()" style="width:100%"><option value="">전체</option>${items.map(item=>`<option value="${item.val}" ${String(value)===String(item.val)?'selected':''}>${item.label}</option>`).join('')}</select>`;
+  return`<select class="fs" id="${id}" onchange="_sddSel['${id}']=this.value;${changeHandler}" style="width:100%"><option value="">전체</option>${items.map(item=>`<option value="${item.val}" ${String(value)===String(item.val)?'selected':''}>${item.label}</option>`).join('')}</select>`;
 }
 function openM(title,body,foot){document.querySelector('#mo .mbox')?.classList.remove('wide');document.getElementById('mti').textContent=title;document.getElementById('mbd').innerHTML=body;document.getElementById('mft').innerHTML=foot;document.getElementById('mo').style.display='flex';setTimeout(()=>bindAdminPasswordFields(document.getElementById('mbd')),20);}
 function closeM(){document.getElementById('mo').style.display='none';document.querySelector('#mo .mbox')?.classList.remove('wide');}
@@ -683,52 +683,77 @@ function rPay(){
 // ═══ PG 정산 확인 ═══
 function pgPGSettle(){const tot=D.pgSettlements.reduce((s,p)=>s+p.netAmt,0);return`
   <div class="aw aw-b">ℹ️ 즉시정산 구조: 결제 승인 후 3~10분 내 가상계좌 자동 입금. 고객 취소 요청 시 취소 처리. 정산 행 클릭 시 상세 확인 가능.</div>
-  <div class="sb2">
-    <input class="si" id="gss" placeholder="가맹점명 또는 승인번호..." oninput="rGS()">
-    <input class="si" id="gsd" type="date" oninput="rGS()" style="max-width:135px">
-    <span style="color:#6B7280;font-size:11px">~</span>
-    <input class="si" id="ged" type="date" oninput="rGS()" style="max-width:135px">
-    <select class="fs" style="width:120px" id="gsst" onchange="rGS()"><option value="">전체</option><option>정산완료</option><option>취소</option></select>
-  </div>
-  <div class="card"><div class="ch">
-    <span style="font-weight:700;font-size:14px">정산 합계 <span class="tg">${fmt(tot)}</span></span>
-    <button class="btn bo sm" onclick="toast('정산용 엑셀 다운로드 (서버 연동 필요)')">📥 다운로드</button>
-  </div>
-  <div class="tw"><table><thead><tr><th>정산일시</th><th>승인번호</th><th>PG사</th><th>가맹점</th><th>배달대행사</th><th>결제금액</th><th>수수료(4.4%)</th><th>입금액</th><th>상태</th><th>처리</th></tr></thead><tbody id="gsb"></tbody></table></div></div>`;}
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px;align-items:start">
+    <div>
+      <div style="text-align:center;font-size:14px;color:#374151;margin-bottom:16px;padding:14px;background:#fff;border:1px solid #E5E7EB;border-radius:8px">정산 합계 <strong id="gs-total" style="font-size:18px;color:#1F2937">${fmt(tot)}</strong></div>
+      <div class="card"><div class="tw"><table><thead><tr><th>정산일시</th><th>승인번호</th><th>PG 거래번호</th><th>고객 ID</th><th>대리점</th><th>가맹점명</th><th style="text-align:right">결제금액</th><th style="text-align:right">수수료(4.4%)</th><th style="text-align:right">정산금액</th><th>배달대행사</th><th>PG사</th><th>상태</th><th></th></tr></thead><tbody id="gsb"></tbody></table></div></div>
+    </div>
+    <div style="position:sticky;top:16px">
+      <div class="card" style="padding:16px">
+        ${fRow('정산 상태',`<select class="fs" id="gsst" onchange="rGS()" style="width:100%"><option value="">전체</option><option>정산완료</option><option>취소</option><option>롤백</option><option>ROLLED_BACK</option></select>`)}
+        ${fRow('PG사',`<select class="fs" id="gspg" onchange="rGS()" style="width:100%"><option value="">전체</option>${[...new Set((D.pgSettlements||[]).map(s=>s.pg).filter(Boolean))].map(pg=>`<option>${pg}</option>`).join('')}</select>`)}
+        ${fRow('승인번호',`<input class="fi" id="gsan" placeholder="승인번호" oninput="rGS()">`)}
+        ${fRow('고객 ID',`<input class="fi" id="gscid" placeholder="고객 ID" oninput="rGS()">`)}
+        ${fRow('가맹점명',`<input class="fi" id="gss" placeholder="가맹점명 검색" oninput="rGS()">`)}
+        ${fRow('대리점',makeSdd('gsag',(D.agencies||[]).map(a=>({val:a.id,label:a.name})),'rGS()'))}
+        ${fRow('배달대행사',makeSdd('gsda',(D.deliveryAgencyList||[]).filter(a=>a.status!=='deleted').map(a=>({val:a.name,label:a.name})),'rGS()'))}
+        ${fRow('정산기간',`<div style="display:flex;flex-direction:column;gap:6px"><input class="fi" id="gsd" type="date" oninput="rGS()"><input class="fi" id="ged" type="date" oninput="rGS()"></div>`)}
+        <button class="btn bo" onclick="clearGS()" style="width:100%;justify-content:center;margin-bottom:8px">초기화</button>
+        <button class="btn bg2" onclick="toast('정산용 엑셀 다운로드는 서버 엑셀 연동 단계에서 연결합니다.')" style="width:100%;justify-content:center">다운로드</button>
+      </div>
+    </div>
+  </div>`;}
+function clearGS(){['gss','gsan','gscid','gsd','ged','gsst','gspg'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.gsag='';_sddSel.gsda='';rGS();}
 function rGS(){
-  const q=v('gss'),sd=v('gsd'),ed=v('ged'),st=v('gsst');
+  const q=(v('gss')||'').toLowerCase(),an=v('gsan'),cid=(v('gscid')||'').toLowerCase(),sd=v('gsd'),ed=v('ged'),st=v('gsst'),pg=v('gspg');
+  const selectedAgency=String(_sddSel.gsag||''),selectedDa=String(_sddSel.gsda||'');
   const el=document.getElementById('gsb');if(!el)return;
-  const rows=D.pgSettlements.filter(s=>{
-    if(q&&!s.franchise.includes(q)&&!s.approvalNo.includes(q))return false;
+  const rows=(D.pgSettlements||[]).slice().sort((a,b)=>String(b.settledAt||b.date||'').localeCompare(String(a.settledAt||a.date||''))).filter(s=>{
+    if(q&&!String(s.franchise||'').toLowerCase().includes(q))return false;
+    if(an&&!String(s.approvalNo||'').includes(an))return false;
+    if(cid&&!String(s.customerId||'').toLowerCase().includes(cid))return false;
     if(st&&s.status!==st)return false;
-    if(sd&&s.date<sd)return false;
-    if(ed&&s.date>ed+' 23:59')return false;
+    if(pg&&s.pg!==pg)return false;
+    if(selectedAgency&&String(s.agencyId||'')!==selectedAgency)return false;
+    if(selectedDa&&s.deliveryAgency!==selectedDa)return false;
+    if(sd&&dateOnly(s.settledAt||s.date)<sd)return false;
+    if(ed&&dateOnly(s.settledAt||s.date)>ed)return false;
     return true;
   });
+  const total=rows.reduce((sum,s)=>sum+Number(s.netAmt||0),0);
+  const totalEl=document.getElementById('gs-total');if(totalEl)totalEl.textContent=fmt(total);
   el.innerHTML=rows.map(s=>`<tr style="cursor:pointer" onclick="showSettleDetail(${s.id})">
-    <td>${s.date}</td>
-    <td style="font-family:monospace;font-size:11px;color:#3B82F6">${s.approvalNo}</td>
-    <td style="font-size:11px">${s.pg}</td>
-    <td>${s.franchise}</td>
-    <td>${s.deliveryAgency}</td>
-    <td>${fmt(s.paymentAmt)}</td>
-    <td style="color:#EF4444">${fmt(s.svcFee)}</td>
-    <td class="tg">${fmt(s.netAmt)}</td>
+    <td style="font-size:12px;white-space:nowrap">${String(s.settledAt||s.date||'-').replace(' ','<br><span style="color:#9CA3AF">')}</span></td>
+    <td style="font-family:monospace;font-size:11px;color:#3B82F6">${s.approvalNo||'-'}</td>
+    <td style="font-family:monospace;font-size:11px;color:#9CA3AF">${s.pgTxId||'-'}</td>
+    <td style="font-family:monospace;font-size:11px;color:#6B7280">${s.customerId||'-'}</td>
+    <td>${s.agency||agencyNameById(s.agencyId)||'-'}</td>
+    <td style="font-weight:700">${s.franchise||'-'}</td>
+    <td style="text-align:right;font-weight:700">${fmt(s.paymentAmt)}</td>
+    <td style="text-align:right;color:#EF4444">-${fmt(s.svcFee)}</td>
+    <td style="text-align:right" class="tg">${fmt(s.netAmt)}</td>
+    <td>${s.deliveryAgency||'-'}</td>
+    <td>${s.pg||'-'}</td>
     <td>${bdg(s.status)}</td>
     <td onclick="event.stopPropagation()">${s.status==='정산완료'?`<button class="btn bor2 xs" onclick="rollbackSettle(${s.id})">취소처리</button>`:`<button class="btn bg2 xs" onclick="restoreSettle(${s.id})">복원</button>`}</td>
-  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
+  </tr>`).join('')||'<tr><td colspan="13" class="emp">검색 결과 없음</td></tr>';
 }
 function showSettleDetail(id){
   const s=D.pgSettlements.find(x=>x.id===id);
+  const agency=s.agency||agencyNameById(s.agencyId)||'-';
   openM('PG 정산 상세',`
     <div class="receipt">
       <div class="receipt-hd"><div style="font-size:16px;font-weight:700">PG 정산 내역</div><div style="font-size:10px;opacity:.8;margin-top:3px">${s.pg}</div></div>
       <div class="receipt-body">
-        <div class="receipt-row"><span style="color:#6B7280">정산일시</span><span style="font-weight:600">${s.date}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">정산일시</span><span style="font-weight:600">${s.settledAt||s.date}</span></div>
         <div class="receipt-row"><span style="color:#6B7280">승인번호</span><span style="font-family:monospace;font-weight:600">${s.approvalNo}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">PG 거래번호</span><span style="font-family:monospace;font-weight:600">${s.pgTxId||'-'}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">고객 ID</span><span style="font-family:monospace;font-weight:600">${s.customerId||'-'}</span></div>
         <div class="receipt-row"><span style="color:#6B7280">PG사</span><span style="font-weight:600">${s.pg}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">대리점</span><span style="font-weight:600">${agency}</span></div>
         <div class="receipt-row"><span style="color:#6B7280">가맹점</span><span style="font-weight:600">${s.franchise}</span></div>
         <div class="receipt-row"><span style="color:#6B7280">배달대행사</span><span>${s.deliveryAgency}</span></div>
+        <div class="receipt-row"><span style="color:#6B7280">이체 은행/계좌</span><span>${s.bankCode||'-'} / ${s.accountNo||'-'}</span></div>
         <div style="height:1px;background:#D1E8D1;margin:8px 0"></div>
         <div class="receipt-row"><span style="color:#6B7280">결제금액</span><span style="font-weight:600">${fmt(s.paymentAmt)}</span></div>
         <div class="receipt-row"><span style="color:#6B7280">서비스 수수료 (4.4%)</span><span style="color:#EF4444;font-weight:600">- ${fmt(s.svcFee)}</span></div>
