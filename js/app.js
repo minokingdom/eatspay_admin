@@ -28,6 +28,9 @@ const state = {
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 const API_BASE_URL = ((window.EATSPAY_CONFIG && window.EATSPAY_CONFIG.API_BASE_URL) || '').replace(/\/$/, '');
+const AUTH_TOKEN_KEY = 'accessToken';
+const USER_PROFILE_KEY = 'userProfile';
+const KEEP_LOGIN_KEY = 'eatspayKeepLogin';
 function normalizeSelectedAgency(value) {
   const name = String(value || '').trim();
   return (!name || name === '직접입력' || name === 'more') ? '생각대로' : name;
@@ -1385,12 +1388,53 @@ function resetLoginForm() {
   const keepLogin = $('#keep-login-cb');
   if (idInput) idInput.value = '';
   if (pwInput) pwInput.value = '';
-  if (keepLogin) keepLogin.classList.remove('checked');
+  if (keepLogin) keepLogin.classList.toggle('checked', isKeepLoginEnabled());
+}
+
+function isKeepLoginEnabled() {
+  try {
+    return localStorage.getItem(KEEP_LOGIN_KEY) === '1';
+  } catch (err) {
+    return false;
+  }
+}
+
+function getStoredAuthToken() {
+  return sessionStorage.getItem(AUTH_TOKEN_KEY) || (isKeepLoginEnabled() ? localStorage.getItem(AUTH_TOKEN_KEY) : '') || '';
+}
+
+function persistAuthSession(token, user, keepLogin) {
+  sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+  sessionStorage.setItem(USER_PROFILE_KEY, JSON.stringify(user || null));
+  try {
+    if (keepLogin) {
+      localStorage.setItem(KEEP_LOGIN_KEY, '1');
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(user || null));
+    } else {
+      localStorage.removeItem(KEEP_LOGIN_KEY);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(USER_PROFILE_KEY);
+    }
+  } catch (err) {
+    // Some WebViews can block localStorage; the session login still works.
+  }
+}
+
+function hydratePersistentAuth() {
+  if (!isKeepLoginEnabled()) return;
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const userProfile = localStorage.getItem(USER_PROFILE_KEY);
+  if (token && !sessionStorage.getItem(AUTH_TOKEN_KEY)) {
+    sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+  }
+  if (userProfile && !sessionStorage.getItem(USER_PROFILE_KEY)) {
+    sessionStorage.setItem(USER_PROFILE_KEY, userProfile);
+  }
 }
 
 function startInitialFlow() {
   clearTimeout(state.splashTimer);
-  clearSessionAuth();
   resetLoginForm();
   syncLoggedInViews();
   state.splashTimer = setTimeout(() => {
@@ -1414,7 +1458,7 @@ function formatPhone(val) {
 
 function getSessionUser() {
   try {
-    return JSON.parse(sessionStorage.getItem('userProfile') || 'null');
+    return JSON.parse(sessionStorage.getItem(USER_PROFILE_KEY) || 'null');
   } catch (err) {
     return null;
   }
@@ -1444,7 +1488,7 @@ function getLoginDisplayName() {
 }
 
 function isAuthenticated() {
-  return Boolean(sessionStorage.getItem('accessToken'));
+  return Boolean(getStoredAuthToken());
 }
 
 function isApprovedAccount() {
@@ -1452,9 +1496,16 @@ function isApprovedAccount() {
 }
 
 function clearSessionAuth() {
-  sessionStorage.removeItem('accessToken');
-  sessionStorage.removeItem('userProfile');
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  sessionStorage.removeItem(USER_PROFILE_KEY);
   sessionStorage.removeItem('selectedDeliveryAgency');
+  try {
+    localStorage.removeItem(KEEP_LOGIN_KEY);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(USER_PROFILE_KEY);
+  } catch (err) {
+    // Ignore storage cleanup failures so logout/navigation can continue.
+  }
   selectedAgency = '생각대로';
   sessionStorage.setItem('selectedDeliveryAgency', selectedAgency);
 }
@@ -1574,7 +1625,7 @@ function logoutAndGoToLogin() {
 async function refreshSessionUserProfile() {
   if (!isAuthenticated()) return null;
 
-  const accessToken = sessionStorage.getItem('accessToken') || '';
+  const accessToken = getStoredAuthToken();
   try {
     const response = await fetch(apiUrl('/api/auth/me'), {
       method: 'GET',
@@ -1586,7 +1637,7 @@ async function refreshSessionUserProfile() {
     const payload = await response.json().catch(() => null);
     const user = payload?.data?.user || null;
     if (user) {
-      sessionStorage.setItem('userProfile', JSON.stringify(user));
+      persistAuthSession(accessToken, user, isKeepLoginEnabled());
       syncLoggedInViews();
     }
     return user;
@@ -2219,6 +2270,7 @@ function startSmsCountdown(el) {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+  hydratePersistentAuth();
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
@@ -2402,8 +2454,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const resPayload = await response.json();
       if (resPayload.success && resPayload.data && resPayload.data.accessToken) {
-        sessionStorage.setItem('accessToken', resPayload.data.accessToken);
-        sessionStorage.setItem('userProfile', JSON.stringify(resPayload.data.user || null));
+        const keepLogin = $('#keep-login-cb')?.classList.contains('checked') || false;
+        persistAuthSession(resPayload.data.accessToken, resPayload.data.user || null, keepLogin);
         syncLoggedInViews();
         registerDevicePushToken();
         const approvalState = getApprovalState(resPayload.data.user || null);
@@ -2461,8 +2513,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isVisible = false;
 
     const syncInputMode = () => {
-      input.type = 'text';
-      input.classList.toggle('password-mask', !isVisible);
+      input.type = isVisible ? 'text' : 'password';
+      input.classList.remove('password-mask');
       input.style.color = '#111827';
       input.style.webkitTextFillColor = '#111827';
       input.style.caretColor = '#111827';
@@ -3485,7 +3537,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('휴대번호를 올바르게 입력해주세요.');
       return;
     }
-    if (newPassword || confirmPassword || currentPassword) {
+    if (newPassword || confirmPassword) {
       if (!currentPassword) { showToast('현재 비밀번호를 입력해주세요.'); return; }
       if (!newPassword) { showToast('새로운 비밀번호를 입력해주세요.'); return; }
       if (newPassword.length < 4) { showToast('비밀번호는 4자리 이상 입력해주세요.'); return; }
