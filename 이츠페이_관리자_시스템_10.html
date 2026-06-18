@@ -1605,7 +1605,7 @@ function rAg(){
     const hasAccount=a.settleBankName&&a.settleAccountNo;
     return `<tr style="cursor:pointer;background:${depth===0?'#F7FFF5':depth===1?'#FBFFFB':'#fff'}" onclick="goAgDetail(${arg})">
       <td>
-        <button type="button" class="agency-type-link" title="상세 보기" data-ag-id="${esc(a.id)}">${agencyTypeBadge(a)}</button>
+        <button type="button" class="agency-type-link" title="상세 보기" onclick="event.stopPropagation();goAgDetail(${arg})">${agencyTypeBadge(a)}</button>
       </td>
       <td style="font-weight:700;padding-left:${12+(depth*18)}px">${depth?'<span style="color:#9CA3AF;margin-right:6px">└</span>':''}${esc(a.name||'-')}</td>
       <td style="font-size:11px;color:#6B7280;font-family:monospace">${esc(a.loginId||'-')}</td>
