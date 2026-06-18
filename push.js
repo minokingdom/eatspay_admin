@@ -39,6 +39,13 @@ function isInvalidTokenError(code) {
   ].includes(code);
 }
 
+function stringifyDataValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
 async function sendPushToUser(repo, userId, notification) {
   const admin = getFirebaseAdmin();
   if (!admin) {
@@ -58,7 +65,7 @@ async function sendPushToUser(repo, userId, notification) {
       body: notification.body
     },
     data: Object.fromEntries(
-      Object.entries(notification.data || {}).map(([key, value]) => [key, String(value ?? '')])
+      Object.entries(notification.data || {}).map(([key, value]) => [key, stringifyDataValue(value)])
     ),
     android: {
       priority: 'high',
@@ -95,5 +102,13 @@ async function sendPushToUser(repo, userId, notification) {
 }
 
 module.exports = {
-  sendPushToUser
+  sendPushToUser,
+  _setFirebaseAdminForTest(admin) {
+    firebaseAdmin = admin;
+    firebaseInitTried = true;
+  },
+  _resetFirebaseAdminForTest() {
+    firebaseAdmin = null;
+    firebaseInitTried = false;
+  }
 };

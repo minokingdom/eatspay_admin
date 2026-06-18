@@ -49,6 +49,32 @@ After changing the environment file:
 sudo systemctl restart eatspay
 ```
 
+Typical AWS deployment after pulling this feature:
+
+```bash
+cd /opt/eatspay
+sudo git pull origin main
+npm install
+sudo install -d -m 750 -o root -g root /etc/eatspay
+sudo nano /etc/eatspay/firebase-service-account.json
+sudo chmod 640 /etc/eatspay/firebase-service-account.json
+sudo nano /opt/eatspay/.env
+sudo systemctl restart eatspay
+sudo systemctl status eatspay --no-pager
+```
+
+Add this to `/opt/eatspay/.env` if the service account JSON is stored as a file:
+
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/etc/eatspay/firebase-service-account.json
+```
+
+Check that the app server is healthy:
+
+```bash
+curl -fsS https://www.eatspay.co.kr/healthz
+```
+
 ## Current trigger
 
 When an admin approves or rejects a virtual account request, the server:
