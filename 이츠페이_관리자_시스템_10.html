@@ -10,7 +10,7 @@ const CONFIG = {
   menu:{
     dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
     settlements:"대리점 정산", franchises:"가맹점 목록", franchiseDetail:"가맹점 상세", accounts:"출금계좌 목록",
-    agencies:"대리점 관리", agencyDetail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
+    agencies:"대리점 관리", agencyDetail:"대리점 상세", ag_detail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
     banners:"배너 관리", faqs:"FAQ 관리", installments:"무이자 할부", push:"푸시알림",
     pg:"PG사 관리", fees:"수수료율 설정", admins:"관리자 계정",
     notices:"공지사항", guides:"이용가이드",
@@ -1572,7 +1572,13 @@ function agencyFranchises(agId,includeChildren=false){
   const ids=includeChildren?agencySubtreeIds(agId):[String(agId)];
   return (D.franchises||[]).filter(f=>ids.includes(String(f.agencyId||''))||ids.some(id=>agencyNameById(id)&&f.agency===agencyNameById(id)));
 }
-function goAgDetail(id){agDetailId=id;page='agencyDetail';renderNav();renderPage();}
+function goAgDetail(id){
+  agDetailId=String(id);
+  page='agencyDetail';
+  renderNav();
+  renderPage();
+}
+function goAgList(){page='agencies';agDetailId=null;renderNav();renderPage();}
 function pgAg(){return`
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
     <div class="aw aw-g" style="margin:0">대리점은 DB에 저장된 본부/지사/지점 트리 기준으로 표시됩니다. 행 또는 유형 칩을 클릭하면 상세로 이동합니다.</div>
@@ -1599,7 +1605,7 @@ function rAg(){
     const hasAccount=a.settleBankName&&a.settleAccountNo;
     return `<tr style="cursor:pointer;background:${depth===0?'#F7FFF5':depth===1?'#FBFFFB':'#fff'}" onclick="goAgDetail(${arg})">
       <td>
-        <button type="button" class="agency-type-link" title="상세 보기" onclick="event.stopPropagation();goAgDetail(${arg})">${agencyTypeBadge(a)}</button>
+        <button type="button" class="agency-type-link" title="상세 보기" data-ag-id="${esc(a.id)}">${agencyTypeBadge(a)}</button>
       </td>
       <td style="font-weight:700;padding-left:${12+(depth*18)}px">${depth?'<span style="color:#9CA3AF;margin-right:6px">└</span>':''}${esc(a.name||'-')}</td>
       <td style="font-size:11px;color:#6B7280;font-family:monospace">${esc(a.loginId||'-')}</td>
@@ -1657,7 +1663,7 @@ function pgAgDetail(){
   const joinUrl=ag.joinCode?`${location.origin}/join/${ag.joinCode}`:'-';
   return`
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn bo" onclick="page='agencies';agDetailId=null;renderNav();renderPage()">← 목록으로</button><h2 style="margin:0;font-size:18px">${esc(ag.name)}</h2>${agencyTypeBadge(ag)}</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="btn bo" onclick="goAgList()">← 목록으로</button><h2 style="margin:0;font-size:18px">${esc(ag.name)}</h2>${agencyTypeBadge(ag)}</div>
     <div class="ab"><button class="btn bo" onclick="edAg(${jsArg(ag.id)})">정보 수정</button><button class="btn bd" onclick="delAg(${jsArg(ag.id)})">삭제</button></div>
   </div>
   <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px">
@@ -1692,10 +1698,10 @@ function pgAgDetail(){
     </div>
     <div style="display:flex;flex-direction:column;gap:14px">
       <div class="card"><div class="ch"><b>조직 계층</b></div><div style="padding:14px">
-        ${chain.map((a,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:${String(a.id)===String(ag.id)?'#F0FAF0':'#F9FAFB'};margin-bottom:6px;cursor:${String(a.id)===String(ag.id)?'default':'pointer'}" ${String(a.id)===String(ag.id)?'':`onclick="goAgDetail(${jsArg(a.id)})"`}><span style="width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${String(a.id)===String(ag.id)?'#3D9B35':'#E5E7EB'};color:${String(a.id)===String(ag.id)?'#fff':'#6B7280'};font-size:11px;font-weight:800">${i+1}</span><div><b style="font-size:12px">${esc(a.name)}</b><div style="font-size:10px;color:#9CA3AF">${agencyTypeLabel(a)}</div></div></div>`).join('')}
+        ${chain.map((a,i)=>`<button type="button" class="agency-detail-link" data-ag-id="${esc(a.id)}" style="width:100%;border:0;text-align:left;display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;background:${String(a.id)===String(ag.id)?'#F0FAF0':'#F9FAFB'};margin-bottom:6px;cursor:${String(a.id)===String(ag.id)?'default':'pointer'}"><span style="width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${String(a.id)===String(ag.id)?'#3D9B35':'#E5E7EB'};color:${String(a.id)===String(ag.id)?'#fff':'#6B7280'};font-size:11px;font-weight:800">${i+1}</span><div><b style="font-size:12px">${esc(a.name)}</b><div style="font-size:10px;color:#9CA3AF">${agencyTypeLabel(a)}</div></div></button>`).join('')}
       </div></div>
       <div class="card"><div class="ch"><b>하위 대리점</b><span style="font-size:12px;color:#6B7280">${children.length}개</span></div><div style="padding:0">
-        ${children.map(ch=>`<div style="padding:10px 14px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="goAgDetail(${jsArg(ch.id)})"><div><b style="font-size:13px">${esc(ch.name)}</b><div style="font-size:11px;color:#6B7280">${agencyTypeLabel(ch)} · ${Number(getEffRate(ch)||0).toFixed(2)}%</div></div><span style="color:#3D9B35">→</span></div>`).join('')||'<div class="emp" style="padding:18px">하위 대리점이 없습니다.</div>'}
+        ${children.map(ch=>`<button type="button" class="agency-detail-link" data-ag-id="${esc(ch.id)}" style="width:100%;border:0;background:#fff;text-align:left;padding:10px 14px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between;cursor:pointer"><div><b style="font-size:13px">${esc(ch.name)}</b><div style="font-size:11px;color:#6B7280">${agencyTypeLabel(ch)} · ${Number(getEffRate(ch)||0).toFixed(2)}%</div></div><span style="color:#3D9B35">→</span></button>`).join('')||'<div class="emp" style="padding:18px">하위 대리점이 없습니다.</div>'}
       </div></div>
     </div>
   </div>`;}
@@ -2270,8 +2276,11 @@ async function delBn(id){
 
 // ═══ 렌더 ═══
 function renderPage(){
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
   document.getElementById('ct').innerHTML=(m[page]||pgDash)();
+  document.querySelectorAll('[data-ag-id]').forEach(el=>{
+    el.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();goAgDetail(el.dataset.agId);});
+  });
   if(page==='payments')   setTimeout(rPay,30);
   if(page==='pgsettle')   setTimeout(rGS,30);
   if(page==='franchises') setTimeout(rFr,30);
