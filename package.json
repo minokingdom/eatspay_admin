@@ -10,6 +10,7 @@
     "db:verify-june-demo": "node scripts/verify-june-demo-data.js",
     "db:seed-tree-demo": "node scripts/seed-tree-demo-data.js",
     "db:seed-talk-demo": "node scripts/seed-talk-demo-data.js",
+    "db:reset-consistent-demo": "node scripts/reset-consistent-demo-data.js",
     "push:test": "node scripts/send-test-push.js",
     "push:status": "node scripts/push-status.js",
     "push:readiness": "node scripts/push-readiness.js",
