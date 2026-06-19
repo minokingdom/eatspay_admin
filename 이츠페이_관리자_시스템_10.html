@@ -167,6 +167,11 @@ tr:hover td{background:#FAFFFE}
 .settlement-detail-scroll{max-height:420px;overflow:auto;border:1px solid #D1E8D1;border-radius:8px}
 .settlement-detail-scroll table th{position:sticky;top:0;z-index:1}
 .accounts-table{table-layout:fixed;min-width:900px}.accounts-table .proof-col{width:118px}.accounts-table .proof-file{display:block;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;font-size:11px}
+.franchise-list-layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px;align-items:start}
+.franchise-list-head{display:flex;justify-content:flex-end;align-items:flex-start;min-height:38px;margin-bottom:10px}
+.franchise-filter-panel{position:sticky;top:16px;margin-top:0}
+.franchise-form-error{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #FCA5A5;background:#FEF2F2;color:#B91C1C;border-radius:8px;font-size:12px;font-weight:800;line-height:1.5}
+.franchise-id-preview{font-size:11px;color:#166534;font-weight:800;margin-top:6px;line-height:1.4}
 body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;-webkit-font-smoothing:auto;text-rendering:optimizeLegibility}
 .agency-type-link{border:0;background:transparent;padding:0;cursor:pointer;font-family:inherit}
 .agency-type-link:hover .bdg{filter:brightness(.96);box-shadow:0 0 0 2px rgba(61,155,53,.16)}
@@ -1112,12 +1117,12 @@ function showAgencyPayments(agId,agName){
 }// ═══ 가맹점 목록 ═══
 function pgFr(){
   return`
-  <div style="display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start">
+  <div class="franchise-list-layout">
     <div>
-      ${role==='hq'?`<div style="text-align:right;margin-bottom:10px"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
+      ${role==='hq'?`<div class="franchise-list-head"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
       <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th></th></tr></thead><tbody id="fb"></tbody></table></div></div>
     </div>
-    <div style="position:sticky;top:16px">
+    <div class="franchise-filter-panel">
       <div class="card" style="padding:16px">
         ${fRow('가맹점명 / 대표자 / 연락처',`<input class="fi" id="fs" placeholder="검색..." oninput="rFr()">`)}
         ${fRow('계좌 상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option></select>`)}
@@ -1138,6 +1143,11 @@ function franchiseAccountStatus(f){
   return accounts[0]?.accountStatus||'미등록';
 }
 function franchiseCardRegistered(f){return !!(f.cardRegistered||f.cardCompany||f.cardLast4);}
+function displayMemberId(value){
+  const email=String(value||'').trim();
+  if(!email)return'-';
+  return email.includes('@')?email.split('@')[0]:email;
+}
 function isNewFranchise(f){
   const raw=dateOnly(f?.createdAt||f?.joinDate);
   if(!raw)return false;
@@ -1169,7 +1179,7 @@ function rFr(){
     return String(f.name||'').toLowerCase().includes(q)||String(f.phone||'').includes(q)||String(f.owner||'').toLowerCase().includes(q);
   });
   el.innerHTML=rows.map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${f.id})">
-    <td><div style="font-weight:900;color:#166534">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||f.email||'-'}</div></td>
+    <td><div style="font-weight:900;color:#166534">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||displayMemberId(f.email)}</div></td>
     <td>${f.agency||agencyNameById(f.agencyId)||'-'}</td><td>${f.owner||'-'}</td><td>${f.phone||'-'}</td>
     <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${a.agency}&nbsp;${bdg(a.accountStatus)}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
     <td>${franchiseCardRegistered(f)?`<span class="bdg bb">${f.cardCompany||'카드'} ${f.cardLast4?`••${f.cardLast4}`:''}</span>`:'<span style="font-weight:700;color:#9CA3AF">미등록</span>'}</td>
@@ -1216,7 +1226,7 @@ function pgFrDetail(){
     <button class="btn bo" onclick="page='franchises';frDetailId=null;renderNav();renderPage()">← 목록으로</button>
     <h2 style="margin:0;font-size:20px;font-weight:800">${f.name}</h2>
     ${bdg(f.status)}
-    <span style="font-size:12px;color:#6B7280;background:#F3F4F6;padding:3px 10px;border-radius:10px">고객 ID: ${f.customerId||f.email||'-'}</span>
+    <span style="font-size:12px;color:#6B7280;background:#F3F4F6;padding:3px 10px;border-radius:10px">고객 ID: ${f.customerId||displayMemberId(f.email)}</span>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
       ${role==='hq'?`<button class="btn bo" onclick="edF(${f.id})">정보 수정</button><button class="btn bd" onclick="delF(${f.id})">삭제</button>`:''}
     </div>
@@ -1301,9 +1311,30 @@ function agencyOptions(selectedId,selectedName){
   if(!agencies.length)return`<option value="">${CONFIG.companyName}</option>`;
   return agencies.map(a=>`<option value="${a.id}" ${String(selectedId||'')===String(a.id)||(!selectedId&&selectedName===a.name)?'selected':''}>${a.name}</option>`).join('');
 }
+function updateFranchiseIdPreview(){
+  const email=v('fe').trim();
+  const el=document.getElementById('fe-preview');
+  if(el)el.textContent=`화면 표시 ID: ${displayMemberId(email)}`;
+}
+function showFranchiseFormError(message,focusId){
+  const el=document.getElementById('franchise-form-error');
+  if(el){
+    el.textContent=message;
+    el.style.display='block';
+  }
+  if(focusId)setTimeout(()=>document.getElementById(focusId)?.focus(),30);
+}
+function clearFranchiseFormError(){
+  const el=document.getElementById('franchise-form-error');
+  if(el){
+    el.textContent='';
+    el.style.display='none';
+  }
+}
 function franchiseForm(f={},roDA){const isNew=!f.id;return`
-  <div class="fr2"><div class="fg"><label class="fl">로그인 ID${isNew?' *':''}</label><input class="fi" id="fe" value="${f.email||''}" placeholder="예: store@example.com" autocomplete="username"></div><div class="fg"><label class="fl">${isNew?'비밀번호 *':'새 비밀번호'}</label>${adminPwField('fpw',isNew?'초기 비밀번호':'변경할 때만 입력')}<div class="admin-modal-note">${isNew?'초기 로그인 비밀번호입니다.':'비워두면 기존 비밀번호가 유지됩니다.'}</div></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
+  <div id="franchise-form-error" class="franchise-form-error"></div>
+  <div class="fr2"><div class="fg"><label class="fl">로그인 ID${isNew?' *':''}</label><input class="fi" id="fe" value="${f.email||''}" placeholder="예: store@example.com" autocomplete="username" oninput="clearFranchiseFormError();updateFranchiseIdPreview()"><div class="franchise-id-preview" id="fe-preview">화면 표시 ID: ${displayMemberId(f.email)}</div></div><div class="fg"><label class="fl">${isNew?'비밀번호 *':'새 비밀번호'}</label>${adminPwField('fpw',isNew?'초기 비밀번호':'변경할 때만 입력')}<div class="admin-modal-note">${isNew?'초기 로그인 비밀번호입니다.':'비워두면 기존 비밀번호가 유지됩니다.'}</div></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명 *</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">사업자등록번호 *</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">주소</label><input class="fi" id="faddr" value="${f.address||''}" placeholder="사업장 주소"></div><div class="fg"><label class="fl">매장 전화번호</label><input class="fi" id="ftel" value="${f.tel||''}" placeholder="02-1234-5678"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">대리점</label><select class="fs" id="fagencyid">${agencyOptions(f.agencyId,f.agency)}</select></div><div class="fg"><label class="fl">비고</label><input class="fi" id="fnt" value="${f.note||''}" placeholder="특이사항"></div></div>
@@ -1316,18 +1347,19 @@ function franchiseForm(f={},roDA){const isNew=!f.id;return`
   <div id="da-rows"></div>
   ${!roDA?`<div style="font-size:10px;color:#9CA3AF;margin-top:4px">※ 파일명만 입력. 실제 파일은 서버에 별도 업로드 (개발 시 연동)</div>`:''}
   </div>`;}
-function addF(){editingAgencies=[];openM('가맹점 추가',franchiseForm({},false),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF()">저장</button>`);setTimeout(()=>renderDARows(false),20);}
-async function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){await adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>renderDARows(roDA),20);}
+function addF(){editingAgencies=[];openM('가맹점 추가',franchiseForm({},false),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF()">저장</button>`);setTimeout(()=>{renderDARows(false);updateFranchiseIdPreview();},20);}
+async function edF(id){const f=D.franchises.find(x=>String(x.id)===String(id));if(!f){await adminAlert('가맹점 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}editingAgencies=JSON.parse(JSON.stringify(f.deliveryAgencies||[]));const roDA=role==='agent';openM('가맹점 수정',franchiseForm(f,roDA),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savF(${id})">저장</button>`);setTimeout(()=>{renderDARows(roDA);updateFranchiseIdPreview();},20);}
 async function savF(id){
+  clearFranchiseFormError();
   const n=v('fn').trim();
-  if(!n){await adminAlert('상점명을 입력하세요.');return;}
+  if(!n){showFranchiseFormError('상점명을 입력하세요.','fn');return;}
   const deliveryAccounts=editingAgencies.map(a=>({
     agencyName:a.agency,
     bankName:a.bankName||a.agency,
     accountHolder:v('fo').trim(),
     accountNo:a.accountNo
   })).filter(a=>a.agencyName&&a.accountNo);
-  if(deliveryAccounts.length>2){await adminAlert('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다.');return;}
+  if(deliveryAccounts.length>2){showFranchiseFormError('한 가맹점당 계좌는 최대 2개까지 등록할 수 있습니다.');return;}
   const payload={
     email:v('fe').trim(),
     password:adminPasswordValue('fpw'),
@@ -1340,9 +1372,10 @@ async function savF(id){
     agencyId:v('fagencyid'),
     deliveryAccounts
   };
-  if(!payload.owner){await adminAlert('대표자명을 입력하세요.');return;}
-  if(!payload.bizNo){await adminAlert('사업자등록번호를 입력하세요.');return;}
-  if(!id&&(!payload.email||!payload.password)){await adminAlert('로그인 ID와 비밀번호를 입력하세요.');return;}
+  if(!payload.owner){showFranchiseFormError('대표자명을 입력하세요.','fo');return;}
+  if(!payload.bizNo){showFranchiseFormError('사업자등록번호를 입력하세요.','fb2');return;}
+  if(!payload.email){showFranchiseFormError('로그인 ID를 입력하세요.','fe');return;}
+  if(!id&&!payload.password){showFranchiseFormError('비밀번호를 입력하세요.','fpw');return;}
   try{
     const res=await fetch(id?`/api/admin/franchises/${encodeURIComponent(id)}`:'/api/admin/franchises',{
       method:id?'PUT':'POST',
@@ -1360,7 +1393,7 @@ async function savF(id){
     toast(id?'가맹점 정보가 수정되었습니다.':'가맹점이 추가되었습니다.');
   }catch(e){
     console.error(e);
-    await adminAlert(e.message||'가맹점 저장에 실패했습니다.');
+    showFranchiseFormError(e.message||'가맹점 저장에 실패했습니다.');
   }
 }
 async function delF(id){
