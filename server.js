@@ -2492,6 +2492,17 @@ app.get('/api/legal-documents/active', asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, data: docs });
 }));
 
+function validateLegalDocumentType(type, title, sourceFileName) {
+  const marker = `${title || ''}\n${sourceFileName || ''}`.toLowerCase();
+  if (type === 'terms' && (marker.includes('개인정보') || marker.includes('privacy'))) {
+    return '개인정보처리방침 파일은 개인정보처리방침 문서 종류로 등록해 주세요.';
+  }
+  if (type === 'privacy' && (marker.includes('이용약관') || marker.includes('서비스약관') || marker.includes('terms')) && !marker.includes('개인정보')) {
+    return '서비스 이용약관 파일은 서비스 이용약관 문서 종류로 등록해 주세요.';
+  }
+  return '';
+}
+
 app.post('/api/admin/legal-documents', authenticateAdmin, asyncHandler(async (req, res) => {
   const type = String(req.body?.type || '').trim();
   const title = String(req.body?.title || '').trim();
@@ -2503,6 +2514,10 @@ app.post('/api/admin/legal-documents', authenticateAdmin, asyncHandler(async (re
   }
   if (!title || !content) {
     return sendError(res, 400, 'BAD_REQUEST', 'title and content are required.');
+  }
+  const typeError = validateLegalDocumentType(type, title, sourceFileName);
+  if (typeError) {
+    return sendError(res, 400, 'LEGAL_DOCUMENT_TYPE_MISMATCH', typeError);
   }
   const document = await repo.createLegalDocument({ type, title, content, sourceFileName, applied });
   return res.status(201).json({ success: true, data: document });

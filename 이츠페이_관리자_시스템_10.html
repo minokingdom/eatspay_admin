@@ -1796,8 +1796,8 @@ function pgLegalDocs(){
   return`
   <div class="aw aw-b">적용 체크된 최신 문서만 앱 회원가입 화면에 표시됩니다. 저장된 문서는 수정하지 않고 새 버전으로 다시 등록합니다.</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
-    ${legalDocPanel('terms',docs.filter(d=>d.type==='terms'))}
     ${legalDocPanel('privacy',docs.filter(d=>d.type==='privacy'))}
+    ${legalDocPanel('terms',docs.filter(d=>d.type==='terms'))}
   </div>`;
 }
 function legalDocPanel(type,items){
@@ -1834,6 +1834,19 @@ function legalDocForm(type){
   <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#166534"><input type="checkbox" id="ld-applied"> 저장 즉시 앱에 적용</label>`;}
 function normalizeLegalDocText(fileName,text){
   const ext=String(fileName||'').split('.').pop().toLowerCase();
+  const normalizeMarkdown=value=>String(value||'')
+    .replace(/\r\n/g,'\n')
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/^#{1,6}\s*/gm,'')
+    .replace(/\*\*([^*]+)\*\*/g,'$1')
+    .replace(/__([^_]+)__/g,'$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+    .replace(/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/gm,'')
+    .replace(/^\s*\|(.+)\|\s*$/gm,(match,row)=>row.split('|').map(cell=>cell.trim()).filter(Boolean).join('  '))
+    .replace(/^\s*\|\s*/gm,'')
+    .replace(/\s*\|\s*$/gm,'')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
   if(ext==='html'||ext==='htm'){
     const doc=new DOMParser().parseFromString(text,'text/html');
     return (doc.body?.innerText||text).trim();
@@ -1847,7 +1860,8 @@ function normalizeLegalDocText(fileName,text){
       .replace(/\n{3,}/g,'\n\n')
       .trim();
   }
-  return String(text||'').trim();
+  if(ext==='md'||ext==='markdown')return normalizeMarkdown(text);
+  return String(text||'').replace(/<br\s*\/?>/gi,'\n').trim();
 }
 async function readLegalDocFile(file){
   const name=String(file?.name||'');
@@ -1895,6 +1909,15 @@ async function savLegalDoc(type){
   const applied=document.getElementById('ld-applied')?.checked===true;
   const sourceFileName=document.getElementById('ld-file')?.dataset.fileName||'';
   if(!title||!content){await adminAlert('제목과 본문을 입력하세요.');return;}
+  const marker=`${title}\n${sourceFileName}`.toLowerCase();
+  if(type==='terms'&&(marker.includes('개인정보')||marker.includes('privacy'))){
+    await adminAlert('개인정보처리방침 파일은 왼쪽 개인정보처리방침 영역의 [+ 새 문서 등록]에서 등록해 주세요.');
+    return;
+  }
+  if(type==='privacy'&&(marker.includes('이용약관')||marker.includes('서비스약관')||marker.includes('terms'))&&!marker.includes('개인정보')){
+    await adminAlert('서비스 이용약관 파일은 오른쪽 서비스 이용약관 영역의 [+ 새 문서 등록]에서 등록해 주세요.');
+    return;
+  }
   try{
     const res=await fetch('/api/admin/legal-documents',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({type,title,content,sourceFileName,applied})});
     const json=await res.json().catch(()=>({}));
