@@ -1831,9 +1831,9 @@ function legalDocPanel(type,items){
         <td style="font-size:11px">${legalDocAppliedDate(doc)}</td>
         <td>${doc.applied?bdg('활성'):bdg('비활성')}</td>
         <td><div class="ab">
-          <button class="btn bo xs" onclick="viewLegalDoc(${jsArg(doc.id)})">보기</button>
-          <button class="btn ${doc.applied?'bo':'bg2'} xs" onclick="toggleLegalDoc(${jsArg(doc.id)},${doc.applied?'false':'true'})">${doc.applied?'비노출':'적용'}</button>
-          <button class="btn bd xs" onclick="delLegalDoc(${jsArg(doc.id)})">삭제</button>
+          <button type="button" class="btn bo xs" onclick="viewLegalDoc(${jsArg(doc.id)})">보기</button>
+          <button type="button" class="btn ${doc.applied?'bo':'bg2'} xs" onclick="toggleLegalDoc(${jsArg(doc.id)},${doc.applied?'false':'true'})">${doc.applied?'비노출':'적용'}</button>
+          <button type="button" class="btn bd xs" onclick="delLegalDoc(${jsArg(doc.id)})">삭제</button>
         </div></td>
       </tr>`).join('')||'<tr><td colspan="4" class="emp">등록된 문서가 없습니다.</td></tr>'}
     </tbody></table></div>
@@ -1914,8 +1914,22 @@ function addLegalDoc(type){
   },20);
 }
 function viewLegalDoc(id){
-  const doc=(D.legalDocuments||[]).find(x=>String(x.id)===String(id));if(!doc)return;
+  const doc=(D.legalDocuments||[]).find(x=>String(x.id)===String(id));
+  if(!doc){adminAlert('문서 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
   openM(`${legalDocTypeLabel(doc.type)} 보기`,`<div style="display:grid;gap:8px;font-size:12px;margin-bottom:12px"><div><b>제목</b> ${esc(doc.title)}</div><div><b>적용일</b> ${legalDocAppliedDate(doc)}</div><div><b>상태</b> ${doc.applied?'적용':'비노출'}</div></div><div style="max-height:420px;overflow:auto;border:1px solid #D1E8D1;border-radius:8px;padding:12px;white-space:pre-wrap;font-size:12px;line-height:1.7">${esc(doc.content)}</div>`,`<button class="btn bg2" onclick="closeM()">닫기</button>`);
+}
+function upsertLegalDocLocal(doc){
+  if(!doc||!doc.id)return;
+  D.legalDocuments=Array.isArray(D.legalDocuments)?D.legalDocuments:[];
+  if(doc.applied){
+    D.legalDocuments=D.legalDocuments.map(item=>String(item.type)===String(doc.type)?{...item,applied:false,appliedAt:null}:item);
+  }
+  const idx=D.legalDocuments.findIndex(item=>String(item.id)===String(doc.id));
+  if(idx>=0)D.legalDocuments[idx]={...D.legalDocuments[idx],...doc};
+  else D.legalDocuments.unshift(doc);
+}
+function removeLegalDocLocal(id){
+  D.legalDocuments=(D.legalDocuments||[]).filter(item=>String(item.id)!==String(id));
 }
 async function savLegalDoc(type){
   const title=v('ld-title').trim();
@@ -1951,8 +1965,10 @@ async function toggleLegalDoc(id,applied){
     const json=await res.json().catch(()=>({}));
     if(await handleAdminUnauthorized(res))return;
     if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'상태 변경에 실패했습니다.');
-    await syncBackendTransactions({forceRender:true});
+    upsertLegalDocLocal(json.data);
     page='legalDocs';renderNav();renderPage();
+    await syncBackendTransactions({forceRender:true,silent:true});
+    toast(applied?'문서가 앱에 적용되었습니다.':'문서가 비노출되었습니다.');
   }catch(e){await adminAlert(e.message||'상태 변경에 실패했습니다.');}
 }
 async function delLegalDoc(id){
@@ -1962,8 +1978,10 @@ async function delLegalDoc(id){
     const json=await res.json().catch(()=>({}));
     if(await handleAdminUnauthorized(res))return;
     if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'삭제에 실패했습니다.');
-    await syncBackendTransactions({forceRender:true});
+    removeLegalDocLocal(id);
     page='legalDocs';renderNav();renderPage();
+    await syncBackendTransactions({forceRender:true,silent:true});
+    toast('문서가 삭제되었습니다.');
   }catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}
 }
 
