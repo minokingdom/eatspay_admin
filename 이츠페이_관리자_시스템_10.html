@@ -306,7 +306,7 @@ function renderNav(){
 // ═══ 헬퍼 ═══
 function fmt(n){return Number(n).toLocaleString()+'원';}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const label=t==='롤백'||t==='ROLLED_BACK'?'취소':t;const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[label]||'bgr'}">${label}</span>`;}
+function bdg(t){const roles=getRoles().map(r=>r.name);if(roles.includes(t)){const r=getRoles().find(x=>x.name===t);return`<span class="bdg" style="background:${r.color}22;color:${r.color}">${t}</span>`;}const label=t==='롤백'||t==='ROLLED_BACK'?'취소':t;const m={'정상 승인':'bg','승인 대기':'by','승인 거절':'br','탈퇴':'br','승인완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','취소':'br','정산완료':'bg','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[label]||'bgr'}">${label}</span>`;}
 function nid(){return++D.nextId;}
 function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
@@ -1066,7 +1066,7 @@ function pgFr(){
     <div class="franchise-filter-panel">
       <div class="card" style="padding:16px">
         ${fRow('가맹점명 / 대표자 / 연락처',`<input class="fi" id="fs" placeholder="검색..." oninput="rFr()">`)}
-        ${fRow('계좌 상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option></select>`)}
+        ${fRow('계좌 상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option><option value="탈퇴">탈퇴</option></select>`)}
         ${fRow('카드등록',`<select class="fs" id="fcard" onchange="rFr()"><option value="">전체</option><option value="yes">등록</option><option value="no">미등록</option></select>`)}
         ${role==='hq'?fRow('대리점',makeSdd('frag',(D.agencies||[]).map(a=>({val:a.id,label:a.name})),'rFr()')):''}
         <button class="btn bo" onclick="clearFrFilters()" style="width:100%;justify-content:center">초기화</button>
@@ -1075,7 +1075,13 @@ function pgFr(){
   </div>
   `;}
 function clearFrFilters(){['fs','facst','fcard'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});_sddSel.frag='';rFr();}
+function isWithdrawnFranchise(f){
+  const roleText=String(f?.role||'').toUpperCase();
+  const statusText=String(f?.status||'');
+  return roleText==='OWNER_WITHDRAWN'||statusText.includes('탈퇴');
+}
 function franchiseAccountStatus(f){
+  if(isWithdrawnFranchise(f))return'탈퇴';
   const accounts=f.deliveryAgencies||[];
   if(!accounts.length)return'미등록';
   if(accounts.some(a=>a.accountStatus==='승인대기'))return'승인대기';
@@ -1123,7 +1129,7 @@ function rFr(){
     <td><div style="font-weight:900;color:#166534">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.loginId||f.customerId||displayMemberId(f.email)}</div></td>
     <td>${f.agency||agencyNameById(f.agencyId)||'-'}</td><td>${f.owner||'-'}</td><td>${f.phone||'-'}</td>
     <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${esc(a.agency||'-')}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
-    <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>bdg(a.accountStatus||'승인대기')).join('<br>'):bdg('미등록')}</td>
+    <td style="font-size:11px">${bdg(franchiseAccountStatus(f))}</td>
     <td>${franchiseCardRegistered(f)?`<span class="bdg bb">${f.cardCompany||'카드'} ${f.cardLast4?`••${f.cardLast4}`:''}</span>`:'<span style="font-weight:700;color:#9CA3AF">미등록</span>'}</td>
     <td style="font-size:11px">${f.joinDate||'-'}</td>
     <td style="font-size:11px">${f.lastPaymentDate||'-'}</td>

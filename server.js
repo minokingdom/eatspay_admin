@@ -1815,7 +1815,7 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
         joinDate,
         lastPaymentDate,
         paymentCount: Number(paymentSummary.paymentCount || 0),
-        status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기',
+        status: franchiseRoleStatusLabel(user.role),
         loginId: user.loginId || '',
         email: user.email,
         role: user.role,
@@ -1965,12 +1965,14 @@ function franchiseStatusToRole(status) {
   if (value === '정상 승인' || value === 'OWNER') return 'OWNER';
   if (value === '승인 대기' || value === 'OWNER_PENDING') return 'OWNER_PENDING';
   if (value === '승인 거절' || value === 'OWNER_REJECTED') return 'OWNER_REJECTED';
+  if (value === '탈퇴' || value === 'OWNER_WITHDRAWN') return 'OWNER_WITHDRAWN';
   return '';
 }
 
 function franchiseRoleStatusLabel(role) {
   if (role === 'OWNER') return '정상 승인';
   if (role === 'OWNER_REJECTED') return '승인 거절';
+  if (role === 'OWNER_WITHDRAWN') return '탈퇴';
   return '승인 대기';
 }
 
@@ -1985,7 +1987,9 @@ async function notifyFranchiseStatusChanged(user, role) {
       ? '이츠페이 가맹점 서비스 이용이 가능합니다.'
       : role === 'OWNER_REJECTED'
         ? '가맹점 상태가 승인 거절로 변경되었습니다. 자세한 내용은 고객센터로 문의해주세요.'
-        : '가맹점 상태가 승인 대기로 변경되었습니다.',
+        : role === 'OWNER_WITHDRAWN'
+          ? '가맹점 탈퇴 상태로 변경되었습니다.'
+          : '가맹점 상태가 승인 대기로 변경되었습니다.',
     data: {
       franchiseId: user.franchiseId || '',
       role,
@@ -2289,7 +2293,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       joinDate,
       lastPaymentDate,
       paymentCount: Number(paymentSummary.paymentCount || 0),
-      status: user.role === 'OWNER' ? '\uC815\uC0C1 \uC2B9\uC778' : user.role === 'OWNER_REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
+      status: franchiseRoleStatusLabel(user.role),
       loginId: user.loginId || '',
       email: user.email,
       role: user.role,

@@ -822,7 +822,7 @@ function createRepository(pool) {
         `SELECT users.*, agencies.name AS agency_name
          FROM users
          LEFT JOIN agencies ON agencies.id = users.agency_id
-         WHERE users.role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+         WHERE users.role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
          ORDER BY users.created_at DESC`
       );
       return result.rows.map(toUser);
@@ -902,7 +902,7 @@ function createRepository(pool) {
          SET role = $2,
              updated_at = now()
          WHERE franchise_id = $1
-           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
          RETURNING *`,
         [franchiseId, role]
       );
@@ -914,7 +914,7 @@ function createRepository(pool) {
         `UPDATE users
          SET agency_id = $2, updated_at = now()
          WHERE franchise_id = $1
-           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
          RETURNING *`,
         [franchiseId, agencyId]
       );
@@ -928,7 +928,7 @@ function createRepository(pool) {
         `UPDATE users
          SET agency_id = $2, updated_at = now()
          WHERE franchise_id = ANY($1::bigint[])
-           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
          RETURNING *`,
         [ids, agencyId]
       );
@@ -970,7 +970,7 @@ function createRepository(pool) {
          SET ${updates.join(', ')},
              updated_at = now()
          WHERE franchise_id = $1
-           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+           AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
          RETURNING *`,
         params
       );
@@ -1000,7 +1000,7 @@ function createRepository(pool) {
         const userResult = await client.query(
           `DELETE FROM users
            WHERE franchise_id = $1
-             AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
+             AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED', 'OWNER_WITHDRAWN')
            RETURNING *`,
           [franchiseId]
         );
