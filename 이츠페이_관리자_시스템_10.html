@@ -533,6 +533,20 @@ function showReceipt(id){
 function dateOnly(value){
   return String(value||'').slice(0,10);
 }
+function formatKstDateTime(value){
+  if(!value)return'-';
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime()))return String(value);
+  return new Intl.DateTimeFormat('ko-KR',{
+    timeZone:'Asia/Seoul',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit',
+    hour:'2-digit',
+    minute:'2-digit',
+    hour12:false
+  }).format(d).replace(/\\.\\s?/g,'-').replace(/-$/,'');
+}
 function addDays(date,days){
   const d=new Date(date);
   d.setDate(d.getDate()+days);
