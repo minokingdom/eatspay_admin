@@ -335,10 +335,10 @@ function setAdminLocked(locked){
 }
 function adminPasswordValue(id){
   const el=document.getElementById(id);
-  return el?.dataset.realPassword ?? el?.value ?? '';
+  return el?.value ?? '';
 }
 function adminPwField(id,placeholder='',autocomplete='new-password'){
-  return `<div class="admin-pw-field"><input class="fi admin-pw-input" id="${id}" type="text" placeholder="${placeholder}" autocomplete="${autocomplete}" spellcheck="false" autocapitalize="off"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
+  return `<div class="admin-pw-field"><input class="fi admin-pw-input" id="${id}" type="password" placeholder="${placeholder}" autocomplete="${autocomplete}" spellcheck="false" autocapitalize="off"><button type="button" class="admin-pw-toggle" id="${id}-toggle">보기</button></div>`;
 }
 function bindAdminPasswordFields(root=document){
   root?.querySelectorAll?.('.admin-pw-input').forEach(input=>bindAdminPassword(input.id,`${input.id}-toggle`));
@@ -349,83 +349,23 @@ function bindAdminPassword(id,toggleId){
   if(!input)return;
   if(input.dataset.adminPwBound==='1')return;
   input.dataset.adminPwBound='1';
-  let visible=false;
-  let realValue=input.dataset.realPassword||'';
-  let handledKey=false;
-  const moveCursorToEnd=()=>setTimeout(()=>{try{const pos=input.value.length;input.setSelectionRange(pos,pos);}catch(e){}},0);
+  input.type='password';
+  input.style.color='#111827';
+  input.style.webkitTextFillColor='#111827';
+  input.style.caretColor='#111827';
+  input.classList.remove('admin-pw-mask');
   const render=()=>{
-    input.type='text';
-    input.classList.remove('admin-pw-mask');
-    input.dataset.realPassword=realValue;
-    input.value=visible?realValue:'*'.repeat(realValue.length);
     input.style.color='#111827';
     input.style.webkitTextFillColor='#111827';
     input.style.caretColor='#111827';
-    if(toggle)toggle.textContent=visible?'숨김':'보기';
-    moveCursorToEnd();
+    if(toggle)toggle.textContent=input.type==='password'?'보기':'숨김';
   };
-  const appendText=text=>{
-    if(!text)return;
-    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
-    realValue=allSelected?text:realValue+text;
-    render();
-  };
-  const deleteLast=()=>{
-    const allSelected=(input.selectionStart===0&&input.selectionEnd===input.value.length);
-    realValue=allSelected?'':realValue.slice(0,-1);
-    render();
-  };
-  input.addEventListener('keydown',e=>{
-    if(visible)return;
-    if(e.ctrlKey||e.metaKey||e.altKey)return;
-    if(e.key==='Backspace'||e.key==='Delete'){
-      e.preventDefault();
-      handledKey=true;
-      deleteLast();
-      return;
-    }
-    if(e.key==='Enter')return;
-    if(e.key.length===1){
-      e.preventDefault();
-      handledKey=true;
-      appendText(e.key);
-    }
-  });
-  input.addEventListener('beforeinput',e=>{
-    if(visible)return;
-    if(handledKey){
-      handledKey=false;
-      e.preventDefault();
-      return;
-    }
-    const type=e.inputType||'';
-    if(type.startsWith('insert')&&e.data){
-      e.preventDefault();
-      appendText(e.data);
-    }else if(type==='deleteContentBackward'||type==='deleteContentForward'){
-      e.preventDefault();
-      deleteLast();
-    }
-  });
-  input.addEventListener('paste',e=>{
-    e.preventDefault();
-    const text=(e.clipboardData||window.clipboardData)?.getData('text')||'';
-    appendText(text);
-  });
-  input.addEventListener('input',()=>{
-    if(visible){
-      realValue=input.value||'';
-    }
-    render();
-  });
-  input.addEventListener('focus',moveCursorToEnd);
-  input.addEventListener('click',moveCursorToEnd);
-  input.addEventListener('keyup',moveCursorToEnd);
+  input.addEventListener('input',render);
+  input.addEventListener('focus',render);
   toggle?.addEventListener('click',()=>{
-    visible=!visible;
+    input.type=input.type==='password'?'text':'password';
     render();
     input.focus();
-    moveCursorToEnd();
   });
   render();
 }
