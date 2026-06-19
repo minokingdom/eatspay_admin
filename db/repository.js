@@ -8,6 +8,7 @@ function toUser(row) {
     franchiseName: row.franchise_name,
     franchiseId: row.franchise_id,
     role: row.role,
+    loginId: row.login_id,
     balance: Number(row.balance || 0),
     phone: row.phone,
     address: row.address,
@@ -454,6 +455,19 @@ function createRepository(pool) {
       return toUser(result.rows[0]);
     },
 
+    async findUserByLoginId(loginId) {
+      const result = await pool.query('SELECT * FROM users WHERE login_id = $1', [loginId]);
+      return toUser(result.rows[0]);
+    },
+
+    async findUserByLoginIdentifier(identifier) {
+      const result = await pool.query(
+        'SELECT * FROM users WHERE email = $1 OR login_id = $1 ORDER BY CASE WHEN login_id = $1 THEN 0 ELSE 1 END LIMIT 1',
+        [identifier]
+      );
+      return toUser(result.rows[0]);
+    },
+
     async findUserById(id) {
       const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
       return toUser(result.rows[0]);
@@ -666,9 +680,9 @@ function createRepository(pool) {
       const result = await pool.query(
         `INSERT INTO users (
           email, password_hash, name, franchise_name, role, balance,
-          phone, address, tel, business_number, agency_id, biz_doc_file_key, pos_file_key
+          phone, address, tel, business_number, agency_id, biz_doc_file_key, pos_file_key, login_id
         )
-        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''))
         RETURNING *`,
         [
           user.email,
@@ -681,7 +695,8 @@ function createRepository(pool) {
           user.businessNumber,
           user.agencyId || null,
           user.bizDocFileKey || null,
-          user.posFileKey || null
+          user.posFileKey || null,
+          user.loginId || null
         ]
       );
       return toUser(result.rows[0]);
@@ -763,6 +778,10 @@ function createRepository(pool) {
       if (fields.email !== undefined) {
         params.push(fields.email);
         updates.push(`email = $${params.length}`);
+      }
+      if (fields.loginId !== undefined) {
+        params.push(fields.loginId || null);
+        updates.push(`login_id = NULLIF($${params.length}, '')`);
       }
       if (fields.name !== undefined) {
         params.push(fields.name);

@@ -148,6 +148,7 @@ const DEFAULT_DELIVERY_AGENCIES = [
 ];
 const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ALTER COLUMN franchise_id DROP NOT NULL');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id TEXT UNIQUE');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_file_key TEXT');
   await pool.query('ALTER TABLE cards ADD COLUMN IF NOT EXISTS card_company TEXT');
@@ -156,6 +157,20 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS account_no TEXT');
   await pool.query("ALTER TABLE users ALTER COLUMN role SET DEFAULT 'OWNER'");
   await pool.query("UPDATE users SET role = 'OWNER', updated_at = now() WHERE role = 'OWNER_PENDING'");
+  await pool.query(`
+    UPDATE users u
+    SET login_id = split_part(u.email, '@', 1),
+        updated_at = now()
+    WHERE (u.login_id IS NULL OR u.login_id = '')
+      AND u.email LIKE '%@%'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM users other
+        WHERE other.id <> u.id
+          AND (other.login_id = split_part(u.email, '@', 1)
+               OR split_part(other.email, '@', 1) = split_part(u.email, '@', 1))
+      )
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_agencies (
       id BIGSERIAL PRIMARY KEY,
@@ -629,7 +644,7 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
     return sendError(res, 400, 'BAD_REQUEST', 'email and password are required.');
   }
 
-  const user = await repo.findUserByEmail(email);
+  const user = await repo.findUserByLoginIdentifier(String(email).trim());
   if (user?.passwordHash && await verifyPassword(password, user.passwordHash)) {
     return res.status(200).json({
       success: true,
@@ -1801,6 +1816,7 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
         lastPaymentDate,
         paymentCount: Number(paymentSummary.paymentCount || 0),
         status: user.role === 'OWNER' ? '정상 승인' : user.role === 'OWNER_REJECTED' ? '승인 거절' : '승인 대기',
+        loginId: user.loginId || '',
         email: user.email,
         role: user.role,
         deliveryAgencies: []
@@ -1811,6 +1827,7 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
 
 app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res) => {
   const email = String(req.body?.email || '').trim();
+  const loginId = String(req.body?.loginId || '').trim();
   const password = String(req.body?.password || '');
   const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
   const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
@@ -1821,8 +1838,8 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   const agencyId = req.body?.agencyId ? Number(req.body.agencyId) : null;
   const deliveryAccounts = Array.isArray(req.body?.deliveryAccounts) ? req.body.deliveryAccounts : [];
 
-  if (!email || !password || !franchiseName || !ownerName || !businessNumber) {
-    return sendError(res, 400, 'MISSING_FIELDS', 'email, password, franchiseName, ownerName, and businessNumber are required.');
+  if (!loginId || !email || !password || !franchiseName || !ownerName || !businessNumber) {
+    return sendError(res, 400, 'MISSING_FIELDS', 'loginId, email, password, franchiseName, ownerName, and businessNumber are required.');
   }
   if (password.length < 4) {
     return sendError(res, 400, 'INVALID_PASSWORD', 'Password must be at least 4 characters.');
@@ -1838,7 +1855,10 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     return sendError(res, 409, 'ACCOUNT_LIMIT_EXCEEDED', '가맹점당 출금계좌는 최대 2개까지 등록할 수 있습니다.');
   }
   if (await repo.findUserByEmail(email)) {
-    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 이메일입니다.');
+  }
+  if (await repo.findUserByLoginId(loginId)) {
+    return sendError(res, 409, 'LOGIN_ID_EXISTS', '이미 사용 중인 로그인 ID입니다.');
   }
   if (await repo.findUserByBusinessNumber(businessNumber)) {
     return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
@@ -1847,6 +1867,7 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   const defaultAgency = agencyId ? null : await repo.ensureDefaultAgency();
   const user = await repo.createUser({
     email,
+    loginId,
     passwordHash: await hashPassword(password),
     name: ownerName,
     franchiseName,
@@ -1876,6 +1897,7 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     message: '가맹점이 생성되었습니다.',
     data: {
       id: user.franchiseId,
+      loginId: user.loginId,
       email: user.email,
       name: user.franchiseName,
       owner: user.name,
@@ -2009,6 +2031,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
 
   const franchiseName = String(req.body?.name || req.body?.franchiseName || '').trim();
   const ownerName = String(req.body?.owner || req.body?.ownerName || '').trim();
+  const loginId = String(req.body?.loginId || '').trim();
   const email = String(req.body?.email || '').trim();
   const password = String(req.body?.password || '');
   const phone = String(req.body?.phone || '').trim();
@@ -2026,8 +2049,11 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   if (businessNumber && businessNumber.length !== 10) {
     return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
   }
+  if (!loginId) {
+    return sendError(res, 400, 'MISSING_LOGIN_ID', '로그인 ID를 입력해주세요.');
+  }
   if (!email) {
-    return sendError(res, 400, 'MISSING_EMAIL', '로그인 ID를 입력해주세요.');
+    return sendError(res, 400, 'MISSING_EMAIL', '이메일을 입력해주세요.');
   }
   if (password && password.length < 4) {
     return sendError(res, 400, 'INVALID_PASSWORD', '비밀번호는 4자 이상 입력해주세요.');
@@ -2042,7 +2068,11 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   }
   const duplicateEmail = await repo.findUserByEmail(email);
   if (duplicateEmail && Number(duplicateEmail.franchiseId) !== franchiseId) {
-    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 아이디입니다.');
+    return sendError(res, 409, 'EMAIL_EXISTS', '이미 사용 중인 이메일입니다.');
+  }
+  const duplicateLoginId = await repo.findUserByLoginId(loginId);
+  if (duplicateLoginId && Number(duplicateLoginId.franchiseId) !== franchiseId) {
+    return sendError(res, 409, 'LOGIN_ID_EXISTS', '이미 사용 중인 로그인 ID입니다.');
   }
   if (businessNumber) {
     const duplicateBusiness = await repo.findUserByBusinessNumber(businessNumber);
@@ -2058,6 +2088,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     address,
     businessNumber,
     tel,
+    loginId,
     email,
     passwordHash: password ? await hashPassword(password) : undefined,
     agencyId
@@ -2071,6 +2102,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     message: '가맹점 정보가 수정되었습니다.',
     data: {
       id: updated.franchiseId,
+      loginId: updated.loginId,
       email: updated.email,
       name: updated.franchiseName,
       owner: updated.name,
@@ -2258,6 +2290,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       lastPaymentDate,
       paymentCount: Number(paymentSummary.paymentCount || 0),
       status: user.role === 'OWNER' ? '\uC815\uC0C1 \uC2B9\uC778' : user.role === 'OWNER_REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
+      loginId: user.loginId || '',
       email: user.email,
       role: user.role,
       deliveryAgencies: []
@@ -2304,6 +2337,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
       lastPaymentDate: '',
       paymentCount: 0,
       status: request.status === 'APPROVED' ? '\uC815\uC0C1 \uC2B9\uC778' : request.status === 'REJECTED' ? '\uC2B9\uC778 \uAC70\uC808' : '\uC2B9\uC778 \uB300\uAE30',
+      loginId: '',
       email: '',
       role: 'OWNER_PENDING',
       deliveryAgencies: []
@@ -3476,6 +3510,8 @@ function publicUser(user) {
   const adminDisplayName = user.name || 'Eats Pay Admin';
   return {
     id: user.id,
+    loginId: user.loginId || '',
+    email: user.email,
     name: user.name,
     franchiseName: isAdmin ? adminDisplayName : user.franchiseName,
     franchiseId: isAdmin ? user.id : user.franchiseId,
