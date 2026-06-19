@@ -902,6 +902,8 @@ function updateVisibleTermAll() {
     ['usage', $('#term-usage-cb')],
     ['privacy', $('#term-privacy-cb')]
   ].filter(([type]) => isRequiredTermVisible(type));
+  const allRow = $('#term-all-row');
+  if (allRow) allRow.style.display = required.length ? 'flex' : 'none';
   const allChecked = required.length > 0 && required.every(([, cb]) => cb?.classList.contains('checked'));
   const all = $('#term-all-cb');
   if (all) {
