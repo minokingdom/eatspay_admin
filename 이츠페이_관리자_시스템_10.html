@@ -1826,20 +1826,59 @@ function legalDocPanel(type,items){
   </div>`;
 }
 function legalDocForm(type){
-  return`<div class="aw aw-g">본문을 직접 입력하거나 txt/md 파일을 선택하면 본문에 자동 입력됩니다.</div>
+  return`<div class="aw aw-g">본문을 직접 입력하거나 txt/md/html/rtf 파일을 선택하면 본문에 자동 입력됩니다. pdf/doc/docx/hwp는 내용을 복사해 본문에 붙여넣어 주세요.</div>
   <div class="fg"><label class="fl">문서 종류</label><input class="fi" value="${legalDocTypeLabel(type)}" disabled></div>
   <div class="fg"><label class="fl">제목 *</label><input class="fi" id="ld-title" value="${legalDocTypeLabel(type)}" placeholder="예: ${legalDocTypeLabel(type)} 2026.06.19"></div>
-  <div class="fg"><label class="fl">파일 불러오기</label><input class="fi" id="ld-file" type="file" accept=".txt,.md,text/plain,text/markdown"><div class="admin-modal-note">파일 내용은 DB 본문으로 저장됩니다. 원본 파일 자체를 공개하지 않습니다.</div></div>
+  <div class="fg"><label class="fl">파일 불러오기</label><input class="fi" id="ld-file" type="file" accept=".txt,.md,.html,.htm,.rtf,text/plain,text/markdown,text/html,application/rtf,text/rtf"><div class="admin-modal-note">파일 내용은 DB 본문으로 저장됩니다. 원본 파일 자체를 공개하지 않습니다.</div></div>
   <div class="fg"><label class="fl">본문 *</label><textarea class="fta" id="ld-content" rows="14" placeholder="앱에 표시할 내용을 입력하세요."></textarea></div>
   <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#166534"><input type="checkbox" id="ld-applied"> 저장 즉시 앱에 적용</label>`;}
+function normalizeLegalDocText(fileName,text){
+  const ext=String(fileName||'').split('.').pop().toLowerCase();
+  if(ext==='html'||ext==='htm'){
+    const doc=new DOMParser().parseFromString(text,'text/html');
+    return (doc.body?.innerText||text).trim();
+  }
+  if(ext==='rtf'){
+    return text
+      .replace(/\\par[d]?/g,'\n')
+      .replace(/\\'[0-9a-fA-F]{2}/g,'')
+      .replace(/\\[a-zA-Z]+-?\d* ?/g,'')
+      .replace(/[{}]/g,'')
+      .replace(/\n{3,}/g,'\n\n')
+      .trim();
+  }
+  return String(text||'').trim();
+}
+async function readLegalDocFile(file){
+  const name=String(file?.name||'');
+  const ext=name.split('.').pop().toLowerCase();
+  const supported=['txt','md','markdown','html','htm','rtf'];
+  const blocked=['pdf','doc','docx','hwp','hwpx'];
+  if(blocked.includes(ext)){
+    throw new Error(`${name} 파일은 자동으로 본문을 추출할 수 없습니다.\n파일을 열어서 내용을 복사한 뒤 본문 칸에 붙여넣어 주세요.`);
+  }
+  if(ext&&!supported.includes(ext)){
+    throw new Error('지원하지 않는 파일 형식입니다. txt, md, html, rtf 파일만 불러올 수 있습니다.');
+  }
+  const raw=await file.text();
+  const text=normalizeLegalDocText(name,raw);
+  if(!text)throw new Error('파일에서 읽을 수 있는 본문이 없습니다. 내용을 직접 입력해 주세요.');
+  return text;
+}
 function addLegalDoc(type){
   openM(`${legalDocTypeLabel(type)} 등록`,legalDocForm(type),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savLegalDoc('${type}')">저장</button>`);
   setTimeout(()=>{
     document.getElementById('ld-file')?.addEventListener('change',async ev=>{
       const file=ev.target.files?.[0];if(!file)return;
-      document.getElementById('ld-content').value=await file.text();
-      document.getElementById('ld-title').value=file.name.replace(/\.[^.]+$/,'');
-      document.getElementById('ld-file').dataset.fileName=file.name;
+      try{
+        document.getElementById('ld-content').value=await readLegalDocFile(file);
+        document.getElementById('ld-title').value=file.name.replace(/\.[^.]+$/,'');
+        document.getElementById('ld-file').dataset.fileName=file.name;
+      }catch(e){
+        ev.target.value='';
+        delete document.getElementById('ld-file').dataset.fileName;
+        await adminAlert(e.message||'파일을 읽지 못했습니다. 본문을 직접 입력해 주세요.');
+      }
     });
   },20);
 }
