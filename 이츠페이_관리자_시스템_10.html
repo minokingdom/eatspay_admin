@@ -168,8 +168,12 @@ tr:hover td{background:#FAFFFE}
 .settlement-detail-scroll table th{position:sticky;top:0;z-index:1}
 .accounts-table{table-layout:fixed;min-width:900px}.accounts-table .proof-col{width:118px}.accounts-table .proof-file{display:block;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;font-size:11px}
 .franchise-list-layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px;align-items:start}
-.franchise-list-head{display:flex;justify-content:flex-end;align-items:flex-start;min-height:38px;margin-bottom:10px}
+.franchise-list-head{display:flex;justify-content:flex-end;align-items:flex-start;height:36px;margin-bottom:10px}
+.franchise-list-head .btn{height:34px}
 .franchise-filter-panel{position:sticky;top:16px;margin-top:0}
+.franchise-filter-card{padding:0 16px 16px!important;margin-top:0}
+.franchise-filter-card .filter-row:first-child{padding-top:0}
+.franchise-filter-card .filter-row:first-child label{height:34px;display:flex!important;align-items:center;margin-bottom:0!important}
 .franchise-form-error{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #FCA5A5;background:#FEF2F2;color:#B91C1C;border-radius:8px;font-size:12px;font-weight:800;line-height:1.5}
 .franchise-id-preview{font-size:11px;color:#166534;font-weight:800;margin-top:6px;line-height:1.4}
 body{font-family:'NanumSquare','Nanum Square','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;-webkit-font-smoothing:auto;text-rendering:optimizeLegibility}
@@ -311,7 +315,7 @@ function nid(){return++D.nextId;}
 function today(){return new Date().toISOString().slice(0,10);}
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2500);}
-function fRow(label,input){return`<div style="margin-bottom:14px"><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">${label}</label>${input}</div>`;}
+function fRow(label,input,extraClass=''){return`<div class="${extraClass}" style="margin-bottom:14px"><label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">${label}</label>${input}</div>`;}
 function makeSdd(id,items,changeHandler='rPay()'){
   const value=_sddSel[id]||'';
   return`<select class="fs" id="${id}" onchange="_sddSel['${id}']=this.value;${changeHandler}" style="width:100%"><option value="">전체</option>${items.map(item=>`<option value="${item.val}" ${String(value)===String(item.val)?'selected':''}>${item.label}</option>`).join('')}</select>`;
@@ -1064,11 +1068,11 @@ function pgFr(){
       <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>계좌확인</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th></th></tr></thead><tbody id="fb"></tbody></table></div></div>
     </div>
     <div class="franchise-filter-panel">
-      <div class="card" style="padding:16px">
-        ${fRow('가맹점명 / 대표자 / 연락처',`<input class="fi" id="fs" placeholder="검색..." oninput="rFr()">`)}
-        ${fRow('계좌 상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option><option value="탈퇴">탈퇴</option></select>`)}
-        ${fRow('카드등록',`<select class="fs" id="fcard" onchange="rFr()"><option value="">전체</option><option value="yes">등록</option><option value="no">미등록</option></select>`)}
-        ${role==='hq'?fRow('대리점',makeSdd('frag',(D.agencies||[]).map(a=>({val:a.id,label:a.name})),'rFr()')):''}
+      <div class="card franchise-filter-card">
+        ${fRow('가맹점명 / 대표자 / 연락처',`<input class="fi" id="fs" placeholder="검색..." oninput="rFr()">`,'filter-row')}
+        ${fRow('계좌 상태',`<select class="fs" id="facst" onchange="rFr()"><option value="">전체</option><option value="승인완료">승인완료</option><option value="승인대기">승인대기</option><option value="반려">반려</option><option value="미등록">미등록</option><option value="탈퇴">탈퇴</option></select>`,'filter-row')}
+        ${fRow('카드등록',`<select class="fs" id="fcard" onchange="rFr()"><option value="">전체</option><option value="yes">등록</option><option value="no">미등록</option></select>`,'filter-row')}
+        ${role==='hq'?fRow('대리점',makeSdd('frag',(D.agencies||[]).map(a=>({val:a.id,label:a.name})),'rFr()'),'filter-row'):''}
         <button class="btn bo" onclick="clearFrFilters()" style="width:100%;justify-content:center">초기화</button>
       </div>
     </div>
