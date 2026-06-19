@@ -440,10 +440,20 @@ function showAdminLogin(message='관리자 로그인이 필요합니다.'){
     setTimeout(()=>{bindAdminPassword('admin-login-password','admin-login-password-toggle');document.getElementById('admin-login-password')?.focus();},30);
   });
 }
+function setAdminLoginError(message,focusId='admin-login-password'){
+  const alertEl=document.querySelector('.admin-login-alert');
+  if(alertEl)alertEl.textContent=message||'로그인에 실패했습니다.';
+  const target=document.getElementById(focusId)||document.getElementById('admin-login-password');
+  if(target){
+    target.focus();
+    try{target.select?.();}catch(_){}
+  }
+}
 async function submitAdminLogin(){
   const email=v('admin-login-email').trim();
   const password=adminPasswordValue('admin-login-password');
-  if(!email||!password){await adminAlert('이메일과 비밀번호를 입력하세요.');return;}
+  if(!email){setAdminLoginError('관리자 이메일을 입력하세요.','admin-login-email');return;}
+  if(!password){setAdminLoginError('비밀번호를 입력하세요.','admin-login-password');return;}
   try{
     const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
     const json=await res.json().catch(()=>({}));
@@ -457,7 +467,9 @@ async function submitAdminLogin(){
     closeM();
     window.__adminLoginResolve&&window.__adminLoginResolve(true);
   }catch(e){
-    await adminAlert(e.message||'로그인에 실패했습니다.');
+    const raw=String(e.message||'');
+    const message=raw.includes('Invalid email or password')?'이메일 또는 비밀번호가 일치하지 않습니다. 다시 입력해주세요.':(raw||'로그인에 실패했습니다.');
+    setAdminLoginError(message,'admin-login-password');
   }
 }
 async function ensureAdminLogin(){
