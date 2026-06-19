@@ -66,7 +66,7 @@ th{background:#F0FAF0;padding:9px 12px;text-align:left;font-size:11.5px;font-wei
 td{padding:8px 12px;border-bottom:1px solid #D1E8D1;font-size:12.1px;color:#1A2E1A;vertical-align:middle}
 tr:hover td{background:#FAFFFE}
 .tw{overflow-x:auto}
-.bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:10.4px;font-weight:700}
+.bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;font-size:10.4px;font-weight:700}
 .bg{background:#DCFCE7;color:#166534}.by{background:#FEF3C7;color:#92400E}
 .br{background:#FEE2E2;color:#991B1B}.bb{background:#DBEAFE;color:#1E40AF}.bgr{background:#F3F4F6;color:#4B5563}
 .bpu{background:#F3E8FF;color:#6B21A8}.bor{background:#FEF3C7;color:#92400E}
@@ -1120,7 +1120,7 @@ function pgFr(){
   <div class="franchise-list-layout">
     <div>
       ${role==='hq'?`<div class="franchise-list-head"><button class="btn bg2" onclick="addF()">+ 가맹점 추가</button></div>`:''}
-      <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th></th></tr></thead><tbody id="fb"></tbody></table></div></div>
+      <div class="card"><div class="tw"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>배달대행사</th><th>계좌확인</th><th>카드</th><th>가입일</th><th>최근결제</th><th>상태</th><th></th></tr></thead><tbody id="fb"></tbody></table></div></div>
     </div>
     <div class="franchise-filter-panel">
       <div class="card" style="padding:16px">
@@ -1181,13 +1181,14 @@ function rFr(){
   el.innerHTML=rows.map(f=>`<tr style="cursor:pointer" onclick="goFrDetail(${f.id})">
     <td><div style="font-weight:900;color:#166534">${f.name}</div><div style="font-size:10px;color:#9CA3AF">${f.customerId||displayMemberId(f.email)}</div></td>
     <td>${f.agency||agencyNameById(f.agencyId)||'-'}</td><td>${f.owner||'-'}</td><td>${f.phone||'-'}</td>
-    <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${a.agency}&nbsp;${bdg(a.accountStatus)}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
+    <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>`<span>${esc(a.agency||'-')}</span>`).join('<br>'):'<span style="color:#9CA3AF">미등록</span>'}</td>
+    <td style="font-size:11px">${f.deliveryAgencies&&f.deliveryAgencies.length?f.deliveryAgencies.map(a=>bdg(a.accountStatus||'승인대기')).join('<br>'):bdg('미등록')}</td>
     <td>${franchiseCardRegistered(f)?`<span class="bdg bb">${f.cardCompany||'카드'} ${f.cardLast4?`••${f.cardLast4}`:''}</span>`:'<span style="font-weight:700;color:#9CA3AF">미등록</span>'}</td>
     <td style="font-size:11px">${f.joinDate||'-'}</td>
     <td style="font-size:11px">${f.lastPaymentDate||'-'}</td>
     <td>${bdg(f.status)}</td>
     <td onclick="event.stopPropagation()">${role==='hq'?`<button class="btn bd xs" onclick="delF(${f.id})">삭제</button>`:''}</td>
-  </tr>`).join('')||'<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
+  </tr>`).join('')||'<tr><td colspan="11" class="emp">검색 결과 없음</td></tr>';
 }
 async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>String(x.id)===String(id));
