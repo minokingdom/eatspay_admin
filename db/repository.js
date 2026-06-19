@@ -85,6 +85,21 @@ function toAdminFaq(row) {
   };
 }
 
+function toLegalDocument(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    content: row.content,
+    sourceFileName: row.source_file_name,
+    applied: row.applied === true,
+    appliedAt: row.applied_at instanceof Date ? row.applied_at.toISOString() : row.applied_at,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toAdminBoardPost(row) {
   if (!row) return null;
   return {
@@ -1538,6 +1553,111 @@ function createRepository(pool) {
       const result = await pool.query(
         `UPDATE admin_faqs
          SET active = false,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [id]
+      );
+      return result.rows[0] || null;
+    },
+
+    async listLegalDocuments() {
+      const result = await pool.query(
+        `SELECT id, type, title, content, source_file_name, applied, applied_at, active, created_at, updated_at
+         FROM legal_documents
+         WHERE active = true
+         ORDER BY type ASC, applied DESC, applied_at DESC NULLS LAST, updated_at DESC, id DESC`
+      );
+      return result.rows.map(toLegalDocument);
+    },
+
+    async listActiveLegalDocuments() {
+      const result = await pool.query(
+        `SELECT DISTINCT ON (type) id, type, title, content, source_file_name, applied, applied_at, active, created_at, updated_at
+         FROM legal_documents
+         WHERE active = true AND applied = true
+         ORDER BY type ASC, applied_at DESC NULLS LAST, id DESC`
+      );
+      return result.rows.map(toLegalDocument);
+    },
+
+    async createLegalDocument(fields) {
+      const type = String(fields.type || '').trim();
+      const applied = fields.applied === true;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (applied) {
+          await client.query(
+            'UPDATE legal_documents SET applied = false, updated_at = now() WHERE type = $1 AND active = true',
+            [type]
+          );
+        }
+        const result = await client.query(
+          `INSERT INTO legal_documents (type, title, content, source_file_name, applied, applied_at, active)
+           VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN now() ELSE NULL END, true)
+           RETURNING id, type, title, content, source_file_name, applied, applied_at, active, created_at, updated_at`,
+          [
+            type,
+            fields.title,
+            fields.content,
+            fields.sourceFileName || null,
+            applied
+          ]
+        );
+        await client.query('COMMIT');
+        return toLegalDocument(result.rows[0]);
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async setLegalDocumentApplied(id, applied) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const existing = await client.query(
+          'SELECT id, type FROM legal_documents WHERE id = $1 AND active = true',
+          [id]
+        );
+        if (!existing.rows[0]) {
+          await client.query('ROLLBACK');
+          return null;
+        }
+        const type = existing.rows[0].type;
+        if (applied) {
+          await client.query(
+            'UPDATE legal_documents SET applied = false, updated_at = now() WHERE type = $1 AND active = true',
+            [type]
+          );
+        }
+        const result = await client.query(
+          `UPDATE legal_documents
+           SET applied = $2,
+               applied_at = CASE WHEN $2 THEN COALESCE(applied_at, now()) ELSE NULL END,
+               updated_at = now()
+           WHERE id = $1 AND active = true
+           RETURNING id, type, title, content, source_file_name, applied, applied_at, active, created_at, updated_at`,
+          [id, applied === true]
+        );
+        await client.query('COMMIT');
+        return toLegalDocument(result.rows[0]);
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async deleteLegalDocument(id) {
+      const result = await pool.query(
+        `UPDATE legal_documents
+         SET active = false,
+             applied = false,
              updated_at = now()
          WHERE id = $1
          RETURNING id`,

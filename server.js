@@ -257,6 +257,20 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS legal_documents (
+      id BIGSERIAL PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('terms', 'privacy')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      source_file_name TEXT,
+      applied BOOLEAN NOT NULL DEFAULT false,
+      applied_at TIMESTAMPTZ,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2191,7 +2205,7 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res) => {
-  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders, inquiries, banners, customRoles] = await Promise.all([
+  const [users, adminUsers, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, paymentSummaries, faqs, notices, guides, pgProviders, inquiries, banners, customRoles, legalDocuments] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAdminUsers(),
     repo.listAgencies(),
@@ -2219,7 +2233,8 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     repo.listAdminPgProviders(),
     repo.listAdminInquiries(),
     repo.listAdminBanners(),
-    repo.listAdminRoleSettings()
+    repo.listAdminRoleSettings(),
+    repo.listLegalDocuments()
   ]);
 
   const franchiseMap = new Map();
@@ -2405,6 +2420,7 @@ app.get('/api/admin/bootstrap', authenticateAdmin, asyncHandler(async (req, res)
     inquiries,
     banners,
     customRoles,
+    legalDocuments,
     payments: paymentRows,
     pgSettlements: pgRows,
     accountRequests,
@@ -2431,6 +2447,51 @@ app.put('/api/admin/installments', authenticateAdmin, asyncHandler(async (req, r
 
   const saved = await repo.replaceInterestFreeInstallments(items);
   return res.status(200).json({ success: true, data: saved });
+}));
+
+app.get('/api/legal-documents/active', asyncHandler(async (req, res) => {
+  const docs = await repo.listActiveLegalDocuments();
+  return res.status(200).json({ success: true, data: docs });
+}));
+
+app.post('/api/admin/legal-documents', authenticateAdmin, asyncHandler(async (req, res) => {
+  const type = String(req.body?.type || '').trim();
+  const title = String(req.body?.title || '').trim();
+  const content = String(req.body?.content || '').trim();
+  const sourceFileName = String(req.body?.sourceFileName || '').trim();
+  const applied = req.body?.applied === true;
+  if (type !== 'terms' && type !== 'privacy') {
+    return sendError(res, 400, 'BAD_REQUEST', 'type must be terms or privacy.');
+  }
+  if (!title || !content) {
+    return sendError(res, 400, 'BAD_REQUEST', 'title and content are required.');
+  }
+  const document = await repo.createLegalDocument({ type, title, content, sourceFileName, applied });
+  return res.status(201).json({ success: true, data: document });
+}));
+
+app.patch('/api/admin/legal-documents/:id/apply', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'document id is required.');
+  }
+  const document = await repo.setLegalDocumentApplied(id, req.body?.applied === true);
+  if (!document) {
+    return sendError(res, 404, 'LEGAL_DOCUMENT_NOT_FOUND', 'Legal document was not found.');
+  }
+  return res.status(200).json({ success: true, data: document });
+}));
+
+app.delete('/api/admin/legal-documents/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'document id is required.');
+  }
+  const deleted = await repo.deleteLegalDocument(id);
+  if (!deleted) {
+    return sendError(res, 404, 'LEGAL_DOCUMENT_NOT_FOUND', 'Legal document was not found.');
+  }
+  return res.status(200).json({ success: true, data: deleted });
 }));
 
 app.post('/api/admin/faqs', authenticateAdmin, asyncHandler(async (req, res) => {

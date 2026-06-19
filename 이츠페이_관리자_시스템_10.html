@@ -11,7 +11,7 @@ const CONFIG = {
     dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
     settlements:"대리점 정산", franchises:"가맹점 목록", franchiseDetail:"가맹점 상세", accounts:"출금계좌 목록",
     agencies:"대리점 관리", agencyDetail:"대리점 상세", ag_detail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
-    banners:"배너 관리", faqs:"FAQ 관리", installments:"무이자 할부", push:"푸시알림",
+    banners:"배너 관리", legalDocs:"개인정보/약관", faqs:"FAQ 관리", installments:"무이자 할부", push:"푸시알림",
     pg:"PG사 관리", fees:"수수료율 설정", admins:"관리자 계정",
     notices:"공지사항", guides:"이용가이드",
   },
@@ -248,6 +248,7 @@ function emptyData(){
     pgProviders:[],
     banners:[],
     faqs:[],
+    legalDocuments:[],
     notices:[],
     guides:[],
     admins:[],
@@ -271,7 +272,7 @@ const HQ_NAV=[
   {s:'결제'},{id:'payments',sub:1},{id:'pgsettle',sub:1},{id:'settlements',sub:1},
   {s:'가맹점'},{id:'franchises',sub:1},{id:'accounts',sub:1},
   {s:'대리점'},{id:'agencies'},
-  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'push',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
+  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'banners',sub:1},{id:'legalDocs',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'push',sub:1},{id:'pg',sub:1},{id:'fees',sub:1},{id:'admins',sub:1},
   {s:'게시판'},{id:'notices',sub:1},{id:'guides',sub:1},
 ];
 const AG_NAV=[
@@ -1826,6 +1827,105 @@ async function deactivateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);
 async function activateDA(id){const a=D.deliveryAgencyList.find(x=>x.id===id);if(!a)return;if(!await adminConfirm(`'${a.name}'을 [가입 가능] 상태로 전환하시겠습니까?`))return;await updateDeliveryAgencyStatus(id,'active','가입 가능 상태로 전환');}
 async function deleteDA(id){var a=D.deliveryAgencyList.find(function(x){return x.id===id;});if(!a)return;var cnt=D.franchises.filter(function(f){return f.deliveryAgencies.some(function(da){return da.agency===a.name;});}).length;var msg="'"+a.name+"'을 목록에서 삭제하시겠습니까?";if(cnt>0)msg+="\n현재 "+cnt+"개 가맹점에서 사용 중입니다. 기존 계좌 데이터는 유지됩니다.";msg+="\n이 작업은 되돌릴 수 없습니다.";if(!await adminConfirm(msg))return;try{const res=await fetch(`/api/admin/delivery-agencies/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||err.message||'삭제에 실패했습니다.');}await syncBackendTransactions();renderPage();toast("'"+a.name+"' 삭제");}catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}}
 
+// ═══ 개인정보/약관 ═══
+function legalDocTypeLabel(type){return type==='privacy'?'개인정보처리방침':'서비스 이용약관';}
+function legalDocAppliedDate(doc){return doc.appliedAt?formatKstDateTime(doc.appliedAt):'-';}
+function pgLegalDocs(){
+  const docs=Array.isArray(D.legalDocuments)?D.legalDocuments:[];
+  return`
+  <div class="aw aw-b">적용 체크된 최신 문서만 앱 회원가입 화면에 표시됩니다. 저장된 문서는 수정하지 않고 새 버전으로 다시 등록합니다.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+    ${legalDocPanel('terms',docs.filter(d=>d.type==='terms'))}
+    ${legalDocPanel('privacy',docs.filter(d=>d.type==='privacy'))}
+  </div>`;
+}
+function legalDocPanel(type,items){
+  const active=items.find(d=>d.applied);
+  return`<div class="card">
+    <div class="ch"><b>${legalDocTypeLabel(type)}</b><span>${active?bdg('활성'):bdg('비활성')}</span></div>
+    <div style="padding:14px">
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;font-size:12px;margin-bottom:12px">
+        <span style="color:#6B7280">적용일</span><b>${active?legalDocAppliedDate(active):'비노출'}</b>
+        <span style="color:#6B7280">현재 문서</span><span>${active?esc(active.title):'앱에 표시 중인 문서가 없습니다.'}</span>
+      </div>
+      <button class="btn bg2 sm" onclick="addLegalDoc('${type}')">+ 새 문서 등록</button>
+    </div>
+    <div class="tw"><table><thead><tr><th>제목</th><th>적용일</th><th>상태</th><th>관리</th></tr></thead><tbody>
+      ${items.map(doc=>`<tr>
+        <td><b>${esc(doc.title)}</b><div style="font-size:10px;color:#9CA3AF">${esc(doc.sourceFileName||'직접 입력')}</div></td>
+        <td style="font-size:11px">${legalDocAppliedDate(doc)}</td>
+        <td>${doc.applied?bdg('활성'):bdg('비활성')}</td>
+        <td><div class="ab">
+          <button class="btn bo xs" onclick="viewLegalDoc(${jsArg(doc.id)})">보기</button>
+          <button class="btn ${doc.applied?'bo':'bg2'} xs" onclick="toggleLegalDoc(${jsArg(doc.id)},${doc.applied?'false':'true'})">${doc.applied?'비노출':'적용'}</button>
+          <button class="btn bd xs" onclick="delLegalDoc(${jsArg(doc.id)})">삭제</button>
+        </div></td>
+      </tr>`).join('')||'<tr><td colspan="4" class="emp">등록된 문서가 없습니다.</td></tr>'}
+    </tbody></table></div>
+  </div>`;
+}
+function legalDocForm(type){
+  return`<div class="aw aw-g">본문을 직접 입력하거나 txt/md 파일을 선택하면 본문에 자동 입력됩니다.</div>
+  <div class="fg"><label class="fl">문서 종류</label><input class="fi" value="${legalDocTypeLabel(type)}" disabled></div>
+  <div class="fg"><label class="fl">제목 *</label><input class="fi" id="ld-title" value="${legalDocTypeLabel(type)}" placeholder="예: ${legalDocTypeLabel(type)} 2026.06.19"></div>
+  <div class="fg"><label class="fl">파일 불러오기</label><input class="fi" id="ld-file" type="file" accept=".txt,.md,text/plain,text/markdown"><div class="admin-modal-note">파일 내용은 DB 본문으로 저장됩니다. 원본 파일 자체를 공개하지 않습니다.</div></div>
+  <div class="fg"><label class="fl">본문 *</label><textarea class="fta" id="ld-content" rows="14" placeholder="앱에 표시할 내용을 입력하세요."></textarea></div>
+  <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#166534"><input type="checkbox" id="ld-applied"> 저장 즉시 앱에 적용</label>`;}
+function addLegalDoc(type){
+  openM(`${legalDocTypeLabel(type)} 등록`,legalDocForm(type),`<button class="btn bo" onclick="closeM()">취소</button><button class="btn bg2" onclick="savLegalDoc('${type}')">저장</button>`);
+  setTimeout(()=>{
+    document.getElementById('ld-file')?.addEventListener('change',async ev=>{
+      const file=ev.target.files?.[0];if(!file)return;
+      document.getElementById('ld-content').value=await file.text();
+      document.getElementById('ld-title').value=file.name.replace(/\.[^.]+$/,'');
+      document.getElementById('ld-file').dataset.fileName=file.name;
+    });
+  },20);
+}
+function viewLegalDoc(id){
+  const doc=(D.legalDocuments||[]).find(x=>String(x.id)===String(id));if(!doc)return;
+  openM(`${legalDocTypeLabel(doc.type)} 보기`,`<div style="display:grid;gap:8px;font-size:12px;margin-bottom:12px"><div><b>제목</b> ${esc(doc.title)}</div><div><b>적용일</b> ${legalDocAppliedDate(doc)}</div><div><b>상태</b> ${doc.applied?'적용':'비노출'}</div></div><div style="max-height:420px;overflow:auto;border:1px solid #D1E8D1;border-radius:8px;padding:12px;white-space:pre-wrap;font-size:12px;line-height:1.7">${esc(doc.content)}</div>`,`<button class="btn bg2" onclick="closeM()">닫기</button>`);
+}
+async function savLegalDoc(type){
+  const title=v('ld-title').trim();
+  const content=v('ld-content').trim();
+  const applied=document.getElementById('ld-applied')?.checked===true;
+  const sourceFileName=document.getElementById('ld-file')?.dataset.fileName||'';
+  if(!title||!content){await adminAlert('제목과 본문을 입력하세요.');return;}
+  try{
+    const res=await fetch('/api/admin/legal-documents',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({type,title,content,sourceFileName,applied})});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'문서 저장에 실패했습니다.');
+    closeM();
+    await syncBackendTransactions({forceRender:true});
+    page='legalDocs';renderNav();renderPage();
+    toast(applied?'문서가 앱에 적용되었습니다.':'문서가 비노출 상태로 저장되었습니다.');
+  }catch(e){await adminAlert(e.message||'문서 저장에 실패했습니다.');}
+}
+async function toggleLegalDoc(id,applied){
+  if(!await adminConfirm(applied?'이 문서를 앱에 적용하시겠습니까?\n같은 종류의 기존 적용 문서는 비노출됩니다.':'이 문서를 앱에서 비노출하시겠습니까?'))return;
+  try{
+    const res=await fetch(`/api/admin/legal-documents/${encodeURIComponent(id)}/apply`,{method:'PATCH',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({applied})});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'상태 변경에 실패했습니다.');
+    await syncBackendTransactions({forceRender:true});
+    page='legalDocs';renderNav();renderPage();
+  }catch(e){await adminAlert(e.message||'상태 변경에 실패했습니다.');}
+}
+async function delLegalDoc(id){
+  if(!await adminConfirm('이 문서를 삭제하시겠습니까? 적용 중인 문서라면 앱에서 비노출됩니다.'))return;
+  try{
+    const res=await fetch(`/api/admin/legal-documents/${encodeURIComponent(id)}`,{method:'DELETE',headers:adminAuthHeaders()});
+    const json=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!json.success)throw new Error(json.error?.message||json.message||'삭제에 실패했습니다.');
+    await syncBackendTransactions({forceRender:true});
+    page='legalDocs';renderNav();renderPage();
+  }catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}
+}
+
 // ═══ 영업대리점 개설문의 ═══
 function pgInquiries(){return`<div class="card"><div class="ch"><span style="font-weight:700;font-size:14px">영업대리점 개설문의 <span class="tg">${D.inquiries.length}건</span></span><button class="btn bg2 sm" onclick="addInquiry()">+ 문의 등록</button></div>
   <div class="tw"><table><thead><tr><th>상태</th><th>이름</th><th>휴대폰번호</th><th>배달대행사</th><th>희망지역</th><th>담당자</th><th>접수일시</th><th>처리</th></tr></thead><tbody>
@@ -2310,7 +2410,7 @@ async function delBn(id){
 
 // ═══ 렌더 ═══
 function renderPage(){
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,legalDocs:pgLegalDocs,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,admins:pgAdmins,pg:pgPG,fees:pgFees,installments:pgInst,push:pgPush,inquiries:pgInquiries,banners:pgBanners};
   document.getElementById('ct').innerHTML=(m[page]||pgDash)();
   document.querySelectorAll('[data-ag-id]').forEach(el=>{
     el.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();goAgDetail(el.dataset.agId);});
@@ -2331,6 +2431,7 @@ function makeBackendSnapshot(){
     deliveryAgencyList:D.deliveryAgencyList,
     installments:D.installments,
     faqs:D.faqs,
+    legalDocuments:D.legalDocuments,
     notices:D.notices,
     guides:D.guides,
     admins:D.admins,
@@ -2386,6 +2487,7 @@ async function syncBackendTransactions(options={}) {
     D.deliveryAgencyList = Array.isArray(data.deliveryAgencies) ? data.deliveryAgencies : D.deliveryAgencyList;
     D.installments = Array.isArray(data.installments) ? data.installments : [];
     D.faqs = Array.isArray(data.faqs) ? data.faqs : [];
+    D.legalDocuments = Array.isArray(data.legalDocuments) ? data.legalDocuments : [];
     D.notices = Array.isArray(data.notices) ? data.notices : [];
     D.guides = Array.isArray(data.guides) ? data.guides : [];
     D.admins = Array.isArray(data.admins) ? data.admins : [];

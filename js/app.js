@@ -40,6 +40,7 @@ sessionStorage.setItem('selectedDeliveryAgency', selectedAgency);
 let agencySettlementPage = 1;
 let deliveryAgencyCache = [];
 let installmentPolicyCache = [];
+let legalDocumentCache = [];
 let installmentBannerIndex = 0;
 let installmentBannerTimer = null;
 let daumPostcodeScriptPromise = null;
@@ -865,6 +866,63 @@ async function loadInstallmentBanner() {
     renderCsInstallmentList();
     renderBenefitCardList();
   }
+}
+
+function formatLegalAppliedDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function renderLegalDocument(type, doc) {
+  const row = type === 'privacy' ? $('#term-privacy-row') : $('#term-usage-row');
+  const box = type === 'privacy' ? $('#term-privacy-box') : $('#term-usage-box');
+  const checkbox = type === 'privacy' ? $('#term-privacy-cb') : $('#term-usage-cb');
+  if (!row || !box) return;
+  const visible = !!(doc && doc.content);
+  row.style.display = visible ? 'flex' : 'none';
+  box.style.display = visible ? 'block' : 'none';
+  row.dataset.requiredTerm = visible ? 'true' : 'false';
+  if (!visible) {
+    checkbox?.classList.remove('checked');
+    return;
+  }
+  const applied = formatLegalAppliedDate(doc.appliedAt);
+  box.textContent = `${doc.title || (type === 'privacy' ? '개인정보처리방침' : '서비스 이용약관')}${applied ? `\n적용일: ${applied}` : ''}\n\n${doc.content}`;
+}
+
+function isRequiredTermVisible(type) {
+  const row = type === 'privacy' ? $('#term-privacy-row') : $('#term-usage-row');
+  return row?.dataset.requiredTerm === 'true' && row.style.display !== 'none';
+}
+
+function updateVisibleTermAll() {
+  const required = [
+    ['usage', $('#term-usage-cb')],
+    ['privacy', $('#term-privacy-cb')]
+  ].filter(([type]) => isRequiredTermVisible(type));
+  const allChecked = required.length > 0 && required.every(([, cb]) => cb?.classList.contains('checked'));
+  const all = $('#term-all-cb');
+  if (all) {
+    if (allChecked) all.classList.add('checked');
+    else all.classList.remove('checked');
+  }
+}
+
+async function loadLegalDocuments() {
+  try {
+    const response = await fetch(apiUrl(`/api/legal-documents/active?_=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error('legal documents request failed');
+    const json = await response.json();
+    legalDocumentCache = Array.isArray(json.data) ? json.data : [];
+  } catch (error) {
+    console.error(error);
+    legalDocumentCache = [];
+  }
+  renderLegalDocument('terms', legalDocumentCache.find(doc => doc.type === 'terms'));
+  renderLegalDocument('privacy', legalDocumentCache.find(doc => doc.type === 'privacy'));
+  updateVisibleTermAll();
 }
 
 function bankCodeFromName(bankName) {
@@ -2281,6 +2339,7 @@ document.addEventListener('DOMContentLoaded', () => {
   resetAppToSplash();
   startInitialFlow();
   loadInstallmentBanner();
+  loadLegalDocuments();
   normalizeBackButtons();
   void fetchTalkPosts(5);
 
@@ -2777,14 +2836,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const cb = $('#term-all-cb');
     cb.classList.toggle('checked');
     const isChecked = cb.classList.contains('checked');
-    toggleCb($('#term-usage-cb'), isChecked);
-    toggleCb($('#term-privacy-cb'), isChecked);
+    if (isRequiredTermVisible('usage')) toggleCb($('#term-usage-cb'), isChecked);
+    if (isRequiredTermVisible('privacy')) toggleCb($('#term-privacy-cb'), isChecked);
   });
 
   const updateTermAll = () => {
-    const usage = $('#term-usage-cb').classList.contains('checked');
-    const privacy = $('#term-privacy-cb').classList.contains('checked');
-    toggleCb($('#term-all-cb'), usage && privacy);
+    updateVisibleTermAll();
   };
 
   $('#term-usage-row')?.addEventListener('click', () => {
@@ -2803,8 +2860,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#register-submit')?.addEventListener('click', async () => {
-    const usage = $('#term-usage-cb').classList.contains('checked');
-    const privacy = $('#term-privacy-cb').classList.contains('checked');
+    const usage = !isRequiredTermVisible('usage') || $('#term-usage-cb').classList.contains('checked');
+    const privacy = !isRequiredTermVisible('privacy') || $('#term-privacy-cb').classList.contains('checked');
     if (!usage || !privacy) {
       showToast('필수 약관에 모두 동의하셔야 합니다.');
       return;

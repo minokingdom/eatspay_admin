@@ -225,6 +225,19 @@ CREATE TABLE IF NOT EXISTS admin_role_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS legal_documents (
+  id BIGSERIAL PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('terms', 'privacy')),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_file_name TEXT,
+  applied BOOLEAN NOT NULL DEFAULT false,
+  applied_at TIMESTAMPTZ,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
