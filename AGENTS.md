@@ -138,6 +138,11 @@ git log --oneline -3
 * `D:\Avicx\eatspay`에서 바로 push하기 어려운 상태라면, GitHub 원격 저장소를 clean clone한 뒤 변경 파일만 복사해 commit/push합니다.
 * GitHub에 올릴 때는 로컬 백업, APK, 임시 이미지, 개인 키, 인증 파일, 로그 파일이 포함되지 않도록 반드시 확인합니다.
 
+추가 코드 안전 규칙:
+
+* 모든 화면은 `#app-shell` -> `.phone-frame` -> `.screen-container` 내부에 종속적으로 렌더링되어야 합니다. 모바일 프레임 범위를 벗어나는 absolute/fixed 요소를 제한합니다.
+* `js/app.js` 하단에 동일 기능의 이벤트 바인딩을 중복 선언하지 않습니다. 수정 전 항상 파일의 전반적인 구조를 확인합니다.
+
 ---
 
 ## 8. 작업 보고 규칙
