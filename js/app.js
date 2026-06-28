@@ -4985,7 +4985,7 @@ function renderTalkHome(posts = talkPostCache) {
       ${items.map(post => {
         const image = getTalkImages(post)[0] || '';
         return `
-          <button type="button" class="home-talk-row" data-talk-id="${escapeHtml(post.id)}">
+          <button type="button" class="home-talk-row home-talk-row-card" data-talk-id="${escapeHtml(post.id)}">
             <span class="home-talk-main">
               <strong>${escapeHtml(post.title || '')}</strong>
               <em>${escapeHtml(renderTalkCafeMeta(post))}</em>
@@ -5064,9 +5064,10 @@ function renderTalkBoard(posts = talkPostCache) {
   list.innerHTML = pagedItems.map(post => {
     const image = getTalkImages(post)[0] || '';
     const tradeStatus = getTalkTradeStatus(post);
+    const views = Number(post.viewCount || 0).toLocaleString('ko-KR');
+    const likes = Number(post.likeCount || 0).toLocaleString('ko-KR');
     return `
       <article class="talk-board-card talk-cafe-post${tradeStatus === 'SOLD' ? ' is-sold' : ''}" data-talk-id="${escapeHtml(post.id)}">
-        <span class="talk-cafe-dot"></span>
         <div class="talk-cafe-main">
           <div class="talk-cafe-title-row">
             <span class="talk-cafe-badge">${escapeHtml(getTalkCafeBadge(post))}</span>
@@ -5074,6 +5075,10 @@ function renderTalkBoard(posts = talkPostCache) {
           </div>
           <div class="talk-cafe-preview">${escapeHtml(post.body || '')}</div>
           <div class="talk-cafe-meta">${escapeHtml(renderTalkCafeMeta(post))}</div>
+          <div class="talk-cafe-stats">
+            <span class="talk-cafe-stat">조회 ${escapeHtml(views)}</span>
+            <span class="talk-cafe-stat">관심 ${escapeHtml(likes)}</span>
+          </div>
         </div>
         ${image ? `<div class="talk-cafe-thumb"><img src="${escapeHtml(image)}" alt=""></div>` : ''}
         <div class="talk-cafe-comment-box">
@@ -6293,6 +6298,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#friendly-delivery-location-btn')?.addEventListener('click', requestFriendlyDeliveryLocation);
   $('#btn-talk-write')?.addEventListener('click', () => navigate('talk-write'));
+  $('#btn-home-talk-write-floating')?.addEventListener('click', () => navigate('talk-write'));
   $('#btn-talk-write-floating')?.addEventListener('click', () => navigate('talk-write'));
   $('#btn-talk-chats')?.addEventListener('click', () => navigate('talk-chats'));
   $('#btn-talk-submit')?.addEventListener('click', submitTalkPost);

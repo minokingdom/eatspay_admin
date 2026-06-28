@@ -17,7 +17,7 @@
   <link rel="apple-touch-icon" href="/logo.png" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
-  <link rel="stylesheet" href="/css/style.css?v=20260628_agency_invite" />
+  <link rel="stylesheet" href="/css/style.css?v=20260628_talk_board_ui" />
   <style>
     .home-action-card {
       position: relative;
@@ -221,6 +221,10 @@
           <div id="home-talk-list" class="talk-list talk-home-list"></div>
 
         </div>
+        <button id="btn-home-talk-write-floating" type="button" class="talk-write-floating home-talk-write-floating" aria-label="이츠페이 Talk 글쓰기">
+          <span aria-hidden="true">✎</span>
+          <strong>글쓰기</strong>
+        </button>
 
         <div class="bottom-nav">
           <button type="button" class="nav-item active" id="nav-home" data-nav-target="home">
@@ -244,7 +248,7 @@
           <button class="btn-back app-back-btn">‹ 이전</button>
           <img src="logo.png" class="app-header-logo" alt="eats PAY">
         </div>
-        <div class="screen-content" style="padding: 0 24px 90px; overflow-y: auto;">
+        <div class="screen-content talk-screen-content">
           <div class="talk-screen-head talk-cafe-head">
             <div>
               <h2 class="talk-screen-title">이츠페이 Talk</h2>
@@ -254,16 +258,21 @@
               <button id="btn-talk-chats" type="button" class="btn-secondary talk-head-button">채팅</button>
             </div>
           </div>
-          <div id="talk-status-filter" class="talk-filter-row">
-            <button type="button" class="talk-status-filter-chip active" data-status="ALL">전체</button>
-            <button type="button" class="talk-status-filter-chip" data-status="POPULAR">🔥 인기</button>
-            <button type="button" class="talk-status-filter-chip" data-status="LIKED">MY구독</button>
-            <button type="button" class="talk-status-filter-chip" data-status="NOTICE">전체공지</button>
-            <button type="button" class="talk-status-filter-chip" data-status="MINE">내글</button>
+          <div class="talk-screen-panel">
+            <div id="talk-status-filter" class="talk-filter-row">
+              <button type="button" class="talk-status-filter-chip active" data-status="ALL">전체</button>
+              <button type="button" class="talk-status-filter-chip" data-status="POPULAR">인기</button>
+              <button type="button" class="talk-status-filter-chip" data-status="LIKED">구독</button>
+              <button type="button" class="talk-status-filter-chip" data-status="NOTICE">공지</button>
+              <button type="button" class="talk-status-filter-chip" data-status="MINE">내글</button>
+            </div>
+            <div id="talk-board-list" class="talk-board-list"></div>
+            <div id="talk-pagination" class="talk-pagination"></div>
           </div>
-          <div id="talk-board-list" class="talk-board-list"></div>
-          <div id="talk-pagination" class="talk-pagination"></div>
-          <button id="btn-talk-write-floating" type="button" class="talk-write-floating" aria-label="글쓰기">✎</button>
+          <button id="btn-talk-write-floating" type="button" class="talk-write-floating" aria-label="이츠페이 Talk 글쓰기">
+            <span aria-hidden="true">✎</span>
+            <strong>글쓰기</strong>
+          </button>
         </div>
         <div class="bottom-nav">
           <button type="button" class="nav-item" id="nav-home-talk" data-nav-target="home">
@@ -2020,7 +2029,7 @@
   </button>
 
   <script src="/js/config.js?v=20260624_card_identity_lock"></script>
-  <script src="/js/app.js?v=20260628_agency_invite"></script>
+  <script src="/js/app.js?v=20260628_talk_board_ui"></script>
   <script src="https://t1.kakaocdn.net/kas/static/ba.min.js" async></script>
 </body>
 </html>

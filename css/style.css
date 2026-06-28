@@ -2197,13 +2197,207 @@ html.native-app .screen-container {
   cursor: pointer;
 }
 
+.talk-screen-content {
+  padding: 0 20px 96px;
+  overflow-y: auto;
+}
+
+.talk-screen-head {
+  padding: 0 2px;
+}
+
+.talk-screen-panel {
+  border: 1.5px solid var(--card-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 10px 22px rgba(27, 88, 31, .08);
+  overflow: hidden;
+}
+
+.talk-screen-panel .talk-filter-row {
+  margin: 0;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border-light);
+  background: linear-gradient(180deg, #f7fff6 0%, #fff 100%);
+}
+
+.talk-screen-panel .talk-board-list {
+  border-top: none;
+  padding: 0;
+  background: #fff;
+}
+
+.talk-screen-panel .talk-pagination {
+  margin: 0;
+  padding: 14px 0 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+.talk-status-filter-chip {
+  height: 32px;
+  padding: 0 13px;
+  border-color: #d8ead7;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(27, 88, 31, .04);
+}
+
+.talk-cafe-post {
+  grid-template-columns: minmax(0, 1fr) 54px 54px;
+  gap: 10px;
+  min-height: 88px;
+  padding: 14px 14px;
+  border-bottom: 1px solid #e3f0e1;
+}
+
+.talk-cafe-post:last-child {
+  border-bottom: none;
+}
+
+.talk-cafe-title-row strong {
+  font-size: 14px;
+}
+
+.talk-cafe-badge {
+  background: #e5f9e9;
+  color: #067234;
+  border: 1px solid #c4efcd;
+}
+
+.talk-cafe-preview {
+  margin-top: 6px;
+  color: #48534a;
+}
+
+.talk-cafe-meta {
+  margin-top: 5px;
+}
+
+.talk-cafe-stats {
+  display: flex;
+  gap: 5px;
+  margin-top: 7px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.talk-cafe-stat {
+  flex: 0 0 auto;
+  max-width: 90px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #f2f7f2;
+  color: #516053;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talk-cafe-thumb {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+}
+
+.talk-cafe-comment-box {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  background: #effaf1;
+  color: #067234;
+}
+
+.talk-write-floating {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  min-width: 92px;
+  height: 46px;
+  padding: 0 15px;
+  border-radius: 999px;
+  font-size: 16px;
+}
+
+.talk-write-floating span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.talk-write-floating strong {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.talk-write-floating.home-talk-write-floating {
+  right: 22px;
+  bottom: calc(var(--bottom-nav-height) + var(--app-bottom-inset) + 16px);
+  z-index: 34;
+}
+
+.home-talk-board {
+  border: 1.5px solid var(--card-border);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+}
+
+.home-talk-row.home-talk-row-card {
+  min-height: 64px;
+  padding: 10px 10px;
+  grid-template-columns: minmax(0, 1fr) 42px 40px;
+  column-gap: 8px;
+}
+
+.home-talk-row.home-talk-row-card:last-child {
+  border-bottom: none;
+}
+
+.home-talk-row-card .home-talk-main strong {
+  font-size: 14px;
+}
+
+.home-talk-row-card .home-talk-thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+}
+
+.home-talk-row-card .home-talk-counts {
+  width: 40px;
+  min-height: 40px;
+  background: #effaf1;
+  color: #067234;
+}
+
+.talk-board-empty,
+.talk-empty {
+  padding: 28px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
 @media (max-width: 390px) {
   .talk-cafe-post {
-    grid-template-columns: 7px minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 48px;
   }
 
-  .talk-cafe-thumb {
+  .talk-cafe-comment-box {
     display: none;
+  }
+
+  .talk-write-floating {
+    min-width: 82px;
+    height: 44px;
+    padding: 0 13px;
   }
 }
 
