@@ -2051,6 +2051,7 @@ html.native-app .screen-container {
 
 .talk-detail-author-main {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -2412,90 +2413,36 @@ html.native-app .screen-container {
   text-align: center;
 }
 
-.talk-detail-chat-card {
-  position: relative;
-  width: 100%;
-  min-height: 58px;
-  margin-top: 16px;
-  border: none;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #06c85f 0%, #0bab50 100%);
-  padding: 12px 44px 12px 13px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  color: #fff;
-  font-family: var(--font);
-  text-align: left;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(3, 199, 90, .24);
-  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
-}
-
-.talk-detail-chat-card::after {
-  content: "›";
-  position: absolute;
-  right: 15px;
-  top: 50%;
-  transform: translateY(-52%);
-  color: rgba(255, 255, 255, .86);
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.talk-detail-chat-card:active {
-  transform: translateY(1px) scale(.992);
-  box-shadow: 0 8px 18px rgba(3, 199, 90, .2);
-}
-
-.talk-detail-chat-card:disabled {
-  cursor: not-allowed;
-  opacity: .68;
-  filter: grayscale(.3);
-}
-
-.talk-detail-chat-icon {
+.talk-detail-chat-chip {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
+  min-width: 52px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #b8efc9;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .96);
-  color: #05aa50;
+  background: #ecfff2;
+  color: #039343;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--font);
   font-size: 11px;
   font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(3, 199, 90, .08);
 }
 
-.talk-detail-chat-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.talk-detail-chat-chip:active {
+  transform: translateY(1px);
 }
 
-.talk-detail-chat-copy strong,
-.talk-detail-chat-copy em {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-style: normal;
-}
-
-.talk-detail-chat-copy strong {
-  color: #fff;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.talk-detail-chat-copy em {
-  color: rgba(255, 255, 255, .82);
-  font-size: 11px;
-  font-weight: 800;
+.talk-detail-chat-chip:disabled {
+  border-color: #e3e8e1;
+  background: #f4f7f3;
+  color: #94a39a;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 @media (max-width: 390px) {

@@ -5214,14 +5214,8 @@ function renderTalkDetail() {
           <strong>${escapeHtml(author)}</strong>
           <span>${escapeHtml(detailDate)} · 조회 ${escapeHtml(viewCount)}</span>
         </div>
+        <button id="btn-talk-start-chat" type="button" class="talk-detail-chat-chip">1:1톡</button>
       </div>
-      <button id="btn-talk-start-chat" type="button" class="talk-detail-chat-card">
-        <span class="talk-detail-chat-icon" aria-hidden="true">톡</span>
-        <span class="talk-detail-chat-copy">
-          <strong>${escapeHtml(author)}와 1:1 채팅</strong>
-          <em>게시글 내용으로 바로 대화를 시작합니다.</em>
-        </span>
-      </button>
       <div class="talk-detail-body-text">${escapeHtml(post.body || '')}</div>
       ${images.length ? `
         <div class="talk-detail-images">
@@ -5247,19 +5241,15 @@ function renderTalkDetail() {
   if (likeCountEl) likeCountEl.textContent = likeCount;
   if (commentCountEl) commentCountEl.textContent = commentCount;
   if (chatButton) {
-    const chatTitle = $('.talk-detail-chat-copy strong', chatButton);
-    const chatDesc = $('.talk-detail-chat-copy em', chatButton);
     if (isOwnPost) {
       chatButton.disabled = false;
       chatButton.classList.remove('is-disabled');
-      if (chatTitle) chatTitle.textContent = '이 게시글 채팅 보기';
-      if (chatDesc) chatDesc.textContent = '이 글로 시작된 1:1 대화를 확인합니다.';
+      chatButton.textContent = '채팅보기';
       chatButton.onclick = () => openTalkChatsForPost(post.id);
     } else {
       chatButton.disabled = Boolean(isSold);
       chatButton.classList.toggle('is-disabled', isSold);
-      if (chatTitle) chatTitle.textContent = isSold ? '거래가 완료된 게시글입니다' : `${author}와 1:1 채팅`;
-      if (chatDesc) chatDesc.textContent = isSold ? '완료된 글은 새 대화를 시작할 수 없습니다.' : '게시글 내용으로 바로 대화를 시작합니다.';
+      chatButton.textContent = isSold ? '완료' : '1:1톡';
       chatButton.onclick = isSold ? null : () => startTalkChat(post.id);
     }
   }
