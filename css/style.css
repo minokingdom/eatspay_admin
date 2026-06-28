@@ -2319,7 +2319,7 @@ html.native-app .screen-container {
   gap: 0;
   width: 54px;
   min-width: 54px;
-  height: 46px;
+  height: 54px;
   padding: 0;
   border-radius: 999px;
   font-size: 16px;
@@ -2348,6 +2348,7 @@ html.native-app .screen-container {
 .talk-write-floating.is-expanded {
   width: 106px;
   min-width: 106px;
+  height: 54px;
   padding: 0 15px;
   gap: 5px;
   box-shadow: 0 14px 28px rgba(3, 199, 90, .34);
@@ -2513,7 +2514,7 @@ html.native-app .screen-container {
   .talk-write-floating {
     width: 52px;
     min-width: 52px;
-    height: 44px;
+    height: 52px;
   }
 
   .talk-write-floating:hover,
@@ -2521,6 +2522,7 @@ html.native-app .screen-container {
   .talk-write-floating.is-expanded {
     width: 100px;
     min-width: 100px;
+    height: 52px;
     padding: 0 13px;
   }
 }

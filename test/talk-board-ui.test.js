@@ -29,6 +29,8 @@ test('talk board UI is polished on root and app mirror', () => {
     assert.match(css, /\.talk-screen-panel\b/, `${prefix}talk screen panel styles are required`);
     assert.match(css, /\.talk-write-floating\.home-talk-write-floating\b/, `${prefix}home floating button styles are required`);
     assert.match(css, /\.talk-write-floating strong/, `${prefix}floating write label needs hover-expand styling`);
+    assert.match(css, /\.talk-write-floating\s*\{[\s\S]*?width:\s*54px;[\s\S]*?height:\s*54px;/, `${prefix}floating write button must be circular before hover`);
+    assert.match(css, /@media \(max-width:\s*390px\)[\s\S]*?\.talk-write-floating\s*\{[\s\S]*?width:\s*52px;[\s\S]*?height:\s*52px;/, `${prefix}mobile floating write button must stay circular before hover`);
     assert.match(css, /\.talk-detail-chat-card\b/, `${prefix}detail chat card styles are required`);
     assert.doesNotMatch(js, /class="talk-cafe-dot"/, `${prefix}old dot-only talk card marker should be gone`);
     assert.doesNotMatch(html, /id="btn-talk-chats"/, `${prefix}talk list header must not show a separate chat-list button`);
