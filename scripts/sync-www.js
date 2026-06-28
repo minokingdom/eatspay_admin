@@ -6,16 +6,15 @@ const outDir = path.join(root, 'www');
 
 const files = [
   'index.html',
+  'sw.js',
   'logo.png',
   'Asset 1@2x.png',
-  'manifest.webmanifest',
-  'sw.js',
   '구글.png',
   '네이버.png',
   '카카오톡.png'
 ];
 
-const dirs = ['css', 'js'];
+const dirs = ['css', 'js', 'assets'];
 
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });

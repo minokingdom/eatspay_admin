@@ -30,11 +30,11 @@ Edit `js/config.js`:
 
 ```js
 window.EATSPAY_CONFIG = {
-  API_BASE_URL: localStorage.getItem('EATSPAY_API_BASE_URL') || 'https://www.eatspay.co.kr'
+  API_BASE_URL: localStorage.getItem('EATSPAY_API_BASE_URL') || 'https://eatspay.kr'
 };
 ```
 
-Replace `https://www.eatspay.co.kr` with your production domain if you change hosts later.
+Replace `https://eatspay.kr` with your production domain if you change hosts later.
 
 For a temporary local test on a phone, use a tunnel URL such as an HTTPS ngrok/cloudflared URL.
 

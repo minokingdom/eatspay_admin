@@ -4,7 +4,8 @@ This project is ready to run as a real web service on a VPS.
 
 ## Target layout
 
-- Public site: `https://www.eatspay.co.kr`
+- App service: `https://eatspay.kr`
+- Homepage space: `https://eatspay.co.kr`
 - Backend/API: same Node process on the VPS
 - Database: PostgreSQL on the VPS or a managed PostgreSQL service
 - Reverse proxy: Nginx
@@ -18,6 +19,7 @@ This project is ready to run as a real web service on a VPS.
 - `css/`
 - `js/`
 - `uploads/`
+- `homepage/` copied to `/var/www/eatspay-home` for homepage static files
 - `.env`
 
 ## Server environment
@@ -41,12 +43,18 @@ GH_PAYMENTS_PAY_KEY
 
 Use `deploy/nginx/eatspay.conf` as the first reverse proxy template.
 
-The initial config routes both:
+The initial config routes:
 
-- `www.eatspay.co.kr`
-- `eatspay.co.kr`
+- `eatspay.kr` to the app/API Node server on `127.0.0.1:3000`
+- `eatspay.co.kr` and `www.eatspay.co.kr` to static homepage files in `/var/www/eatspay-home`
 
-to the Node server on `127.0.0.1:3000`.
+Homepage files live in `homepage/`. The bootstrap script copies this folder to `/var/www/eatspay-home`. For a manual sync, run:
+
+```bash
+npm run homepage:sync -- --target /var/www/eatspay-home
+```
+
+If the repository has no `homepage/index.html`, the bootstrap script creates a simple placeholder `index.html` only when the folder has no index yet.
 
 After DNS points to the VPS, run Certbot. Certbot will add the HTTPS server block and redirect rules.
 
@@ -67,9 +75,11 @@ Useful environment variables:
 ```bash
 export REPO_URL=https://github.com/minokingdom/eatspay_admin.git
 export BRANCH=main
-export DOMAIN=www.eatspay.co.kr
-export ALT_DOMAIN=eatspay.co.kr
-export ADMIN_EMAIL=admin@eatspay.co.kr
+export DOMAIN=eatspay.kr
+export ALT_DOMAIN=
+export HOME_DOMAIN=eatspay.co.kr
+export HOME_ALT_DOMAIN=www.eatspay.co.kr
+export ADMIN_EMAIL=admin@eatspay.kr
 export ADMIN_PASSWORD='change-this-before-production'
 export GH_PAYMENTS_PAY_KEY='real-payment-key'
 ```
@@ -78,7 +88,7 @@ After DNS `A` records point at the VPS IP, issue SSL:
 
 ```bash
 export ISSUE_SSL=true
-export LETSENCRYPT_EMAIL=admin@eatspay.co.kr
+export LETSENCRYPT_EMAIL=admin@eatspay.kr
 sudo -E bash deploy/bootstrap-ubuntu.sh
 ```
 
@@ -93,7 +103,7 @@ sudo -E bash deploy/bootstrap-ubuntu.sh
 7. Run `npm run db:init`.
 8. Run `npm run db:create-admin`.
 9. Enable the systemd service.
-10. Point DNS `A` records for `www.eatspay.co.kr` and `eatspay.co.kr` to the VPS public IP.
+10. Point DNS `A` records for `eatspay.kr`, `eatspay.co.kr`, and `www.eatspay.co.kr` to the VPS public IP.
 11. Issue the SSL certificate with Certbot.
 
 ## Frontend API base
@@ -101,7 +111,7 @@ sudo -E bash deploy/bootstrap-ubuntu.sh
 `js/config.js` now defaults to:
 
 ```js
-https://www.eatspay.co.kr
+https://eatspay.kr
 ```
 
 That lets the same build work on the web and inside the Android app without a tunnel URL.

@@ -10,13 +10,80 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="이츠페이" />
   <title>eats PAY - 배달대행비 카드결제</title>
+  <base href="/" />
 
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/logo.png" />
   <link rel="apple-touch-icon" href="/logo.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Nanum+Square:wght@400;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=1.0.19" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
+  <link rel="stylesheet" href="/css/style.css?v=20260628_upload_name_fix" />
+  <style>
+    .home-action-card {
+      position: relative;
+      overflow: hidden;
+      animation: homeCardRise .52s cubic-bezier(.2,.78,.25,1) both, homeCardBreath 4.8s ease-in-out infinite;
+      will-change: transform, box-shadow;
+    }
+    .home-action-card:nth-child(1) { animation-delay: .04s, .9s; }
+    .home-action-card:nth-child(2) { animation-delay: .14s, 1.15s; }
+    .home-action-card:nth-child(3) { animation-delay: .24s, 1.4s; }
+    .home-action-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(120deg, rgba(58,148,48,0), rgba(58,148,48,.72), rgba(42,193,188,.48), rgba(58,148,48,0));
+      background-size: 220% 220%;
+      opacity: .42;
+      pointer-events: none;
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      animation: homeCardLine 3.2s ease-in-out infinite;
+    }
+    .home-action-card::after {
+      content: "";
+      position: absolute;
+      inset: -45% -70%;
+      background: linear-gradient(115deg, transparent 42%, rgba(255,255,255,.72) 50%, transparent 58%);
+      transform: translateX(-70%) rotate(8deg);
+      pointer-events: none;
+      animation: homeCardSheen 4.6s ease-in-out infinite;
+    }
+    .home-action-card > * {
+      position: relative;
+      z-index: 1;
+    }
+    .home-action-card:active {
+      transform: translateY(1px) scale(.985);
+    }
+    @keyframes homeCardRise {
+      from { opacity: 0; transform: translateY(14px) scale(.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes homeCardBreath {
+      0%, 100% { box-shadow: var(--card-shadow); }
+      50% { box-shadow: 0 7px 16px rgba(58,148,48,.09); }
+    }
+    @keyframes homeCardLine {
+      0%, 100% { background-position: 0% 50%; opacity: .28; }
+      50% { background-position: 100% 50%; opacity: .68; }
+    }
+    @keyframes homeCardSheen {
+      0%, 55% { transform: translateX(-70%) rotate(8deg); opacity: 0; }
+      68% { opacity: .48; }
+      82%, 100% { transform: translateX(70%) rotate(8deg); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .home-action-card,
+      .home-action-card::before,
+      .home-action-card::after {
+        animation: none;
+      }
+    }
+  </style>
 
 </head>
 <body>
@@ -35,159 +102,182 @@
     <div class="screen-container">
 
       <!-- 스플래시 -->
-      <div id="screen-splash" class="screen active" style="background: linear-gradient(135deg, #fbfdfb 0%, #eaf7e8 100%);">
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;">
-          <div style="text-align:center;width:100%;max-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
-            <img src="logo.png" class="splash-img-premium" style="height: 77px; width: auto; margin-bottom: 20px; transition: transform 0.5s;" alt="eats PAY">
-            <div class="splash-brand splash-brand-premium" style="font-size:38px;font-weight:900;color:#3a9430;letter-spacing:-1.5px;margin-top:8px;">이츠페이</div>
-            <div class="splash-tagline splash-tagline-premium" style="font-size:17px;color:#444;line-height:1.7;font-weight:700;margin-top:6px;">배달대행비 카드결제의 새로운 기준</div>
+      <div id="screen-splash" class="screen active splash-screen-premium">
+        <div class="splash-center">
+          <div class="splash-stack">
+            <img src="logo.png" class="splash-img-premium splash-img-main" alt="eats PAY">
+            <div class="splash-brand splash-brand-premium splash-brand-main">이츠페이</div>
+            <div class="splash-tagline splash-tagline-premium splash-tagline-main">배달대행비 카드결제의 새로운 기준</div>
           </div>
         </div>
-        <div class="splash-footer" style="text-align:center;padding:32px;font-size:12px;color:#aaa;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Design by AvicX Co., Ltd.</div>
+        <div class="splash-footer splash-footer-main">Design by AvicX Co., Ltd.</div>
+      </div>
+
+      <!-- 시작 위치 인증 -->
+      <div id="screen-location-setup" class="screen location-setup-screen">
+        <div class="location-setup-shell">
+          <div class="location-setup-card">
+            <div class="location-setup-icon">⌖</div>
+            <h1 class="location-setup-title">현재 위치를 먼저 확인할게요</h1>
+            <p class="location-setup-copy">
+              이츠톡과 가까운 배달대행사 정보는 인증된 위치를 기준으로 보여드립니다.
+            </p>
+            <div id="location-setup-summary" class="location-setup-summary"></div>
+            <button type="button" id="location-setup-request" class="btn-primary location-setup-request">현재 위치 인증하기</button>
+            <button type="button" id="location-setup-recheck" class="location-setup-recheck">이미 허용했다면 다시 확인</button>
+            <p id="location-setup-status" class="location-setup-status">
+              위치 권한 팝업이 뜨면 허용을 눌러주세요.
+            </p>
+          </div>
+        </div>
       </div>
 
       <!-- 홈 -->
       <div id="screen-home" class="screen">
-        <div class="home-header" style="display:flex; justify-content: space-between; align-items: center; padding: 16px 20px 8px; flex-shrink: 0;">
-          <span id="home-identity-title" style="font-size: 18px; font-weight: 800; color: var(--text-primary);">로그인을 해주세요</span>
-          <button type="button" id="home-auth-action" style="font-size: 13px; font-weight: 700; color: var(--text-secondary); cursor: pointer; background: none; border: none; padding: 0;">로그인</button>
+        <div class="home-header">
+          <span id="home-identity-title" class="home-identity-title">로그인을 해주세요</span>
+          <button type="button" id="home-auth-action" class="home-auth-action">로그인</button>
         </div>
 
-        <div class="scrollable-content" style="padding:16px 0;">
-          <!-- 무이자 할부 카드 프로모션 배너 -->
-          <div id="home-login-banner" class="metal-benefit-banner" style="margin: 0 16px 16px; padding: 16px; border-radius: var(--radius); position: relative; overflow: hidden; cursor: pointer;">
-            <div class="metal-benefit-glow"></div>
-            <div class="metal-benefit-sheen"></div>
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; position:relative;">
-              <div id="home-banner-title" style="font-size: 15px; font-weight: 800; color: var(--text-primary); line-height: 1.45;">
-                무이자 할부 가능 카드 안내
-              </div>
-              <button class="btn-promo" style="background:var(--green-primary); color:white; border:none; padding:8px 12px; border-radius:var(--radius-sm); font-size:12px; font-weight:800; cursor:pointer; flex-shrink:0;" id="home-promo-btn">충전하기</button>
-            </div>
-            <div id="home-installment-slide" style="display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(45, 150, 65, 0.18); padding-top: 14px; position: relative; min-height: 44px;">
-              <div id="home-banner-card-logos" style="display: flex; gap: 6px; flex-shrink: 0;"></div>
-              <div style="display: flex; flex-direction: column; line-height: 1.25; min-width: 0; flex: 1;">
-                <span id="home-banner-name" style="font-size: 14px; font-weight: 900; color: #12351b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">무이자할부 정책이 없습니다.</span>
-                <span id="home-banner-subtitle" style="font-size: 11px; color: var(--text-secondary); font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">관리자에서 이번 달 무이자 할부 정책을 설정해주세요.</span>
+        <div class="scrollable-content home-scroll">
+          <div id="home-charge-summary-card" class="home-charge-card">
+            <button type="button" id="home-promo-btn" class="btn-primary home-charge-button">배달대행비 충전하기</button>
+
+            <!-- 무이자 할부 카드 프로모션 배너 -->
+            <div id="home-login-banner" class="home-installment-banner">
+              <div id="home-installment-slide" class="home-installment-slide">
+                <div id="home-banner-card-logos" class="home-banner-card-logos"></div>
+                <div class="home-installment-text">
+                  <span id="home-banner-name" class="home-installment-name">무이자할부 정책이 없습니다.</span>
+                  <span id="home-banner-subtitle" class="home-installment-subtitle">관리자에서 이번 달 무이자 할부 정책을 설정해주세요.</span>
+                </div>
               </div>
             </div>
           </div>
+
+          <button type="button" id="home-coway-banner" class="home-coway-banner home-partner-flip-banner" aria-label="이츠페이 제휴 광고">
+            <span class="home-partner-brand">
+              <img src="logo.png" alt="eats PAY">
+              <span>제휴 혜택</span>
+            </span>
+            <span class="home-partner-flip-stage" aria-live="polite">
+              <span id="home-partner-flip-item" class="home-partner-flip-item">
+                <strong id="home-partner-flip-title">배달대행사 가맹점 모집</strong>
+                <em id="home-partner-flip-desc">사장님 매장에 맞는 대행사를 연결해드려요</em>
+              </span>
+            </span>
+          </button>
 
           <!-- 홈 바로가기 메뉴 -->
-          <div style="display: flex; justify-content: space-between; margin: 0 16px 20px; gap: 8px;">
-            <div style="flex: 1; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer;">
-              <span style="font-size: 11px; font-weight: 800; color: var(--text-primary);">선정산</span>
-            </div>
-            <div style="flex: 1; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer;">
-              <span style="font-size: 11px; font-weight: 800; color: var(--text-primary);">이츠몰</span>
-            </div>
-            <div style="flex: 1; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer;">
-              <span style="font-size: 11px; font-weight: 800; color: var(--text-primary);">이츠고</span>
-            </div>
-            <div style="flex: 1; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer;">
-              <span style="font-size: 11px; font-weight: 800; color: var(--text-primary);">Talk</span>
-            </div>
+          <div class="home-action-grid">
+            <button type="button" id="home-menu-advance" class="home-action-card">
+              <span class="home-action-copy">
+                <span class="home-action-title">선정산서비스란?</span>
+                <span class="home-action-desc">배달주문플랫폼,<br>매장 매출 선정산</span>
+              </span>
+              <span class="home-action-icons">
+                <span class="home-platform-icon baemin" aria-label="배달의민족" title="배달의민족">
+                  <img src="assets/app/baemin-logo.png" alt="배달의민족">
+                </span>
+                <span class="home-platform-icon yogiyo" aria-label="요기요" title="요기요">
+                  <img src="assets/app/yogiyo.webp" alt="요기요">
+                </span>
+                <span class="home-platform-icon coupang" aria-label="쿠팡이츠" title="쿠팡이츠">
+                  <img src="assets/app/coupang-eats.webp" alt="쿠팡이츠">
+                </span>
+              </span>
+              <span class="home-action-button">신청하기</span>
+            </button>
+            <button type="button" id="home-menu-mall" class="home-action-card">
+              <span class="home-action-copy">
+                <span class="home-action-title">최대 1.5% 할인</span>
+                <span class="home-action-desc">내가 가진 카드<br>이츠페이 얼마나<br>할인될까?<br>지금 검색하세요</span>
+              </span>
+              <span class="home-action-button">혜택찾기</span>
+            </button>
+            <button type="button" id="home-menu-delivery" class="home-action-card">
+              <span class="home-action-copy">
+                <span class="home-action-title danger">친절배달?</span>
+                <span class="home-action-desc">나의 근처에<br>배달대행사를<br>검색하여<br>서비스를 누리세요</span>
+              </span>
+              <span class="home-action-button">검색하기</span>
+            </button>
           </div>
 
-          <!-- Kurly N Mart 배너 -->
-          <div style="margin: 0 16px 20px; border-radius: var(--radius); overflow: hidden; height: 86px; background: #f3effa; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border: 1.5px solid var(--border-color); position: relative; cursor: pointer;">
-            <div style="display: flex; flex-direction: column;">
-              <span style="font-size: 14px; font-weight: 800; color: #5f0080; font-family: sans-serif; margin-bottom: 2px;">Kurly <span style="color:#5dc950;">N</span> Mart</span>
-              <span style="font-size: 15px; font-weight: 900; color: #1a1a1a;">첫 구매자 한정 <span style="color:#5dc950;">전 상품 반값쿠폰</span></span>
+          <!-- 현재 위치 날씨 카드 -->
+          <div id="home-weather-card" class="home-weather-card">
+            <div class="home-weather-icon" id="home-weather-icon">⛅</div>
+            <div class="home-weather-copy">
+              <strong id="home-weather-title">현재 위치 날씨를 준비 중입니다</strong>
+              <span id="home-weather-desc">위치 확인 후 오늘 날씨를 보여드릴게요</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="background: #e53935; color: white; font-size: 10px; font-weight: 800; padding: 3px 6px; border-radius: 20px;">50%</span>
-              <span style="font-size: 28px;">🍗</span>
-            </div>
+            <div class="home-weather-temp" id="home-weather-temp">--°</div>
           </div>
 
           <!-- 이츠페이 Talk 섹션 -->
-          <div class="section-header" style="padding: 0 16px 8px;">
-            <span class="section-title" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">이츠페이 Talk</span>
-            <button id="btn-talk-more" class="section-more" style="font-size: 12px; font-weight: 700; color: var(--text-muted); border:none; background:none; cursor:pointer;">더보기</button>
+          <div class="section-header compact">
+            <span class="section-title compact">이츠페이 Talk</span>
           </div>
-          <div id="home-talk-list" class="talk-list" style="padding: 0 16px; border-bottom: 6px solid var(--bg-light); margin-bottom: 16px;"></div>
+          <div id="home-talk-list" class="talk-list talk-home-list"></div>
 
-          <!-- 이츠페이 x coway 섹션 -->
-          <div class="product-section" style="padding-bottom: 16px;">
-            <div class="section-header" style="padding: 0 16px 8px;">
-              <span class="section-title" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">이츠페이 x coway 함께합니다</span>
-              <button class="section-more" style="font-size: 12px; font-weight: 700; color: var(--text-muted); border:none; background:none; cursor:pointer;">전체상품보기</button>
-            </div>
-            <div class="product-list" style="display: flex; gap: 10px; padding: 8px 16px; overflow-x: auto; scrollbar-width: none;">
-              <div class="product-card" style="flex-shrink: 0; width: 100px; cursor: pointer;">
-                <div class="product-img" style="width: 100px; height: 90px; border-radius: var(--radius-sm); background: linear-gradient(135deg, #e3f2fd, #bbdefb); margin-bottom: 6px; display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden; border: 1px solid var(--border-light); position: relative;">
-                  🧊<span style="position:absolute; bottom:4px; right:4px; font-size:8px; background:rgba(0,0,0,0.6); color:white; padding:1px 3px; border-radius:2px;">얼음정수기 최저가</span>
-                </div>
-                <div class="product-name" style="font-size: 11px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px; font-weight:700;">5월 한정 최저가</div>
-                <div class="product-price" style="font-size: 12px; font-weight: 800; color: #1e88e5;">월요금 0원 대~</div>
-              </div>
-              <div class="product-card" style="flex-shrink: 0; width: 100px; cursor: pointer;">
-                <div class="product-img" style="width: 100px; height: 90px; border-radius: var(--radius-sm); background: linear-gradient(135deg, #efebe9, #d7ccc8); margin-bottom: 6px; display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden; border: 1px solid var(--border-light); position: relative;">
-                  🎁<span style="position:absolute; bottom:4px; right:4px; font-size:8px; background:rgba(0,0,0,0.6); color:white; padding:1px 3px; border-radius:2px;">단독 혜택</span>
-                </div>
-                <div class="product-name" style="font-size: 11px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px; font-weight:700;">특급 보상 혜택</div>
-                <div class="product-price" style="font-size: 12px; font-weight: 800; color: #1e88e5;">월 2,900원~</div>
-              </div>
-              <div class="product-card" style="flex-shrink: 0; width: 100px; cursor: pointer;">
-                <div class="product-img" style="width: 100px; height: 90px; border-radius: var(--radius-sm); background: linear-gradient(135deg, #e8f5e9, #c8e6c9); margin-bottom: 6px; display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden; border: 1px solid var(--border-light); position: relative;">
-                  💧<span style="position:absolute; bottom:4px; right:4px; font-size:8px; background:rgba(0,0,0,0.6); color:white; padding:1px 3px; border-radius:2px;">반값 할인</span>
-                </div>
-                <div class="product-name" style="font-size: 11px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px; font-weight:700;">아이콘 정수기 2</div>
-                <div class="product-price" style="font-size: 12px; font-weight: 800; color: #1e88e5;">월 13,200원~</div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item active" id="nav-home">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item active" id="nav-home" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
       <!-- 이츠페이 Talk 전체 화면 -->
       <div id="screen-talk" class="screen">
-        <div class="app-header" style="display:flex; justify-content: space-between; align-items: center; padding: 20px 24px 12px; flex-shrink: 0;">
-          <button class="btn-back" style="border:none; background:none; font-weight:800; cursor:pointer; color:#333;">‹ 이전</button>
-          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        <div class="app-header app-header-row">
+          <button class="btn-back app-back-btn">‹ 이전</button>
+          <img src="logo.png" class="app-header-logo" alt="eats PAY">
         </div>
         <div class="screen-content" style="padding: 0 24px 90px; overflow-y: auto;">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin: 4px 0 16px;">
+          <div class="talk-screen-head talk-cafe-head">
             <div>
-              <h2 style="font-size: 22px; font-weight: 900; color: var(--text-primary); margin:0 0 4px;">이츠페이 Talk</h2>
-              <p style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin:0;">가맹점끼리 나누는 중고거래와 소식</p>
+              <h2 class="talk-screen-title">이츠페이 Talk</h2>
+              <p class="talk-screen-subtitle">가맹점끼리 나누는 커뮤니티</p>
             </div>
-            <div style="display:flex;gap:6px;">
-              <button id="btn-talk-chats" type="button" style="border:1.5px solid var(--border-color); background:#fff; color:var(--green-dark); border-radius:10px; padding:10px 12px; font-size:12px; font-weight:900; cursor:pointer;">채팅</button>
-              <button id="btn-talk-write" type="button" style="border:none; background:var(--green-primary); color:#fff; border-radius:10px; padding:10px 12px; font-size:12px; font-weight:900; cursor:pointer;">글쓰기</button>
+            <div class="talk-head-actions">
+              <button id="btn-talk-chats" type="button" class="btn-secondary talk-head-button">채팅</button>
             </div>
           </div>
-          <div id="talk-board-list" style="display:flex; flex-direction:column; gap:12px;"></div>
+          <div id="talk-status-filter" class="talk-filter-row">
+            <button type="button" class="talk-status-filter-chip active" data-status="ALL">전체</button>
+            <button type="button" class="talk-status-filter-chip" data-status="POPULAR">🔥 인기</button>
+            <button type="button" class="talk-status-filter-chip" data-status="LIKED">MY구독</button>
+            <button type="button" class="talk-status-filter-chip" data-status="NOTICE">전체공지</button>
+            <button type="button" class="talk-status-filter-chip" data-status="MINE">내글</button>
+          </div>
+          <div id="talk-board-list" class="talk-board-list"></div>
+          <div id="talk-pagination" class="talk-pagination"></div>
+          <button id="btn-talk-write-floating" type="button" class="talk-write-floating" aria-label="글쓰기">✎</button>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-talk">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-talk" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-talk">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-talk" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-talk">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-talk" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -197,23 +287,25 @@
           <button class="btn-back" style="border:none; background:none; font-weight:800; cursor:pointer; color:#333;">‹ 이전</button>
           <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
         </div>
-        <div id="talk-detail-body" class="screen-content" style="padding: 0 24px 164px; overflow-y: auto;"></div>
-        <div id="talk-detail-cta" style="position:absolute;left:0;right:0;bottom:60px;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 22%,#fff 100%);padding:24px 24px 14px;z-index:24;">
-          <button id="btn-talk-start-chat" type="button" style="width:100%;height:52px;border:none;border-radius:var(--radius-sm);background:var(--green-primary);color:#fff;font-size:16px;font-weight:900;cursor:pointer;">채팅하기</button>
+        <div id="talk-detail-body" class="screen-content" style="padding: 0 24px 150px; overflow-y: auto;"></div>
+        <div id="talk-detail-cta" class="talk-detail-actionbar">
+          <button id="btn-talk-detail-list" type="button" class="talk-detail-action list">☰ 목록으로</button>
+          <button id="btn-talk-like" type="button" class="talk-detail-action like" aria-label="관심">♡ <span id="talk-detail-like-count">0</span></button>
+          <button id="btn-talk-detail-comment" type="button" class="talk-detail-action comment">💬 <span id="talk-detail-comment-count">0</span></button>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-talk-detail">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-talk-detail" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-talk-detail">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-talk-detail" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-talk-detail">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-talk-detail" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -228,30 +320,30 @@
           <div style="display:flex; flex-direction:column; gap:12px;">
             <label style="font-size:13px; font-weight:900; color:var(--text-primary);">첨부이미지 <span style="color:var(--text-muted); font-size:11px;">최대 10개</span></label>
             <input id="talk-image-input" type="file" accept="image/*" multiple hidden>
-            <button id="btn-talk-image-pick" type="button" style="height:48px; border:1.5px dashed var(--border-color); border-radius:var(--radius-sm); background:#fff; color:var(--green-dark); font-size:14px; font-weight:900; cursor:pointer;">이미지 선택</button>
+            <button id="btn-talk-image-pick" type="button" style="height:48px; border:1.5px dashed var(--card-border); border-radius:var(--radius); background:#fff; color:var(--green-dark); font-size:14px; font-weight:900; cursor:pointer;">이미지 선택</button>
             <div id="talk-image-preview" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:2px;"></div>
             <label style="font-size:13px; font-weight:900; color:var(--text-primary);">제목</label>
-            <input id="talk-title-input" type="text" maxlength="80" placeholder="예: 배달용기 나눔합니다" style="height:48px; border:1.5px solid var(--border-color); border-radius:var(--radius-sm); padding:0 14px; font-size:14px; font-weight:700;">
+            <input id="talk-title-input" class="form-input" type="text" maxlength="80" placeholder="예: 배달용기 나눔합니다">
             <label style="font-size:13px; font-weight:900; color:var(--text-primary);">가격</label>
-            <input id="talk-price-input" type="number" inputmode="numeric" min="0" placeholder="0" style="height:48px; border:1.5px solid var(--border-color); border-radius:var(--radius-sm); padding:0 14px; font-size:14px; font-weight:800;">
+            <input id="talk-price-input" class="form-input" type="number" inputmode="numeric" min="0" placeholder="0">
             <label style="font-size:13px; font-weight:900; color:var(--text-primary);">내용</label>
-            <textarea id="talk-body-input" maxlength="1000" placeholder="상태, 수량, 거래 방법 등을 입력해주세요." style="min-height:150px; border:1.5px solid var(--border-color); border-radius:var(--radius-sm); padding:14px; font-size:14px; line-height:1.5; font-weight:700; resize:none; font-family:inherit;"></textarea>
-            <button id="btn-talk-submit" type="button" style="height:52px; border:none; border-radius:var(--radius-sm); background:var(--green-primary); color:#fff; font-size:16px; font-weight:900; cursor:pointer; margin-top:8px;">등록하기</button>
+            <textarea id="talk-body-input" class="form-input" maxlength="1000" placeholder="상태, 수량, 거래 방법 등을 입력해주세요." style="min-height:150px; padding:14px; line-height:1.5; resize:none;"></textarea>
+            <button id="btn-talk-submit" type="button" class="btn-primary" style="height:52px; font-weight:900; margin-top:8px;">등록하기</button>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-talk-write">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-talk-write" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-talk-write">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-talk-write" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-talk-write">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-talk-write" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -266,18 +358,18 @@
           <div id="talk-chat-list" style="display:flex; flex-direction:column;"></div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-talk-chats">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-talk-chats" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-talk-chats">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-talk-chats" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-talk-chats">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-talk-chats" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -293,8 +385,8 @@
           <div id="talk-chat-messages" style="display:flex; flex-direction:column; gap:8px;"></div>
         </div>
         <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border-light);padding:10px 16px calc(12px + var(--app-bottom-inset));display:flex;gap:8px;">
-          <input id="talk-chat-input" type="text" placeholder="메시지를 입력하세요" style="flex:1;height:42px;border:1.5px solid var(--border-color);border-radius:20px;padding:0 14px;font-size:14px;font-weight:700;">
-          <button id="btn-talk-chat-send" type="button" style="width:58px;border:none;border-radius:20px;background:var(--green-primary);color:#fff;font-weight:900;">전송</button>
+          <input id="talk-chat-input" class="form-input" type="text" placeholder="메시지를 입력하세요" style="flex:1;height:42px;">
+          <button id="btn-talk-chat-send" type="button" class="btn-primary" style="width:58px;height:42px;font-weight:900;">전송</button>
         </div>
       </div>
 
@@ -314,18 +406,152 @@
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item active" id="nav-home-benefit-cards">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item active" id="nav-home-benefit-cards" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-benefit-cards">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-benefit-cards" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-benefit-cards">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-benefit-cards" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 선정산 신청 화면 -->
+      <div id="screen-advance-settlement" class="screen">
+        <div class="app-header" style="display:flex; justify-content: space-between; align-items: center; padding: 20px 24px 12px; flex-shrink: 0;">
+          <button class="btn-back" style="border:none; background:none; font-weight:800; cursor:pointer; color:#333;">‹ 이전</button>
+          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+        <div class="scrollable-content" style="padding: 0 0 116px; background:#fff;">
+          <div style="padding: 0 28px 16px; margin-bottom:0;">
+            <div style="font-size: 20px; font-weight: 900; color:#42463f; line-height:1.5; letter-spacing:-.9px;">
+              대표님!<br>
+              배달앱에서의 정산 기다리셨죠?<br>
+              <span style="white-space:nowrap; letter-spacing:-1.2px;">이제 선정산으로 당당하게 이용하세요!</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top: 14px;">
+              <span aria-label="배달의민족" title="배달의민족" style="width:42px; height:42px; border-radius:14px; overflow:hidden; background:#68cbc8; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 16px rgba(46,183,178,.22);">
+                <img src="assets/app/baemin-logo.png" alt="배달의민족" style="width:100%; height:100%; object-fit:cover; display:block;">
+              </span>
+              <span aria-label="요기요" title="요기요" style="width:42px; height:42px; border-radius:14px; overflow:hidden; background:#d93655; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 16px rgba(217,54,85,.22);">
+                <img src="assets/app/yogiyo.webp" alt="요기요" style="width:100%; height:100%; object-fit:cover; display:block;">
+              </span>
+              <span aria-label="쿠팡이츠" title="쿠팡이츠" style="width:42px; height:42px; border-radius:14px; overflow:hidden; background:white; border:1.5px solid #d8d8d8; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 16px rgba(0,0,0,.08);">
+                <img src="assets/app/coupang-eats.webp" alt="쿠팡이츠" style="width:100%; height:100%; object-fit:cover; display:block;">
+              </span>
+            </div>
           </div>
+
+          <div style="display:flex; flex-direction:column; gap: 14px; padding: 0 28px;">
+            <div>
+              <label class="form-label" style="font-size: 12px; color:#566153; font-weight:900; margin-bottom:7px; letter-spacing:-.4px;">신청 전화번호 입력</label>
+              <input id="advance-phone" class="form-input" type="tel" placeholder="희망 전화번호 입력해주세요" style="height: 48px;">
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 12px; color:#566153; font-weight:900; margin-bottom:7px; letter-spacing:-.4px;">신청 하실 이메일 주소 입력</label>
+              <input id="advance-email" class="form-input" type="email" placeholder="희망 이메일을 입력해주세요" style="height: 48px;">
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 12px; color:#566153; font-weight:900; margin-bottom:7px; letter-spacing:-.4px;">배달앱 예상 매출</label>
+              <input id="advance-delivery-sales" class="form-input" type="text" inputmode="numeric" placeholder="금액을 입력해주세요" style="height: 48px;" oninput="this.value=window.formatCurrencyInputValue?window.formatCurrencyInputValue(this.value):this.value.replace(/\D/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 12px; color:#566153; font-weight:900; margin-bottom:7px; letter-spacing:-.4px;">이용하시는 배달앱 입력</label>
+              <input id="advance-delivery-apps" class="form-input" type="text" placeholder="배달의민족,쿠팡이츠,요기요,땡겨요 등" style="height: 48px;">
+            </div>
+            <div>
+              <label class="form-label" style="font-size: 12px; color:#566153; font-weight:900; margin-bottom:7px; letter-spacing:-.4px;">카드사 예상 매출</label>
+              <input id="advance-store-sales" class="form-input" type="text" inputmode="numeric" placeholder="금액을 입력해주세요" style="height: 48px;" oninput="this.value=window.formatCurrencyInputValue?window.formatCurrencyInputValue(this.value):this.value.replace(/\D/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
+            </div>
+          </div>
+          <div style="padding: 26px 28px 26px;">
+            <button id="btn-advance-submit" type="button" class="btn-primary" style="font-size:15px; font-weight:900; margin: 0 auto; padding:0 22px;">선정산 상담 신청하기</button>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <button type="button" class="nav-item active" id="nav-home-advance-settlement" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-advance-settlement" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-advance-settlement" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 카드 할인 검색 화면 -->
+      <div id="screen-card-benefit-search" class="screen">
+        <div class="app-header" style="display:flex; justify-content: space-between; align-items: center; padding: 20px 24px 12px; flex-shrink: 0;">
+          <button class="btn-back" style="border:none; background:none; font-weight:800; cursor:pointer; color:#333;">‹ 이전</button>
+          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+        <div class="scrollable-content" style="padding: 0 24px 110px;">
+          <div style="margin-bottom: 18px;">
+            <h2 style="font-size: 21px; font-weight: 900; margin: 0 0 6px; color: var(--text-primary);">최대 1.5% 할인 카드 검색</h2>
+            <p style="font-size: 12px; color: var(--text-secondary); font-weight: 700; line-height: 1.5; margin: 0;">예: 삼성, 신한, 국민처럼 카드사를 검색해보세요.</p>
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom:16px;">
+            <input id="benefit-card-search-input" class="form-input" type="search" placeholder="카드사 또는 카드명 검색" autocomplete="off" style="flex:1;">
+            <button id="benefit-card-search-btn" type="button" class="btn-primary" style="width:58px; height:auto; font-weight:900;">검색</button>
+          </div>
+          <div id="benefit-card-search-source" style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 12px;"></div>
+          <div id="benefit-card-search-list" style="display:flex; flex-direction:column; gap:12px;"></div>
+        </div>
+        <div class="bottom-nav">
+          <button type="button" class="nav-item active" id="nav-home-card-benefit-search" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-card-benefit-search" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-card-benefit-search" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 친절배달 위치 기반 화면 -->
+      <div id="screen-friendly-delivery" class="screen">
+        <div class="app-header" style="display:flex; justify-content: space-between; align-items: center; padding: 20px 24px 12px; flex-shrink: 0;">
+          <button class="btn-back" style="border:none; background:none; font-weight:800; cursor:pointer; color:#333;">‹ 이전</button>
+          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+        <div class="scrollable-content" style="padding: 0 24px 110px;">
+          <div style="margin-bottom: 18px;">
+            <div style="font-size: 12px; font-weight: 900; color: var(--green-dark); margin-bottom: 6px;">친절배달 대행사 기반</div>
+            <h2 style="font-size: 21px; font-weight: 900; margin:0 0 6px; color:var(--text-primary);">내 위치 기반 배달대행사</h2>
+            <p id="friendly-delivery-status" style="font-size: 12px; font-weight: 700; color:var(--text-secondary); line-height:1.5; margin:0;">위치 권한을 허용하면 가까운 순서로 보여드립니다.</p>
+            <div id="friendly-delivery-location-summary" style="display:none; margin-top:10px; border:1.5px solid var(--card-border); border-radius:var(--radius); background:#f7fff6; color:var(--green-dark); padding:10px 12px; font-size:12px; font-weight:900; line-height:1.45;"></div>
+          </div>
+          <button id="friendly-delivery-location-btn" type="button" class="btn-primary" style="height:48px; font-size:14px; font-weight:900; margin-bottom:16px;">현재 위치로 찾기</button>
+          <div id="friendly-delivery-list" style="display:flex; flex-direction:column; gap:12px;"></div>
+        </div>
+        <div class="bottom-nav">
+          <button type="button" class="nav-item active" id="nav-home-friendly-delivery" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-friendly-delivery" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-friendly-delivery" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
         </div>
       </div>
 
@@ -336,53 +562,56 @@
           <div class="tagline" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; font-weight: 700;">배달대행비 카드결제의 새로운 기준</div>
         </div>
 
-        <div class="scrollable-content" style="padding-bottom: 20px;">
-          <div class="session-store-name" style="font-size: 16px; font-weight: 800; color: var(--text-primary); padding: 0 24px; margin-bottom: 16px;">-</div>
+        <div class="scrollable-content my-main-content">
+          <div class="session-store-name my-store-name">-</div>
 
-          <div id="my-agency-settlement-btn" style="display:none; margin: 0 24px 12px; padding: 16px; border: 1.5px solid var(--green-primary); border-radius: var(--radius); background: #f1fbef; cursor: pointer; flex-direction: column;">
-            <span style="font-size: 15px; font-weight: 900; color: var(--green-dark); margin-bottom: 4px;">대리점 정산</span>
-            <span style="font-size: 12px; color: var(--text-secondary); font-weight: 700;">기간별 결제내역과 수수료를 확인하세요</span>
+          <div id="my-agency-settlement-btn" class="my-menu-card my-menu-card-primary" style="display:none;">
+            <span class="my-menu-title">대리점 정산</span>
+            <span class="my-menu-desc">기간별 결제내역과 수수료를 확인하세요</span>
           </div>
 
-          <div id="my-card-manage-btn" style="margin: 0 24px 12px; padding: 16px; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">카드관리</span>
-            <span style="font-size: 12px; color: var(--text-secondary); font-weight: 700;">결제할 카드를 등록/관리 해주세요</span>
+          <div id="my-card-manage-btn" class="my-menu-card">
+            <span class="my-menu-title">카드관리</span>
+            <span class="my-menu-desc">결제할 카드를 등록/관리 해주세요</span>
           </div>
 
-          <div id="my-payment-history-btn" style="margin: 0 24px 12px; padding: 16px; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">결제내역</span>
-            <span style="font-size: 12px; color: var(--text-secondary); font-weight: 700;">결제내역이 보이세요</span>
+          <div id="my-payment-history-btn" class="my-menu-card">
+            <span class="my-menu-title">결제내역</span>
+            <span class="my-menu-desc">결제내역을 확인하세요</span>
           </div>
 
-          <div id="my-vaccount-manage-btn" style="margin: 0 24px 12px; padding: 16px; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">가상계좌관리</span>
-            <span style="font-size: 12px; color: var(--text-secondary); font-weight: 700;">배달대행사의 가상계좌관리 할 수 있어요</span>
+          <div id="my-vaccount-manage-btn" class="my-menu-card">
+            <span class="my-menu-title">가상계좌관리</span>
+            <span class="my-menu-desc">배달대행사 가상계좌를 관리할 수 있어요</span>
           </div>
 
-          <div id="my-edit-info-btn" style="margin: 0 24px 20px; padding: 16px; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">회원정보수정</span>
-            <span style="font-size: 12px; color: var(--text-secondary); font-weight: 700;">회원님의 정보를 수정/관리 할 수 있어요</span>
+          <div id="my-edit-info-btn" class="my-menu-card">
+            <span class="my-menu-title">회원정보수정</span>
+            <span class="my-menu-desc">회원님의 정보를 수정/관리할 수 있어요</span>
           </div>
 
-          <div style="padding: 16px 24px; margin-top: 12px;">
-            <div style="font-size: 22px; font-weight: 900; color: var(--green-dark); margin-bottom: 4px;">고객센터 <span style="color:var(--green-primary);">1566-3558</span></div>
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">운영시간 평일 10:00 - 18:00</div>
+          <div class="my-contact-info">
+            <div>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></div>
+            <small class="contact-hours">
+              <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+              <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+            </small>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-my">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-my" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-my">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-my" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-my">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-my" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -397,7 +626,7 @@
         </div>
 
         <div class="scrollable-content" style="padding: 0 24px 100px;">
-          <div style="border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 16px; background: var(--bg-white); margin-bottom: 14px;">
+          <div style="border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 16px; background: var(--bg-white); margin-bottom: 14px; box-shadow: var(--card-shadow);">
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
               <div>
                 <label class="form-label">시작일</label>
@@ -408,7 +637,7 @@
                 <input id="agency-end-date" class="form-input" type="date">
               </div>
             </div>
-            <button id="agency-search-btn" class="btn-primary" style="width:100%; height: 46px; border-radius: var(--radius-sm);">조회하기</button>
+            <button id="agency-search-btn" class="btn-primary" style="height: 46px;">조회하기</button>
           </div>
 
           <div id="agency-summary-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
@@ -484,43 +713,21 @@
               <button class="auth-link" id="to-find-id">아이디 찾기</button>
               <button class="auth-link" id="to-find-pw">비밀번호 찾기</button>
             </div>
-            <div class="social-divider"><span>간편 로그인/간편가입</span></div>
-
-            <div class="social-btns">
-              <button class="social-btn social-naver" id="btn-naver" title="네이버 로그인">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path d="M16.5 2H7.5C4.5 2 2 4.5 2 7.5V16.5C2 19.5 4.5 22 7.5 22H16.5C19.5 22 22 19.5 22 16.5V7.5C22 4.5 19.5 2 16.5 2ZM15.42 16H12.98L9.08 10.37V16H7.11V8.5H9.53L13.43 14.15V8.5H15.42V16Z" fill="#FFFFFF"/>
-                </svg>
-              </button>
-              <button class="social-btn social-kakao" id="btn-kakao" title="카카오 로그인">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 3C6.48 3 2 6.47 2 10.75C2 13.56 3.86 15.93 6.6 17.29L5.56 21.05C5.46 21.41 5.86 21.68 6.18 21.47L10.71 18.49C11.13 18.52 11.56 18.5 12 18.5C17.52 18.5 22 15.03 22 10.75C22 6.47 17.52 3 12 3Z" fill="#3C1E1E"/>
-                </svg>
-              </button>
-              <button class="social-btn social-google" id="btn-google" title="구글 로그인">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M22.56 12.25C22.56 11.47 22.49 10.73 22.36 10H12V14.26H17.92C17.67 15.63 16.89 16.81 15.72 17.59V20.34H19.28C21.36 18.42 22.56 15.6 22.56 12.25Z" fill="#4285F4"/>
-                  <path d="M12 23C14.97 23 17.46 22.01 19.28 20.34L15.72 17.59C14.73 18.25 13.48 18.66 12 18.66C9.14 18.66 6.71 16.73 5.84 14.14H2.18V16.98C3.99 20.58 7.7 23 12 23Z" fill="#34A853"/>
-                  <path d="M5.84 14.14C5.62 13.48 5.5 12.76 5.5 12C5.5 11.24 5.62 10.52 5.84 9.86V7.02H2.18C1.43 8.52 1 10.21 1 12C1 13.79 1.43 15.48 2.18 16.98L5.84 14.14Z" fill="#FBBC05"/>
-                  <path d="M12 5.34C13.62 5.34 15.06 5.9 16.2 6.99L19.36 3.83C17.46 2.06 14.97 1 12 1C7.7 1 3.99 3.42 2.18 7.02L5.84 9.86C6.71 7.27 9.14 5.34 12 5.34Z" fill="#EA4335"/>
-                </svg>
-              </button>
-            </div>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-login">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-login" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-login">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-login" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-login">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-login" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -551,18 +758,18 @@
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-s1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-s1" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-s1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-s1" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-s1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-s1" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -586,36 +793,47 @@
             <div class="auth-headline" style="font-size:18px;">환영합니다! 이츠페이가 응원합니다!</div>
             
             <div class="register-section-title">회원정보</div>
-            <div class="form-group"><input class="form-input" id="reg-id" type="text" placeholder="이메일 형식의 아이디를 입력해주세요" autocomplete="off"/></div>
+            <div class="form-group"><input class="form-input" id="reg-email" type="email" placeholder="연락받을 이메일을 입력해주세요" autocomplete="email"/></div>
+            <div class="form-group">
+              <input class="form-input" id="reg-id" type="text" placeholder="로그인 ID를 입력해주세요" autocomplete="username"/>
+              <div style="font-size:11px;color:#777;font-weight:700;margin-top:6px;line-height:1.5;">이메일을 입력하면 @ 앞부분이 로그인 ID로 자동 입력됩니다. 필요하면 직접 수정할 수 있습니다.</div>
+            </div>
             <div class="form-group password-field">
               <input class="form-input" id="reg-pw" type="text" placeholder="비밀번호를 입력해주세요" autocomplete="new-password"/>
               <button type="button" class="password-toggle" id="reg-pw-toggle" aria-label="비밀번호 보기">보기</button>
+            </div>
+            <div class="form-group password-field">
+              <input class="form-input" id="reg-pw-confirm" type="text" placeholder="비밀번호를 한 번 더 입력해주세요" autocomplete="new-password"/>
+              <button type="button" class="password-toggle" id="reg-pw-confirm-toggle" aria-label="비밀번호 확인 보기">보기</button>
             </div>
             
             <div class="form-group">
               <div style="display:flex;gap:8px;">
                 <input class="form-input" id="reg-phone" type="text" placeholder="휴대폰번호를 입력해주세요" inputmode="tel"/>
-                <button class="btn-send" id="reg-send-sms">인증번호 발송</button>
+                <button class="btn-primary edit-myinfo-action-btn" id="reg-send-sms">인증번호 발송</button>
               </div>
             </div>
-            <div class="form-group"><input class="form-input" id="reg-sms-input" type="text" placeholder="인증번호를 입력해주세요" inputmode="numeric" maxlength="6"/></div>
+            <div class="form-group">
+              <input class="form-input" id="reg-sms-input" type="text" placeholder="인증번호를 입력해주세요" inputmode="numeric" maxlength="6"/>
+              <div id="reg-sms-timer" style="display:none;margin-top:6px;font-size:12px;font-weight:800;color:var(--green-primary);text-align:right;">3:00</div>
+            </div>
 
             <button class="btn-primary" id="reg-step2-next">다음</button>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-s2">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-s2" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-s2">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-s2" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-s2">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-s2" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -643,35 +861,43 @@
             <div class="form-group"><input class="form-input" id="reg-ceo-name" type="text" placeholder="사업자등록증의 대표자명을 입력해주세요"/></div>
             <div class="form-group">
               <div style="display:flex;gap:8px;">
-                <input class="form-input" id="reg-address" type="text" placeholder="사업장주소를 검색해주세요" readonly style="flex:1;"/>
-                <button type="button" class="btn-send" id="reg-address-search">주소검색</button>
+                <input class="form-input" id="reg-address" type="text" placeholder="사업장주소를 검색하거나 직접 입력해주세요" autocomplete="street-address" style="flex:1;"/>
+                <button type="button" class="btn-primary edit-myinfo-action-btn" id="reg-address-search">주소검색</button>
               </div>
             </div>
-            <div class="form-group"><input class="form-input" id="reg-tel" type="text" placeholder="전화번호를 입력해주세요" inputmode="tel"/></div>
+            <div class="form-group"><input class="form-input" id="reg-address-detail" type="text" placeholder="세부주소를 입력해주세요" autocomplete="address-line2"/></div>
             
             <!-- 사업자등록증 업로드 영역 (라인 스타일 아웃라인 버튼) -->
             <div class="form-group" style="margin-bottom: 16px;">
               <span class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">사업자등록증</span>
-              <input id="reg-biz-license-file" type="file" accept=".pdf,.jpg,.jpeg,.png,image/*,application/pdf" style="display:none;">
-              <button type="button" class="btn-secondary" id="upload-biz-license" style="width: 100%; height: 48px; background: white; border: 1.5px solid #3a9430; color: #3a9430; font-weight: 800; font-size: 14px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">사업자등록증을 업로드해주세요</button>
+              <input id="reg-biz-license-file" type="file" accept=".pdf,.jpg,.jpeg,.png,image/*,application/pdf" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">
+              <div style="border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 20px 16px; background: #fbfffa; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; box-shadow: var(--card-shadow);">
+                <span style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; font-weight: 700;">사업자등록증을 촬영하거나<br>파일/갤러리에서 선택해주세요</span>
+                <button type="button" id="upload-biz-license" class="btn-secondary" style="height: 38px; padding: 0 20px;">사진등록</button>
+                <div id="biz-license-preview" style="width: 100%; display: none; margin-top: 4px; padding: 10px; border: 1px dashed #c9e6c2; border-radius: var(--radius); background: #fff; text-align: left;">
+                  <div style="font-size: 11px; color: #2e7d32; font-weight: 800; margin-bottom: 6px;">선택된 파일</div>
+                  <img id="biz-license-preview-img" alt="선택된 사업자등록증 미리보기" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: var(--radius); display: none;">
+                  <div id="biz-license-preview-name" style="font-size: 12px; color: #555; font-weight: 700; margin-top: 6px;">아직 선택된 파일이 없습니다.</div>
+                </div>
+              </div>
             </div>
 
             <button class="btn-primary" id="reg-step3-next" style="margin-top:8px;">다음</button>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-s3">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-s3" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-s3">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-s3" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-s3">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-s3" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -683,6 +909,12 @@
             이전
           </button>
           <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+        <div class="step-indicator">
+          <div class="step-dot active">1</div><div class="step-line active"></div>
+          <div class="step-dot active">2</div><div class="step-line active"></div>
+          <div class="step-dot active">3</div><div class="step-line active"></div>
+          <div class="step-dot active">4</div>
         </div>
         <div class="auth-page">
           <div class="auth-content scrollable-content" style="padding: 0 24px 100px;">
@@ -700,7 +932,7 @@
               <span class="checkbox-label" style="font-size: 15px; font-weight: 800; color: #555;">이용약관에 동의합니다</span>
             </div>
             <!-- 이용약관 텍스트 박스 -->
-            <div id="term-usage-box" style="height: 120px; overflow-y: auto; border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); padding: 12px; font-size: 11px; color: #333; line-height: 1.6; margin-bottom: 20px; background: var(--bg-white); font-weight: 700; white-space: pre-wrap; word-break: break-all;"><b>제 1조 (목적)</b>
+            <div id="term-usage-content" style="height: 120px; overflow-y: auto; border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 12px; font-size: 11px; color: #333; line-height: 1.6; margin-bottom: 20px; background: var(--bg-white); font-weight: 700; white-space: pre-wrap; word-break: break-all;"><b>제 1조 (목적)</b>
 이 약관은 주식회사 희율(이하 회사)이 제공하는 배달페이 서비스(이하 서비스)의 이용과 관련하여 회사와 상점과의 권리, 의무 및 책임사항, 기타 필요한 사항을 규정함을 목적으로 합니다.
 <b>제 2조 (정의)</b>
 이 약관에서 사용하는 용어의 정의는 다음과 같습니다.
@@ -713,7 +945,7 @@
               <span class="checkbox-label" style="font-size: 15px; font-weight: 800; color: #555;">개인정보 취급방침에 동의합니다</span>
             </div>
             <!-- 개인정보 텍스트 박스 -->
-            <div id="term-privacy-box" style="height: 120px; overflow-y: auto; border: 1.5px solid var(--border-color); border-radius: var(--radius-sm); padding: 12px; font-size: 11px; color: #333; line-height: 1.6; margin-bottom: 24px; background: var(--bg-white); font-weight: 700; white-space: pre-wrap; word-break: break-all;"><b>제 1조 (목적)</b>
+            <div id="term-privacy-content" style="height: 120px; overflow-y: auto; border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 12px; font-size: 11px; color: #333; line-height: 1.6; margin-bottom: 24px; background: var(--bg-white); font-weight: 700; white-space: pre-wrap; word-break: break-all;"><b>제 1조 (목적)</b>
 이 약관은 주식회사 희율(이하 회사)이 제공하는 배달페이 서비스(이하 서비스)의 이용과 관련하여 회사와 상점과의 권리, 의무 및 책임사항, 기타 필요한 사항을 규정함을 목적으로 합니다.
 <b>제 2조 (정의)</b>
 이 약관에서 사용하는 용어의 정의는 다음과 같습니다.
@@ -722,6 +954,20 @@
 
             <button class="btn-primary" id="register-submit" style="width: 100%;">가입하기</button>
           </div>
+        </div>
+        <div class="bottom-nav">
+          <button type="button" class="nav-item" id="nav-home-s4" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-s4" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-s4" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
         </div>
       </div>
 
@@ -746,23 +992,24 @@
             </div>
             <div class="form-group" id="find-id-sms-container" style="display:none; margin-top:12px;">
               <input type="text" id="find-id-sms-input" class="form-input" placeholder="인증번호를 입력해주세요" maxlength="6">
+              <div id="find-id-sms-timer" style="display:none;margin-top:6px;font-size:12px;font-weight:800;color:var(--green-primary);text-align:right;">3:00</div>
             </div>
             <button class="btn-primary" id="find-id-submit" style="width:100%; margin-top:20px;">아이디 찾기</button>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-find-id">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-find-id" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-find-id">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-find-id" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-find-id">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-find-id" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -791,6 +1038,7 @@
             </div>
             <div class="form-group" id="find-pw-sms-container" style="display:none; margin-top:12px;">
               <input type="text" id="find-pw-sms-input" class="form-input" placeholder="인증번호를 입력해주세요" maxlength="6">
+              <div id="find-pw-sms-timer" style="display:none;margin-top:6px;font-size:12px;font-weight:800;color:var(--green-primary);text-align:right;">3:00</div>
             </div>
             <div class="form-group">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">새 비밀번호</label>
@@ -804,18 +1052,18 @@
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-find-pw">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-find-pw" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-find-pw">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-find-pw" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-find-pw">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-find-pw" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -836,34 +1084,34 @@
               <span style="font-size: 16px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">내정보/카드관리</span>
               <span class="session-store-name" style="font-size: 13px; color: var(--text-secondary); font-weight: 700;">-</span>
             </div>
-            <button id="btn-to-card-add" style="background: white; border: 1.5px solid #3a9430; color: #3a9430; font-size: 13px; font-weight: 800; padding: 6px 16px; border-radius: 6px; cursor: pointer;">카드 추가</button>
+            <button id="btn-to-card-add" class="btn-secondary" style="height: 34px; padding: 0 16px;">카드 추가</button>
           </div>
 
           <!-- 카드 목록 -->
-          <div id="card-items-container" style="padding: 16px 24px 0; display: flex; flex-direction: column; gap: 16px;">
+          <div id="card-items-container" class="manage-list-container padded">
             <div style="padding: 32px 16px; text-align:center; color:#777; font-weight:700;">카드 정보를 불러오는 중입니다.</div>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-card-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-card-list" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-card-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-card-list" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-card-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-card-list" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
       <!-- 카드 추가 화면 -->
       <div id="screen-card-add" class="screen">
-        <div class="app-header" style="display:flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding: 20px 24px 8px; border-bottom: none; flex-shrink: 0;">
+        <div class="app-header" style="display:flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 14px 24px 6px; border-bottom: none; flex-shrink: 0;">
           <button class="btn-back" style="background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 4px; color: #555; font-size: 13px; font-weight: 800;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><polyline points="15 18 9 12 15 6"/></svg>
             이전
@@ -873,35 +1121,24 @@
 
         <div class="auth-page">
           <div class="auth-content scrollable-content" style="padding: 0 24px 100px;">
-            <div class="auth-headline" style="font-size: 20px; font-weight: 800; line-height: 1.4; margin-bottom: 24px;">카드 정보를 입력해주세요</div>
+            <div class="auth-headline" style="font-size: 18px; font-weight: 800; line-height: 1.35; margin-bottom: 12px;">카드 정보를 입력해주세요</div>
+            <div class="card-registration-check-guide">
+              <strong>카드 유효성 확인 안내</strong>
+              <span>카드가 문제 없이 등록되면 확인을 위해 <em>100원이 결제</em>되었다가<br>바로 <em>100원이 취소</em>됩니다.</span>
+            </div>
 
             <!-- 카드번호 -->
-            <div class="form-group">
+            <div class="form-group" style="margin-bottom: 14px;">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드번호</label>
               <input type="text" id="add-card-number" class="form-input" placeholder="카드번호 전체를 입력해주세요">
             </div>
 
-            <!-- 카드사 -->
+            <!-- 카드사 자동 판별 -->
             <div class="form-group">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드사</label>
-              <div style="position: relative;">
-                <select id="add-card-company" class="form-input" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
-                  <option value="">카드사를 선택해주세요</option>
-                  <option value="현대카드">현대카드</option>
-                  <option value="삼성카드">삼성카드</option>
-                  <option value="KB국민카드">KB국민카드</option>
-                  <option value="신한카드">신한카드</option>
-                  <option value="롯데카드">롯데카드</option>
-                  <option value="하나카드">하나카드</option>
-                  <option value="우리카드">우리카드</option>
-                  <option value="BC카드">BC카드</option>
-                  <option value="NH농협카드">NH농협카드</option>
-                  <option value="직접입력">카드사 직접입력</option>
-                </select>
-                <span style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #888; font-size: 10px;">▼</span>
-              </div>
+              <input type="text" id="add-card-company" class="form-input" placeholder="카드번호 입력 시 자동 판별됩니다" readonly>
               <div id="add-card-company-custom-wrap" style="display:none; margin-top: 8px;">
-                <input type="text" id="add-card-company-custom" class="form-input" placeholder="카드사명을 입력해주세요">
+                <input type="hidden" id="add-card-company-custom">
               </div>
             </div>
 
@@ -914,12 +1151,30 @@
               </div>
             </div>
 
+            <!-- CVC -->
+            <div class="form-group card-cvc-form-group">
+              <div class="card-cvc-guide">
+                  <div class="card-cvc-copy">
+                    <label class="form-label card-cvc-title">CVC</label>
+                    <input type="text" id="add-card-cvc" class="form-input card-cvc-input" placeholder="카드 뒷면 3~4자리" inputmode="numeric" autocomplete="off">
+                    <span class="card-cvc-help">카드 뒷면 서명란 옆 숫자</span>
+                  </div>
+                  <div class="card-cvc-visual" aria-hidden="true">
+                    <div class="card-cvc-stripe"></div>
+                    <div class="card-cvc-sign-row">
+                      <span class="card-cvc-sign"></span>
+                      <span class="card-cvc-label">CVC</span>
+                    </div>
+                  </div>
+                </div>
+            </div>
+
             <!-- 유효기간 -->
             <div class="form-group">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">유효기간</label>
               <div style="display: flex; gap: 12px;">
                 <div style="position: relative; flex: 1;">
-                  <select id="add-card-month" class="form-input" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
+                  <select id="add-card-month" class="form-input placeholder-select" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
                     <option value="">MM</option>
                     <option value="01">01</option>
                     <option value="02">02</option>
@@ -937,7 +1192,7 @@
                   <span style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #888; font-size: 10px;">▼</span>
                 </div>
                 <div style="position: relative; flex: 1;">
-                  <select id="add-card-year" class="form-input" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
+                  <select id="add-card-year" class="form-input placeholder-select" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
                     <option value="">YY</option>
                     <option value="26">26</option>
                     <option value="27">27</option>
@@ -960,10 +1215,10 @@
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드구분</label>
               <div style="display: flex; gap: 12px;">
                 <button type="button" id="btn-card-type-personal" class="btn-card-type active" style="flex: 1; height: 48px; background: white; border: 1.5px solid #3a9430; color: #3a9430; font-weight: 800; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;">
-                  <span>개인사업자</span>
+                  <span>개인/개인사업자</span>
                   <span style="font-size: 10px;">▼</span>
                 </button>
-                <button type="button" id="btn-card-type-corp" class="btn-card-type" style="flex: 1; height: 48px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;">
+                <button type="button" id="btn-card-type-corp" class="btn-card-type" style="flex: 1; height: 48px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;">
                   <span>법인사업자</span>
                   <span style="font-size: 10px;">▼</span>
                 </button>
@@ -976,29 +1231,63 @@
               <input type="text" id="add-card-identity" class="form-input" placeholder="6자리(예:940403)">
             </div>
 
+            <!-- 카드 명의자 이름 -->
+            <div class="form-group">
+              <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드 명의자 이름</label>
+              <input type="text" id="add-card-payer-name" class="form-input" placeholder="카드 명의자 이름을 입력해주세요">
+            </div>
+
+            <!-- 카드 명의자 이메일 -->
+            <div class="form-group">
+              <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드 명의자 이메일</label>
+              <input type="email" id="add-card-payer-email" class="form-input" placeholder="카드 명의자 이메일을 입력해주세요" autocomplete="email">
+            </div>
+
+            <!-- 카드 명의자 연락처 -->
+            <div class="form-group">
+              <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드 명의자 연락처</label>
+              <input type="tel" id="add-card-payer-tel" class="form-input" placeholder="카드 명의자 연락처를 입력해주세요" inputmode="tel" autocomplete="tel">
+            </div>
+
             <!-- 카드 별칭 -->
             <div class="form-group" style="margin-bottom: 24px;">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">카드 별칭</label>
               <input type="text" id="add-card-alias" class="form-input" placeholder="카드 별칭을 입력해주세요">
             </div>
 
-            <button class="btn-primary" id="add-card-submit" style="width:100%; height: 50px; background: var(--green-primary); color: white; border: none; font-size: 16px; font-weight: 800; border-radius: var(--radius); cursor: pointer;">카드등록</button>
+            <button class="btn-primary" id="add-card-submit">카드등록</button>
+            <div class="card-hometax-guide">
+              <div class="card-hometax-main">
+                <div class="card-hometax-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 10.5 12 3l9 7.5"/>
+                    <path d="M5.5 9.5V21h13V9.5"/>
+                    <path d="M9.5 21v-6h5v6"/>
+                  </svg>
+                </div>
+                <div class="card-hometax-copy">
+                  <strong>홈택스에 카드를 먼저 등록하셨나요?</strong>
+                  <span>홈택스 사업용 카드로 등록하면 매입 내역이 자동으로<br>정리되어 부가세 신고가 훨씬 편리합니다.</span>
+                </div>
+              </div>
+              <button type="button" id="btn-open-hometax-card" class="card-hometax-link">홈택스에서 사업용 카드 등록하기 <span aria-hidden="true">›</span></button>
+            </div>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-card-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-card-add" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-card-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-card-add" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-card-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-card-add" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1019,20 +1308,25 @@
               <span style="font-size: 16px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">내정보/결제내역</span>
               <span id="payment-history-owner" class="session-store-name" style="font-size: 13px; color: var(--text-secondary); font-weight: 700;">-</span>
             </div>
-            <button id="btn-tax-doc" style="background: var(--green-primary); border: none; color: white; font-size: 13px; font-weight: 800; padding: 8px 16px; border-radius: 6px; cursor: pointer;">부가세 신고자료</button>
+            <button id="btn-tax-doc" class="btn-primary" style="width:auto; height: 36px; font-size: 13px; padding: 0 16px;">부가세 신고자료</button>
           </div>
 
           <!-- 기간 필터 박스 (시작일, 종료일 독립 선택형) -->
-          <div style="margin: 0 24px 16px; padding: 14px 16px; border: 1.5px solid var(--border-color); border-radius: var(--radius); background: var(--bg-white); display: flex; flex-direction: column; gap: 10px;">
+          <div style="margin: 0 24px 16px; padding: 14px 16px; border: 1.5px solid var(--card-border); border-radius: var(--radius); background: var(--bg-white); display: flex; flex-direction: column; gap: 10px; box-shadow: var(--card-shadow);">
+            <div id="payment-period-filter" style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px;">
+              <button type="button" class="payment-period-chip active" data-days="7" style="height:34px; border-radius:12px; border:1.5px solid var(--green-primary); background:var(--green-primary); color:#fff; font-size:12px; font-weight:900;">일주일</button>
+              <button type="button" class="payment-period-chip" data-months="1" style="height:34px; border-radius:12px; border:1.5px solid var(--card-border); background:#fff; color:var(--green-dark); font-size:12px; font-weight:900;">한달</button>
+              <button type="button" class="payment-period-chip" data-months="3" style="height:34px; border-radius:12px; border:1.5px solid var(--card-border); background:#fff; color:var(--green-dark); font-size:12px; font-weight:900;">3개월</button>
+            </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
               <span style="font-size: 13px; font-weight: 800; color: #555; min-width: 40px;">시작일</span>
-              <input type="date" id="filter-start-date" class="form-input" style="flex: 1; height: 40px; border: 1.5px solid var(--border-color); border-radius: 6px; padding: 0 8px; font-size: 13px; font-weight: 800; color: #333; background: white;" value="2026-05-01">
+              <input type="date" id="filter-start-date" class="form-input" style="flex: 1; height: 40px; padding: 0 8px; font-size: 13px;" value="2026-05-01">
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
               <span style="font-size: 13px; font-weight: 800; color: #555; min-width: 40px;">종료일</span>
-              <input type="date" id="filter-end-date" class="form-input" style="flex: 1; height: 40px; border: 1.5px solid var(--border-color); border-radius: 6px; padding: 0 8px; font-size: 13px; font-weight: 800; color: #333; background: white;" value="2026-05-30">
+              <input type="date" id="filter-end-date" class="form-input" style="flex: 1; height: 40px; padding: 0 8px; font-size: 13px;" value="2026-05-30">
             </div>
-            <button id="btn-date-search" style="width: 100%; background: var(--green-primary); border: none; color: white; font-size: 14px; font-weight: 800; padding: 8px 16px; border-radius: 6px; cursor: pointer; height: 40px; margin-top: 4px;">조회하기</button>
+            <button id="btn-date-search" class="btn-primary" style="height: 40px; margin-top: 4px; font-size: 14px;">조회하기</button>
           </div>
 
           <!-- 결제 내역 리스트 -->
@@ -1042,18 +1336,18 @@
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-payment-history">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-payment-history" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-payment-history">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-payment-history" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-payment-history">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-payment-history" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
       <!-- 가상계좌관리 리스트 화면 -->
@@ -1073,28 +1367,28 @@
               <span style="font-size: 16px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">내정보/가상계좌관리</span>
               <span class="session-store-name" style="font-size: 13px; color: var(--text-secondary); font-weight: 700;">-</span>
             </div>
-            <button id="btn-to-vaccount-add" style="background: white; border: 1.5px solid #3a9430; color: #3a9430; font-size: 13px; font-weight: 800; padding: 6px 16px; border-radius: 6px; cursor: pointer;">계좌 추가</button>
+            <button id="btn-to-vaccount-add" class="btn-secondary" style="height: 34px; padding: 0 16px;">계좌 추가</button>
           </div>
 
           <!-- 가상계좌 목록 -->
-          <div id="vaccount-items-container" style="padding: 0 24px; display: flex; flex-direction: column; gap: 16px;">
+          <div id="vaccount-items-container" class="manage-list-container padded-flat">
             <div style="padding: 32px 16px; text-align:center; color:#777; font-weight:700;">가상계좌 정보를 불러오는 중입니다.</div>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-vaccount-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-vaccount-list" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-vaccount-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-vaccount-list" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-vaccount-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-vaccount-list" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1116,12 +1410,12 @@
             <div class="form-group" style="margin-bottom: 20px;">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 12px;">배달대행사</label>
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                <button type="button" class="btn-delivery-agency active" data-agency="생각대로" style="height: 40px; background: white; border: 1.5px solid #3a9430; color: #3a9430; font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">생각대로</button>
-                <button type="button" class="btn-delivery-agency" data-agency="바로고" style="height: 40px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">바로고</button>
-                <button type="button" class="btn-delivery-agency" data-agency="리드콜" style="height: 40px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">리드콜</button>
-                <button type="button" class="btn-delivery-agency" data-agency="모아라인" style="height: 40px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">모아라인</button>
-                <button type="button" class="btn-delivery-agency" data-agency="딜버" style="height: 40px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">딜버</button>
-                <button type="button" id="btn-delivery-agency-more" class="btn-delivery-agency" data-agency="more" onclick="openDeliveryAgencyList(event)" style="height: 40px; background: white; border: 1.5px solid var(--border-color); color: var(--text-secondary); font-weight: 800; border-radius: 6px; font-size: 13px; cursor: pointer;">더보기</button>
+                <button type="button" class="btn-delivery-agency active" data-agency="생각대로" style="height: 40px; background: white; border: 1.5px solid #3a9430; color: #3a9430; font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">생각대로</button>
+                <button type="button" class="btn-delivery-agency" data-agency="바로고" style="height: 40px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">바로고</button>
+                <button type="button" class="btn-delivery-agency" data-agency="리드콜" style="height: 40px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">리드콜</button>
+                <button type="button" class="btn-delivery-agency" data-agency="모아라인" style="height: 40px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">모아라인</button>
+                <button type="button" class="btn-delivery-agency" data-agency="딜버" style="height: 40px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">딜버</button>
+                <button type="button" id="btn-delivery-agency-more" class="btn-delivery-agency" data-agency="more" onclick="openDeliveryAgencyList(event)" style="height: 40px; background: white; border: 1.5px solid var(--card-border); color: var(--text-secondary); font-weight: 800; border-radius: var(--radius); font-size: 13px; cursor: pointer;">더보기</button>
               </div>
               <div id="selected-agency-label" style="margin-top: 10px; font-size: 12px; font-weight: 700; color: #2e7d32; min-height: 18px;">선택된 배달대행사: 생각대로</div>
             </div>
@@ -1132,12 +1426,56 @@
               <div style="position: relative;">
                 <select id="add-vaccount-bank" class="form-input" style="appearance: none; -webkit-appearance: none; background: white; padding-right: 30px;">
                   <option value="">은행을 선택하세요</option>
-                  <option value="농협은행">농협은행</option>
-                  <option value="국민은행">국민은행</option>
-                  <option value="신한은행">신한은행</option>
-                  <option value="우리은행">우리은행</option>
-                  <option value="하나은행">하나은행</option>
+                  <option value="산업은행">산업은행</option>
                   <option value="기업은행">기업은행</option>
+                  <option value="국민은행">국민은행</option>
+                  <option value="수협중앙회">수협중앙회</option>
+                  <option value="농협은행">농협은행</option>
+                  <option value="지역농축협">지역농축협</option>
+                  <option value="우리은행">우리은행</option>
+                  <option value="SC은행">SC은행</option>
+                  <option value="한국씨티은행">한국씨티은행</option>
+                  <option value="대구은행">대구은행</option>
+                  <option value="부산은행">부산은행</option>
+                  <option value="광주은행">광주은행</option>
+                  <option value="제주은행">제주은행</option>
+                  <option value="전북은행">전북은행</option>
+                  <option value="경남은행">경남은행</option>
+                  <option value="새마을금고중앙회">새마을금고중앙회</option>
+                  <option value="신협중앙회">신협중앙회</option>
+                  <option value="저축은행">저축은행</option>
+                  <option value="HSBC은행">HSBC은행</option>
+                  <option value="도이치은행">도이치은행</option>
+                  <option value="제이피모간체이스은행">제이피모간체이스은행</option>
+                  <option value="BOA은행">BOA은행</option>
+                  <option value="비엔피파리바은행">비엔피파리바은행</option>
+                  <option value="산림조합">산림조합</option>
+                  <option value="우체국">우체국</option>
+                  <option value="하나은행">하나은행</option>
+                  <option value="신한은행">신한은행</option>
+                  <option value="케이뱅크">케이뱅크</option>
+                  <option value="카카오뱅크">카카오뱅크</option>
+                  <option value="토스뱅크">토스뱅크</option>
+                  <option value="교보증권">교보증권</option>
+                  <option value="대신증권">대신증권</option>
+                  <option value="메리츠증권">메리츠증권</option>
+                  <option value="미래에셋증권">미래에셋증권</option>
+                  <option value="삼성증권">삼성증권</option>
+                  <option value="신한금융투자">신한금융투자</option>
+                  <option value="유안타증권">유안타증권</option>
+                  <option value="유진투자증권">유진투자증권</option>
+                  <option value="카카오페이증권">카카오페이증권</option>
+                  <option value="키움증권">키움증권</option>
+                  <option value="토스증권">토스증권</option>
+                  <option value="하나금융투자">하나금융투자</option>
+                  <option value="한국투자증권">한국투자증권</option>
+                  <option value="한화투자증권">한화투자증권</option>
+                  <option value="현대차증권">현대차증권</option>
+                  <option value="DB금융투자">DB금융투자</option>
+                  <option value="KB증권">KB증권</option>
+                  <option value="LIG투자증권">LIG투자증권</option>
+                  <option value="NH투자증권">NH투자증권</option>
+                  <option value="SK증권">SK증권</option>
                 </select>
                 <span style="position: absolute; right: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #888; font-size: 10px;">▼</span>
               </div>
@@ -1152,34 +1490,40 @@
             <!-- 포스사진등록 -->
             <div class="form-group" style="margin-bottom: 24px;">
               <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">포스사진등록</label>
-              <div style="border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 24px 16px; background: #fafafa; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;">
+              <div style="border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 24px 16px; background: #fbfffa; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; box-shadow: var(--card-shadow);">
                 <span style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; font-weight: 700;">포스상의 가상계좌번호가 보이도록<br>사진을 찍어서 등록해주세요</span>
-                <button type="button" id="btn-vaccount-upload-photo" style="background: white; border: 1.5px solid #3a9430; color: #3a9430; font-size: 13px; font-weight: 800; padding: 8px 20px; border-radius: 6px; cursor: pointer;">사진등록</button>
-                <div id="vaccount-photo-preview" style="width: 100%; display: none; margin-top: 4px; padding: 10px; border: 1px dashed #c9e6c2; border-radius: 6px; background: #fff; text-align: left;">
+                <button type="button" id="btn-vaccount-upload-photo" class="btn-secondary" style="height: 38px; padding: 0 20px;">사진등록</button>
+                <div id="vaccount-photo-preview" style="width: 100%; display: none; margin-top: 4px; padding: 10px; border: 1px dashed #c9e6c2; border-radius: var(--radius); background: #fff; text-align: left;">
                   <div style="font-size: 11px; color: #2e7d32; font-weight: 800; margin-bottom: 6px;">선택된 사진</div>
-                  <img id="vaccount-photo-preview-img" alt="선택된 사진 미리보기" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 4px; display: none;">
+                  <img id="vaccount-photo-preview-img" alt="선택된 사진 미리보기" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: var(--radius); display: none;">
                   <div id="vaccount-photo-preview-name" style="font-size: 12px; color: #555; font-weight: 700; margin-top: 6px;">아직 선택된 사진이 없습니다.</div>
                 </div>
               </div>
             </div>
 
-            <button class="btn-primary" id="add-vaccount-submit" style="width:100%; height: 50px; background: var(--green-primary); color: white; border: none; font-size: 16px; font-weight: 800; border-radius: var(--radius); cursor: pointer;">계좌등록요청</button>
+            <button class="btn-primary" id="add-vaccount-submit">계좌등록요청</button>
+            <div class="vaccount-approval-guide">
+              <strong>안내</strong>
+              <span>등록하신 계좌는 승인이 완료된 후부터 결제가 가능합니다.</span>
+              <span>운영시간 외 요청하신 가상계좌 추가 건은 다음 영업일에 순차적으로 처리해 드릴 예정이오니 양해 부탁드립니다.</span>
+              <em>운영시간 월~목 10:00 ~ 18:00 / 금 10:00 ~ 15:00</em>
+            </div>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-vaccount-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-vaccount-add" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-vaccount-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-vaccount-add" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-vaccount-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-vaccount-add" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1208,18 +1552,18 @@
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-delivery-agency-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-delivery-agency-list" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-delivery-agency-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-delivery-agency-list" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-delivery-agency-list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-delivery-agency-list" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1245,7 +1589,14 @@
             <label class="form-label" style="font-size: 14px; font-weight: 800; color: #666; margin-bottom: 8px;">휴대번호 변경</label>
             <div style="display: flex; gap: 8px;">
               <input type="text" id="edit-myinfo-phone" class="form-input" placeholder="휴대번호를 입력해주세요" style="flex: 1;">
-              <button type="button" id="btn-edit-myinfo-phone-submit" style="background: var(--green-primary); border: none; color: white; font-weight: 800; font-size: 14px; padding: 0 20px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; height: 48px;">변경</button>
+              <button type="button" id="edit-myinfo-send-sms" class="btn-primary edit-myinfo-action-btn">인증번호 발송</button>
+            </div>
+            <div id="edit-myinfo-sms-wrap" style="display: flex; gap: 8px; margin-top: 8px;">
+              <div style="flex: 1;">
+                <input type="text" id="edit-myinfo-sms-input" class="form-input" placeholder="인증번호를 입력해주세요" inputmode="numeric" maxlength="6">
+                <div id="edit-myinfo-sms-timer" style="display:none;margin-top:6px;font-size:12px;font-weight:800;color:var(--green-primary);text-align:right;">3:00</div>
+              </div>
+              <button type="button" id="btn-edit-myinfo-phone-submit" class="btn-primary edit-myinfo-action-btn">인증확인/변경</button>
             </div>
           </div>
 
@@ -1254,37 +1605,46 @@
             <span style="font-size: 14px; font-weight: 800; color: #666;">비밀번호 변경</span>
             <div class="form-group" style="margin-bottom: 0;">
               <label class="form-label" style="font-size: 12px; color: #888; font-weight: 700; margin-bottom: 6px;">현재 비밀번호</label>
-              <input type="text" id="edit-myinfo-current-pw" class="form-input" placeholder="현재 비밀번호를 입력해주세요">
+              <div class="password-field">
+                <input type="password" id="edit-myinfo-current-pw" class="form-input" placeholder="현재 비밀번호를 입력해주세요" autocomplete="current-password">
+                <button type="button" class="password-toggle" id="edit-myinfo-current-pw-toggle" aria-label="현재 비밀번호 보기">보기</button>
+              </div>
             </div>
           </div>
 
           <!-- 새로운 비밀번호 -->
           <div style="padding: 0 24px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px;">
             <span style="font-size: 14px; font-weight: 800; color: #666;">새로운 비밀번호</span>
-            <input type="text" id="edit-myinfo-new-pw" class="form-input" placeholder="새로운 비밀번호를 입력해주세요" style="margin-bottom: 8px;">
-            <input type="text" id="edit-myinfo-new-pw-confirm" class="form-input" placeholder="다시 한번 새로운 비밀번호를 입력해주세요">
+            <div class="password-field">
+              <input type="password" id="edit-myinfo-new-pw" class="form-input" placeholder="새로운 비밀번호를 입력해주세요" autocomplete="new-password">
+              <button type="button" class="password-toggle" id="edit-myinfo-new-pw-toggle" aria-label="새 비밀번호 보기">보기</button>
+            </div>
+            <div class="password-field">
+              <input type="password" id="edit-myinfo-new-pw-confirm" class="form-input" placeholder="다시 한번 새로운 비밀번호를 입력해주세요" autocomplete="new-password">
+              <button type="button" class="password-toggle" id="edit-myinfo-new-pw-confirm-toggle" aria-label="새 비밀번호 확인 보기">보기</button>
+            </div>
           </div>
 
           <!-- 수정 버튼 및 탈퇴 링크 -->
           <div style="padding: 0 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
-            <button class="btn-primary" id="edit-myinfo-submit" style="width:100%; height: 50px; background: var(--green-primary); color: white; border: none; font-size: 16px; font-weight: 800; border-radius: var(--radius); cursor: pointer;">회원정보 수정</button>
+            <button class="btn-primary" id="edit-myinfo-submit">회원정보 수정</button>
             <button type="button" id="btn-edit-myinfo-withdraw" style="background: none; border: none; color: #888; text-decoration: underline; font-size: 12px; font-weight: 700; cursor: pointer;">회원 탈퇴</button>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-edit-myinfo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-edit-myinfo" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item active" id="nav-my-edit-myinfo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-my-edit-myinfo" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-edit-myinfo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-edit-myinfo" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1349,22 +1709,22 @@
             </div>
           </div>
 
-          <button class="btn-primary" id="charge-submit" style="width: 100%; height: 50px; background: var(--green-primary); color: white; border: none; font-size: 16px; font-weight: 800; border-radius: var(--radius); cursor: pointer; transition: all 0.2s;">결제하기</button>
+          <button class="btn-primary" id="charge-submit" style="display:block;margin:0 auto;">배달대행비 충전하기</button>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-charge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-charge" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-charge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-charge" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item" id="nav-cs-charge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-cs-charge" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1375,62 +1735,69 @@
           <div class="tagline" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; font-weight: 700;">배달대행비 카드결제의 새로운 기준</div>
         </div>
 
-        <div class="scrollable-content" style="padding: 0 24px 100px;">
-          <!-- 서비스 이용 가이드 큰 카드 -->
-          <div id="btn-cs-to-guide" style="border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 24px 20px; background: #eaf7e8; cursor: pointer; display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; box-shadow: 1px 1px 6px rgba(70, 180, 58, 0.08);">
-            <span style="font-size: 16px; font-weight: 800; color: var(--green-dark);">이츠페이</span>
-            <span style="font-size: 14px; font-weight: 700; color: #555;">서비스 이용 가이드</span>
+        <div class="scrollable-content cs-main-content">
+          <button type="button" id="btn-cs-to-guide" class="cs-main-hero">
+            <span class="cs-main-hero-kicker">이츠페이 고객센터</span>
+            <span class="cs-main-hero-title">서비스 이용 가이드</span>
+            <span class="cs-main-hero-desc">가입부터 가상계좌 등록까지 필요한 안내를 확인하세요</span>
+          </button>
+
+          <div class="cs-main-grid">
+            <button type="button" id="btn-cs-to-promo" class="cs-main-card">
+              <span class="cs-main-card-icon">카드</span>
+              <span class="cs-main-card-title">무이자 할부</span>
+              <span class="cs-main-card-desc">카드사별 혜택 확인</span>
+            </button>
+            <button type="button" id="btn-cs-announcement" class="cs-main-card">
+              <span class="cs-main-card-icon notice">공지</span>
+              <span class="cs-main-card-title">공지사항</span>
+              <span class="cs-main-card-desc">중요 안내 확인</span>
+            </button>
           </div>
 
-          <!-- 신용카드 무이자 할부 & 공지사항 그리드 -->
-          <div style="display: flex; gap: 12px; margin-bottom: 24px;">
-            <div id="btn-cs-to-promo" style="flex: 1; border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 18px 16px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; gap: 4px; justify-content: center; height: 90px;">
-              <span style="font-size: 13px; font-weight: 800; color: #666; line-height: 1.3;">신용카드<br>무이자 할부</span>
-            </div>
-            <div id="btn-cs-announcement" style="flex: 1; border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 18px 16px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; gap: 4px; justify-content: center; height: 90px;">
-              <span style="font-size: 13px; font-weight: 800; color: #666; line-height: 1.3;">공지사항<br><span style="font-size:11px;color:#aaa;font-weight:700;">확인해주세요</span></span>
+          <div class="cs-main-contact">
+            <div class="cs-main-contact-text">
+              <span>문의가 필요하신가요?</span>
+              <strong>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></strong>
+              <small class="contact-hours">
+                <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+                <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+              </small>
             </div>
           </div>
 
-          <!-- 서브 헤드라인 및 전화번호 영역 -->
-          <div style="text-align: center; margin-bottom: 28px; line-height: 1.5;">
-            <span style="font-size: 15px; font-weight: 700; color: #666;">최선을 다하겠습니다</span><br>
-            <span style="font-size: 16px; font-weight: 800; color: #333;">문의사항은 아래를 이용해주세요</span>
+          <div class="cs-main-help-title">
+            <strong>빠른 문의</strong>
+            <span>운영시간 외에는 아래 메뉴를 이용해주세요</span>
           </div>
 
-          <!-- 대형 전화번호 연락처 박스 -->
-          <div style="text-align: center; margin-bottom: 28px;">
-            <div style="font-size: 32px; font-weight: 900; color: var(--green-dark); line-height: 1;">고객센터 1566-3558</div>
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; margin-top: 6px;">운영시간 평일 10:00 ~ 18:00</div>
-            <div style="font-size: 13px; color: #555; font-weight: 700; margin-top: 4px;">그 외 시간은 아래를 이용해주세요</div>
-          </div>
-
-          <!-- 하단 카카오 채널 및 FAQ 그리드 -->
-          <div style="display: flex; gap: 16px;">
-            <div id="btn-cs-kakao" style="flex: 1; height: 110px; border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 16px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px;">
-              <span style="font-size: 24px;">💬</span>
-              <span style="font-size: 12px; font-weight: 800; color: #444; line-height: 1.35;">카카오톡 채널<br>친구 추가하기</span>
-            </div>
-            <div id="btn-cs-faq" style="flex: 1; height: 110px; border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 16px; background: var(--bg-white); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px;">
-              <span style="font-size: 24px;">💡</span>
-              <span style="font-size: 12px; font-weight: 800; color: #444;">FAQ</span>
-            </div>
+          <div class="cs-main-grid">
+            <button type="button" id="btn-cs-kakao" class="cs-main-card cs-main-action">
+              <span class="cs-main-card-icon kakao">톡</span>
+              <span class="cs-main-card-title">카카오톡 채널</span>
+              <span class="cs-main-card-desc">친구 추가하기</span>
+            </button>
+            <button type="button" id="btn-cs-faq" class="cs-main-card cs-main-action">
+              <span class="cs-main-card-icon faq">FAQ</span>
+              <span class="cs-main-card-title">자주 묻는 질문</span>
+              <span class="cs-main-card-desc">바로 확인하기</span>
+            </button>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-cs-main">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-cs-main" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-cs-main">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-cs-main" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item active" id="nav-cs-cs-main">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-cs-cs-main" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1445,59 +1812,36 @@
         </div>
 
         <div class="scrollable-content" style="padding: 0 24px 100px;">
-          <!-- 타이틀 영역 -->
-          <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 2px;">
-            <span style="font-size: 16px; font-weight: 800; color: var(--text-primary);">고객센터/이용가이드</span>
+          <div style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 16px; font-weight: 900; color: var(--green-dark);">고객센터</span>
+            <span style="font-size: 22px; font-weight: 900; color: var(--text-primary); letter-spacing:-.6px;">이용가이드</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">이츠페이 이용 방법을 확인해주세요</span>
           </div>
 
-          <!-- 가이드 리스트 보드 -->
-          <div style="border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 8px 16px; background: var(--bg-white); display: flex; flex-direction: column; margin-bottom: 24px;">
-            <div style="padding: 12px 0; border-bottom: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('이용약관 수정 가이드가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">회원정보수정</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/회원정보수정</span>
-            </div>
-            <div style="padding: 12px 0; border-bottom: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('가상계좌 신규 등록 가이드가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">가상계좌관리</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/가상계좌관리</span>
-            </div>
-            <div style="padding: 12px 0; border-bottom: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('가상계좌 해지 가이드가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">가상계좌관리</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/가상계좌관리</span>
-            </div>
-            <div style="padding: 12px 0; border-bottom: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('휴대번호 수정 가이드가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">회원정보수정</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/회원정보수정</span>
-            </div>
-            <div style="padding: 12px 0; border-bottom: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('기본 계좌 변경 안내가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">가상계좌관리</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/가상계좌관리</span>
-            </div>
-            <div style="padding: 12px 0; border-bottom: none; display: flex; flex-direction: column; gap: 2px; cursor: pointer;" onclick="showToast('계좌 정보 연동 안내가 열립니다.')">
-              <span style="font-size: 14px; font-weight: 800; color: #333;">가상계좌관리</span>
-              <span style="font-size: 11px; color: #888; font-weight:700;">내정보/가상계좌관리</span>
-            </div>
-          </div>
+          <div id="cs-guide-list" class="cs-inline-list"></div>
 
-          <!-- 하단 고객센터 연락처 -->
-          <div style="padding: 16px 8px; margin-top: 12px;">
-            <div style="font-size: 22px; font-weight: 900; color: var(--green-dark); margin-bottom: 4px;">고객센터 <span style="color:var(--green-primary);">1566-3558</span></div>
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">운영시간 평일 10:00 - 18:00</div>
+          <div class="cs-contact-footer">
+            <div>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></div>
+            <small class="contact-hours">
+              <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+              <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+            </small>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-cs-guide">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-cs-guide" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-cs-guide">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-cs-guide" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item active" id="nav-cs-cs-guide">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-cs-cs-guide" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -1518,28 +1862,119 @@
           </div>
 
           <!-- 할부 리스트 보드 -->
-          <div id="cs-installment-list" style="border: 1.5px solid var(--border-color); border-radius: var(--radius); padding: 8px 16px; background: var(--bg-white); display: flex; flex-direction: column; margin-bottom: 24px;"></div>
+          <div id="cs-installment-list" style="border: 1.5px solid var(--card-border); border-radius: var(--radius); padding: 8px 16px; background: var(--bg-white); display: flex; flex-direction: column; margin-bottom: 24px; box-shadow: var(--card-shadow);"></div>
 
-          <!-- 하단 고객센터 연락처 -->
-          <div style="padding: 16px 8px; margin-top: 12px;">
-            <div style="font-size: 22px; font-weight: 900; color: var(--green-dark); margin-bottom: 4px;">고객센터 <span style="color:var(--green-primary);">1566-3558</span></div>
-            <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">운영시간 평일 10:00 - 18:00</div>
+          <div class="cs-contact-footer">
+            <div>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></div>
+            <small class="contact-hours">
+              <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+              <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+            </small>
           </div>
         </div>
 
         <div class="bottom-nav">
-          <div class="nav-item" id="nav-home-cs-promo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9.5L12 3l9 6.5V21a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 22V12h6v10"/></svg>
+          <button type="button" class="nav-item" id="nav-home-cs-promo" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
             <span class="nav-label">홈</span>
-          </div>
-          <div class="nav-item" id="nav-my-cs-promo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-cs-promo" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
             <span class="nav-label">내정보</span>
-          </div>
-          <div class="nav-item active" id="nav-cs-cs-promo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          </button>
+          <button type="button" class="nav-item active" id="nav-cs-cs-promo" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
             <span class="nav-label">고객센터</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 고객센터/FAQ 화면 -->
+      <div id="screen-cs-faq" class="screen">
+        <div class="app-header" style="display:flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding: 20px 24px 8px; border-bottom: none; flex-shrink: 0;">
+          <button class="btn-back" style="background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 4px; color: #555; font-size: 13px; font-weight: 800;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><polyline points="15 18 9 12 15 6"/></svg>
+            이전
+          </button>
+          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+
+        <div class="scrollable-content" style="padding: 0 20px 100px;">
+          <div style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 16px; font-weight: 900; color: var(--green-dark);">고객센터</span>
+            <span style="font-size: 22px; font-weight: 900; color: var(--text-primary); letter-spacing:-.6px;">자주 묻는 질문</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">궁금한 내용을 눌러 답변을 확인해주세요</span>
           </div>
+
+          <div id="cs-faq-tabs" class="cs-inline-tabs"></div>
+          <div id="cs-faq-list" class="cs-inline-list"></div>
+
+          <div class="cs-contact-footer centered">
+            <div>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></div>
+            <small class="contact-hours">
+              <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+              <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+            </small>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <button type="button" class="nav-item" id="nav-home-cs-faq" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-cs-faq" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item active" id="nav-cs-cs-faq" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 고객센터/공지사항 화면 -->
+      <div id="screen-cs-notices" class="screen">
+        <div class="app-header" style="display:flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding: 20px 24px 8px; border-bottom: none; flex-shrink: 0;">
+          <button class="btn-back" style="background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; gap: 4px; color: #555; font-size: 13px; font-weight: 800;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><polyline points="15 18 9 12 15 6"/></svg>
+            이전
+          </button>
+          <img src="logo.png" style="height: 28px; width: auto;" alt="eats PAY">
+        </div>
+
+        <div class="scrollable-content" style="padding: 0 20px 100px;">
+          <div style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 16px; font-weight: 900; color: var(--green-dark);">고객센터</span>
+            <span style="font-size: 22px; font-weight: 900; color: var(--text-primary); letter-spacing:-.6px;">공지사항</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">이츠페이의 새로운 소식을 확인해주세요</span>
+          </div>
+
+          <div id="cs-notice-list" class="cs-inline-list"></div>
+
+          <div class="cs-contact-footer centered">
+            <div>고객센터 <a class="cs-phone-link" href="tel:15663558">1566-3558</a></div>
+            <small class="contact-hours">
+              <span class="contact-hours-label">운영시간</span><span class="contact-hours-day">월~ 목</span><span>10:00 ~ 18:00</span>
+              <span></span><span class="contact-hours-day">금</span><span>10:00 ~ 15:00</span>
+            </small>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <button type="button" class="nav-item" id="nav-home-cs-notices" data-nav-target="home">
+            <span class="bottom-nav-icon bottom-nav-icon-home" aria-hidden="true"></span>
+            <span class="nav-label">홈</span>
+          </button>
+          <button type="button" class="nav-item" id="nav-my-cs-notices" data-nav-target="my">
+            <span class="bottom-nav-icon bottom-nav-icon-my" aria-hidden="true"></span>
+            <span class="nav-label">내정보</span>
+          </button>
+          <button type="button" class="nav-item active" id="nav-cs-cs-notices" data-nav-target="cs">
+            <span class="bottom-nav-icon bottom-nav-icon-cs" aria-hidden="true"></span>
+            <span class="nav-label">고객센터</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1554,6 +1989,16 @@
     <button type="button" id="btn-vaccount-photo-gallery" class="photo-sheet-option">갤러리에서 선택</button>
     <button type="button" id="btn-vaccount-photo-cancel" class="photo-sheet-cancel">취소</button>
   </div>
+  <div id="charge-confirm-backdrop" class="photo-backdrop" aria-hidden="true"></div>
+  <div id="charge-confirm-sheet" class="photo-sheet charge-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="charge-confirm-title">
+    <div class="photo-sheet-handle"></div>
+    <div id="charge-confirm-title" class="charge-confirm-title">결제 내역 확인</div>
+    <div class="charge-confirm-subtitle">아래 내용을 확인 후 결제를 진행해주세요</div>
+    <div id="charge-confirm-summary" class="charge-confirm-summary"></div>
+    <div class="charge-confirm-warning"><span class="charge-confirm-warning-icon">!</span><span>입금 완료 후에는 <strong>취소가 불가능</strong>합니다.<br>결제금액과 입금 계좌를 다시 한번 확인해주세요.</span></div>
+    <button type="button" id="btn-charge-confirm-pay" class="photo-sheet-option charge-confirm-pay">결제하기</button>
+    <button type="button" id="btn-charge-confirm-cancel" class="photo-sheet-cancel">취소</button>
+  </div>
   <input type="file" id="vaccount-photo-camera-input" accept="image/*" capture="environment" hidden>
   <input type="file" id="vaccount-photo-gallery-input" accept="image/*" hidden>
   <div id="app-dialog-backdrop" class="app-dialog-backdrop" aria-hidden="true"></div>
@@ -1566,8 +2011,21 @@
     </div>
   </div>
   <div id="toast" class="toast">알림</div>
+  <button type="button" id="in-app-notification" class="in-app-notification" aria-live="polite" aria-hidden="true">
+    <span class="in-app-notification-icon">톡</span>
+    <span class="in-app-notification-copy">
+      <strong id="in-app-notification-title">새 알림</strong>
+      <small id="in-app-notification-body">내용을 확인해 주세요.</small>
+    </span>
+  </button>
 
-  <script src="js/config.js?v=20260618_2050"></script>
-  <script src="js/app.js?v=20260618_2050"></script>
+  <script src="/js/config.js?v=20260624_card_identity_lock"></script>
+  <script src="/js/app.js?v=20260628_upload_name_fix"></script>
+  <script src="https://t1.kakaocdn.net/kas/static/ba.min.js" async></script>
 </body>
 </html>
+
+
+
+
+

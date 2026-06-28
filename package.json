@@ -6,19 +6,11 @@
     "db:init": "node scripts/init-db.js",
     "db:create-admin": "node scripts/create-admin.js",
     "db:set-admin-login": "node scripts/set-admin-login.js",
-    "db:seed-june-demo": "node scripts/seed-june-demo-data.js",
-    "db:verify-june-demo": "node scripts/verify-june-demo-data.js",
-    "db:seed-tree-demo": "node scripts/seed-tree-demo-data.js",
-    "db:seed-talk-demo": "node scripts/seed-talk-demo-data.js",
-    "db:reset-consistent-demo": "node scripts/reset-consistent-demo-data.js",
-    "push:test": "node scripts/send-test-push.js",
-    "push:status": "node scripts/push-status.js",
-    "push:readiness": "node scripts/push-readiness.js",
-    "push:vapid": "node scripts/generate-vapid-env.js",
-    "push:smoke": "node scripts/push-smoke.js",
-    "admin:delete-smoke": "node scripts/admin-delete-smoke.js",
+    "benefits:update": "node scripts/update-cardgorilla-benefits.js",
+    "homepage:sync": "node scripts/sync-homepage.js",
     "android:sync": "node scripts/sync-www.js && npx cap sync android",
     "android:open": "npx cap open android",
+    "check:ui": "node scripts/check-ui-guardrails.js",
     "test": "node --test test/*.test.js",
     "test:e2e": "node test/full-flow.e2e.js"
   },
@@ -28,10 +20,9 @@
     "@capacitor/core": "^8.4.0",
     "@capacitor/ios": "^8.4.0",
     "@capacitor/push-notifications": "^8.1.1",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
-    "firebase-admin": "^14.0.0",
     "multer": "^1.4.5-lts.1",
-    "pg": "^8.21.0",
-    "web-push": "^3.6.7"
+    "pg": "^8.21.0"
   }
 }

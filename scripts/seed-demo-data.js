@@ -13,6 +13,8 @@ async function main() {
 }
 
 async function seed(pool) {
+  const chargeTotal = amount => Math.round(Number(amount) / 0.956);
+  const chargeFee = amount => chargeTotal(amount) - Number(amount);
   const users = [
     {
       email: 'demo-owner-1@eatspay.local',
@@ -141,9 +143,9 @@ async function seed(pool) {
       transactionId: 'DEMO-TX-1001',
       franchiseId: 1001,
       type: 'CHARGE',
-      amount: 313808,
-      fee: 13808,
-      totalAmount: 327616,
+      amount: 300000,
+      fee: chargeFee(300000),
+      totalAmount: chargeTotal(300000),
       method: '카드',
       cardDetails: '신한 1111-****-2222',
       status: 'SUCCESS',
@@ -153,9 +155,9 @@ async function seed(pool) {
       transactionId: 'DEMO-TX-1002',
       franchiseId: 1001,
       type: 'CHARGE',
-      amount: 523013,
-      fee: 23013,
-      totalAmount: 546026,
+      amount: 500000,
+      fee: chargeFee(500000),
+      totalAmount: chargeTotal(500000),
       method: '카드',
       cardDetails: '신한 1111-****-2222',
       status: 'SUCCESS',
@@ -166,8 +168,8 @@ async function seed(pool) {
       franchiseId: 1002,
       type: 'CHARGE',
       amount: 200000,
-      fee: 8800,
-      totalAmount: 208800,
+      fee: chargeFee(200000),
+      totalAmount: chargeTotal(200000),
       method: '카드',
       cardDetails: '삼성 3333-****-4444',
       status: 'SUCCESS',
@@ -177,9 +179,9 @@ async function seed(pool) {
       transactionId: 'DEMO-TX-1004',
       franchiseId: 1003,
       type: 'CHARGE',
-      amount: 1046025,
-      fee: 46025,
-      totalAmount: 1092050,
+      amount: 1000000,
+      fee: chargeFee(1000000),
+      totalAmount: chargeTotal(1000000),
       method: '카드',
       cardDetails: '롯데 5555-****-6666',
       status: 'SUCCESS',
@@ -190,13 +192,13 @@ async function seed(pool) {
   const settlements = [
     {
       settledAt: '2026-05-18 13:01:00+09',
-      approvalNo: '52592018',
-      pg: '나이스페이',
+      approvalNo: 'DEMO-TX-1001',
+      pg: 'GH Payments',
       pgTxId: 'PG-DEMO-1001',
       franchiseId: 1001,
       franchiseName: '수수불곱창',
-      paymentAmt: 313808,
-      svcFee: 13808,
+      paymentAmt: chargeTotal(300000),
+      svcFee: chargeFee(300000),
       netAmt: 300000,
       agencyId: 1,
       agencyName: '이츠페이 본사',
@@ -208,13 +210,13 @@ async function seed(pool) {
     },
     {
       settledAt: '2026-05-18 12:34:00+09',
-      approvalNo: '00185381',
-      pg: '나이스페이',
+      approvalNo: 'DEMO-TX-1002',
+      pg: 'GH Payments',
       pgTxId: 'PG-DEMO-1002',
       franchiseId: 1002,
       franchiseName: '지코바합안점',
-      paymentAmt: 523013,
-      svcFee: 23013,
+      paymentAmt: chargeTotal(500000),
+      svcFee: chargeFee(500000),
       netAmt: 500000,
       agencyId: 2,
       agencyName: '강남영업소',
@@ -226,14 +228,14 @@ async function seed(pool) {
     },
     {
       settledAt: '2026-05-18 12:16:00+09',
-      approvalNo: '52331020',
-      pg: '나이스페이',
+      approvalNo: 'DEMO-TX-1003',
+      pg: 'GH Payments',
       pgTxId: 'PG-DEMO-1003',
       franchiseId: 1003,
       franchiseName: '치암상회',
-      paymentAmt: 200000,
-      svcFee: 8800,
-      netAmt: 191200,
+      paymentAmt: chargeTotal(200000),
+      svcFee: chargeFee(200000),
+      netAmt: 200000,
       agencyId: 3,
       agencyName: '서부영업소',
       customerId: 'CUST-1003',
@@ -244,13 +246,13 @@ async function seed(pool) {
     },
     {
       settledAt: '2026-05-18 11:33:00+09',
-      approvalNo: '81937561',
-      pg: '나이스페이',
+      approvalNo: 'DEMO-TX-1004',
+      pg: 'GH Payments',
       pgTxId: 'PG-DEMO-1004',
       franchiseId: 1001,
       franchiseName: '수수불곱창',
-      paymentAmt: 1046025,
-      svcFee: 46025,
+      paymentAmt: chargeTotal(1000000),
+      svcFee: chargeFee(1000000),
       netAmt: 1000000,
       agencyId: 1,
       agencyName: '이츠페이 본사',
@@ -277,6 +279,18 @@ async function seed(pool) {
 
     await pool.query("DELETE FROM transactions WHERE transaction_id LIKE 'DEMO-TX-%'");
     await pool.query("DELETE FROM pg_settlements WHERE pg_tx_id LIKE 'PG-DEMO-%'");
+
+    for (const request of accountRequests) {
+      await upsertAccountRequest(pool, request);
+    }
+
+    for (const tx of transactions) {
+      await upsertTransaction(pool, tx);
+    }
+
+    for (const settlement of settlements) {
+      await upsertSettlement(pool, settlement);
+    }
 
     await pool.query('COMMIT');
   } catch (err) {

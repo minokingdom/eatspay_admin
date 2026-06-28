@@ -10,17 +10,26 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   address TEXT,
   tel TEXT,
-  business_number TEXT UNIQUE,
+  business_number TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS customer_id TEXT UNIQUE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS agency_id BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_email TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_file_key TEXT;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_business_number_key;
+DROP INDEX IF EXISTS users_business_number_unique_except_test_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS users_business_number_unique_except_test_idx
+  ON users (business_number)
+  WHERE business_number IS NOT NULL
+    AND business_number <> ''
+    AND regexp_replace(business_number, '[^0-9]', '', 'g') <> '1234512345';
 ALTER TABLE users ALTER COLUMN franchise_id DROP NOT NULL;
+UPDATE users SET login_id = email WHERE login_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
@@ -29,10 +38,18 @@ CREATE TABLE IF NOT EXISTS cards (
   card_name TEXT NOT NULL,
   card_company TEXT,
   alias TEXT NOT NULL,
+  payer_name TEXT,
+  payer_email TEXT,
+  payer_tel TEXT,
+  card_identity TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS card_company TEXT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS payer_name TEXT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS payer_email TEXT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS payer_tel TEXT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS card_identity TEXT;
 
 CREATE TABLE IF NOT EXISTS account_requests (
   request_id TEXT PRIMARY KEY,
@@ -48,6 +65,12 @@ CREATE TABLE IF NOT EXISTS account_requests (
   document_url TEXT,
   assigned_virtual_account JSONB,
   rejection_reason TEXT,
+  export_ready_at TIMESTAMPTZ,
+  export_batch_id TEXT,
+  export_row_no INTEGER,
+  exported_at TIMESTAMPTZ,
+  txid TEXT,
+  txid_uploaded_at TIMESTAMPTZ,
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   processed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -62,10 +85,17 @@ CREATE TABLE IF NOT EXISTS transactions (
   total_amount NUMERIC(14, 0) NOT NULL,
   method TEXT NOT NULL,
   card_details TEXT,
+  pg TEXT,
+  pg_tx_id TEXT,
+  auth_code TEXT,
   status TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pg TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pg_tx_id TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS auth_code TEXT;
 
 CREATE TABLE IF NOT EXISTS stored_files (
   file_key TEXT PRIMARY KEY,
@@ -81,6 +111,7 @@ CREATE TABLE IF NOT EXISTS stored_files (
 CREATE TABLE IF NOT EXISTS agencies (
   id BIGSERIAL PRIMARY KEY,
   type TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 3,
   parent_id BIGINT REFERENCES agencies(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   address TEXT,
@@ -89,6 +120,7 @@ CREATE TABLE IF NOT EXISTS agencies (
   owner TEXT,
   phone TEXT,
   fee_rate NUMERIC(6, 3) NOT NULL DEFAULT 0,
+  delivery_note TEXT,
   join_code TEXT UNIQUE,
   contract_file_key TEXT REFERENCES stored_files(file_key) ON DELETE SET NULL,
   settle_bank_name TEXT,
@@ -98,6 +130,9 @@ CREATE TABLE IF NOT EXISTS agencies (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS delivery_note TEXT;
 
 CREATE TABLE IF NOT EXISTS delivery_accounts (
   id BIGSERIAL PRIMARY KEY,
@@ -110,6 +145,13 @@ CREATE TABLE IF NOT EXISTS delivery_accounts (
   file_key TEXT REFERENCES stored_files(file_key) ON DELETE SET NULL,
   account_status TEXT NOT NULL DEFAULT 'PENDING',
   rejection_reason TEXT,
+  approved_at TIMESTAMPTZ,
+  export_ready_at TIMESTAMPTZ,
+  export_batch_id TEXT,
+  export_row_no INTEGER,
+  exported_at TIMESTAMPTZ,
+  txid TEXT,
+  txid_uploaded_at TIMESTAMPTZ,
   req_date TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -119,14 +161,45 @@ CREATE TABLE IF NOT EXISTS delivery_agencies (
   name TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL DEFAULT 'active',
   sort_order INTEGER NOT NULL DEFAULT 0,
+  latitude NUMERIC(10, 7),
+  longitude NUMERIC(10, 7),
+  coverage_area TEXT,
+  phone TEXT,
+  description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 7);
+ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 7);
+ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS coverage_area TEXT;
+ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS description TEXT;
+
+CREATE TABLE IF NOT EXISTS benefit_cards (
+  id BIGSERIAL PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'manual',
+  source_url TEXT NOT NULL DEFAULT '',
+  rank_no INTEGER,
+  card_company TEXT NOT NULL,
+  card_name TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  discount_rate NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  annual_fee TEXT NOT NULL DEFAULT '',
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  source_card_idx TEXT,
+  image_url TEXT,
+  event_title TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (source, card_company, card_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_benefit_cards_active_rank ON benefit_cards(active, rank_no, id);
 
 CREATE TABLE IF NOT EXISTS pg_settlements (
   id BIGSERIAL PRIMARY KEY,
-  settled_at TIMESTAMPTZ NOT NULL,
+  settled_at TIMESTAMPTZ,
   approval_no TEXT NOT NULL UNIQUE,
   pg TEXT NOT NULL,
   pg_tx_id TEXT NOT NULL UNIQUE,
@@ -146,7 +219,23 @@ CREATE TABLE IF NOT EXISTS pg_settlements (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE pg_settlements ALTER COLUMN settled_at DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pg_providers (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  mid TEXT,
+  api_key TEXT,
+  callback_url TEXT,
+  status TEXT NOT NULL DEFAULT '활성',
+  note TEXT,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS interest_free_installments (
+  policy_month DATE NOT NULL DEFAULT date_trunc('month', now())::date,
   card_company TEXT PRIMARY KEY,
   months INTEGER[] NOT NULL DEFAULT '{}',
   active BOOLEAN NOT NULL DEFAULT true,
@@ -154,43 +243,16 @@ CREATE TABLE IF NOT EXISTS interest_free_installments (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS admin_faqs (
-  id BIGSERIAL PRIMARY KEY,
-  category TEXT NOT NULL,
-  question TEXT NOT NULL,
-  answer TEXT NOT NULL,
-  display_order INTEGER NOT NULL DEFAULT 0,
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+ALTER TABLE interest_free_installments ADD COLUMN IF NOT EXISTS policy_month DATE;
+UPDATE interest_free_installments
+  SET policy_month = date_trunc('month', now())::date
+  WHERE policy_month IS NULL;
+ALTER TABLE interest_free_installments ALTER COLUMN policy_month SET DEFAULT date_trunc('month', now())::date;
+ALTER TABLE interest_free_installments ALTER COLUMN policy_month SET NOT NULL;
+ALTER TABLE interest_free_installments DROP CONSTRAINT IF EXISTS interest_free_installments_pkey;
+ALTER TABLE interest_free_installments ADD PRIMARY KEY (policy_month, card_company);
 
-CREATE TABLE IF NOT EXISTS admin_board_posts (
-  id BIGSERIAL PRIMARY KEY,
-  type TEXT NOT NULL CHECK (type IN ('notice', 'guide')),
-  title TEXT NOT NULL,
-  author TEXT NOT NULL DEFAULT '운영팀',
-  content TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS admin_pg_providers (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  mid TEXT,
-  api_key_encrypted TEXT,
-  api_key_masked TEXT,
-  callback_url TEXT,
-  status TEXT NOT NULL DEFAULT '준비중',
-  note TEXT,
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS admin_inquiries (
+CREATE TABLE IF NOT EXISTS agency_inquiries (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT,
@@ -198,43 +260,6 @@ CREATE TABLE IF NOT EXISTS admin_inquiries (
   region TEXT,
   handler TEXT,
   status TEXT NOT NULL DEFAULT '상담 대기',
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS admin_banners (
-  id BIGSERIAL PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT '메인',
-  title TEXT NOT NULL,
-  url TEXT,
-  display_order INTEGER NOT NULL DEFAULT 1,
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS admin_role_settings (
-  id BIGSERIAL PRIMARY KEY,
-  role_key TEXT NOT NULL UNIQUE,
-  name TEXT NOT NULL,
-  description TEXT,
-  color TEXT NOT NULL DEFAULT '#3D9B35',
-  display_order INTEGER NOT NULL DEFAULT 0,
-  active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS legal_documents (
-  id BIGSERIAL PRIMARY KEY,
-  type TEXT NOT NULL CHECK (type IN ('terms', 'privacy')),
-  title TEXT NOT NULL,
-  content TEXT NOT NULL,
-  source_file_name TEXT,
-  applied BOOLEAN NOT NULL DEFAULT false,
-  applied_at TIMESTAMPTZ,
-  active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -260,18 +285,6 @@ CREATE TABLE IF NOT EXISTS push_tokens (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS web_push_subscriptions (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  endpoint TEXT NOT NULL UNIQUE,
-  p256dh TEXT NOT NULL,
-  auth TEXT NOT NULL,
-  platform TEXT,
-  enabled BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS talk_posts (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -283,6 +296,8 @@ CREATE TABLE IF NOT EXISTS talk_posts (
   image_url TEXT,
   image_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
   status TEXT NOT NULL DEFAULT 'ACTIVE',
+  trade_status TEXT NOT NULL DEFAULT 'SALE',
+  view_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -306,20 +321,84 @@ CREATE TABLE IF NOT EXISTS talk_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS talk_post_likes (
+  post_id BIGINT NOT NULL REFERENCES talk_posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS talk_reports (
+  id BIGSERIAL PRIMARY KEY,
+  reporter_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  post_id BIGINT REFERENCES talk_posts(id) ON DELETE SET NULL,
+  chat_id BIGINT REFERENCES talk_chats(id) ON DELETE SET NULL,
+  message_id BIGINT REFERENCES talk_messages(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_agency ON users(agency_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_franchise_created ON transactions(franchise_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_account_requests_status ON account_requests(status);
 CREATE INDEX IF NOT EXISTS idx_delivery_accounts_franchise ON delivery_accounts(franchise_id);
+CREATE INDEX IF NOT EXISTS idx_account_requests_export_pending ON account_requests(status, exported_at, processed_at);
+CREATE INDEX IF NOT EXISTS idx_delivery_accounts_export_pending ON delivery_accounts(account_status, exported_at, approved_at);
 CREATE INDEX IF NOT EXISTS idx_pg_settlements_settled_at ON pg_settlements(settled_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pg_settlements_agency ON pg_settlements(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pg_providers_status ON pg_providers(status, display_order);
 CREATE INDEX IF NOT EXISTS idx_interest_free_installments_active ON interest_free_installments(active, display_order);
+CREATE INDEX IF NOT EXISTS idx_agency_inquiries_status ON agency_inquiries(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled);
-CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user ON web_push_subscriptions(user_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_talk_posts_active_created ON talk_posts(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_talk_chats_user_updated ON talk_chats(buyer_user_id, seller_user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_talk_messages_chat_created ON talk_messages(chat_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_talk_reports_status_created ON talk_reports(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS board_posts (
+  id BIGSERIAL PRIMARY KEY,
+  board_type TEXT NOT NULL CHECK (board_type IN ('notices', 'guides')),
+  title TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT '운영팀',
+  content TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_board_posts_type_active ON board_posts(board_type, active, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS faqs (
+  id BIGSERIAL PRIMARY KEY,
+  category TEXT NOT NULL DEFAULT '서비스 안내',
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_faqs_active_category ON faqs(active, category, display_order, id);
+
+CREATE TABLE IF NOT EXISTS legal_documents (
+  id BIGSERIAL PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('terms', 'privacy')),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_file_name TEXT,
+  applied BOOLEAN NOT NULL DEFAULT false,
+  applied_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_legal_documents_type_applied ON legal_documents(type, applied, applied_at DESC, id DESC);
 
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;

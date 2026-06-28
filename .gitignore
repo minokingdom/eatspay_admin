@@ -28,3 +28,5 @@ raw_step*
 step_*
 scratch_analyze.js
 temp_log.txt
+# Added by code-review-graph
+.code-review-graph/
