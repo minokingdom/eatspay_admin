@@ -23,6 +23,11 @@ test('admin proof images expose zoom controls and reusable viewer behavior', () 
   assert.match(combined, /data-proof-zoom-close/);
   assert.match(combined, /function openProofImageZoom/);
   assert.match(combined, /function setProofImageZoom/);
+  assert.match(combined, /function startProofImagePan/);
+  assert.match(combined, /function moveProofImagePan/);
+  assert.match(combined, /function endProofImagePan/);
+  assert.match(combined, /data-proof-zoom-pan/);
+  assert.match(combined, /\.proof-zoom-stage\.is-panning/);
   assert.match(combined, /\.proof-zoom-overlay/);
   assert.match(combined, /\.proof-zoom-stage/);
   assert.match(combined, /\.proof-zoom-image/);
