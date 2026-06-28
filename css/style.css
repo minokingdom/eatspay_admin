@@ -1276,8 +1276,7 @@ html.native-app .screen-container {
 
 .home-platform-icon.coupang {
   background: #fff;
-  border: 1px solid #d8d8d8;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, .05);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .06);
 }
 
 .home-platform-icon.ddangyo {
@@ -1322,8 +1321,7 @@ html.native-app .screen-container {
 
 .advance-platform-icon.coupang {
   background: #fff;
-  border: 1.5px solid #d8d8d8;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, .08);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .09);
 }
 
 .advance-platform-icon.ddangyo {
