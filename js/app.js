@@ -5554,7 +5554,6 @@ async function submitTalkPost() {
   }
   const title = ($('#talk-title-input')?.value || '').trim();
   const body = ($('#talk-body-input')?.value || '').trim();
-  const price = Number(($('#talk-price-input')?.value || '0').replace?.(/[^\d]/g, '') || $('#talk-price-input')?.value || 0);
   if (!title || !body) {
     showToast('제목과 내용을 입력해주세요.');
     return;
@@ -5569,7 +5568,7 @@ async function submitTalkPost() {
     const formData = new FormData();
     formData.append('title', title);
     formData.append('body', body);
-    formData.append('price', String(price || 0));
+    formData.append('price', '0');
     talkImageFiles.slice(0, 10).forEach(file => formData.append('images', file));
     const response = await fetch(apiUrl('/api/talk/posts'), {
       method: 'POST',
@@ -5580,7 +5579,7 @@ async function submitTalkPost() {
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(getFriendlyErrorMessage(payload, 'Talk 글 등록에 실패했습니다.'));
-    ['#talk-title-input', '#talk-body-input', '#talk-price-input'].forEach(sel => {
+    ['#talk-title-input', '#talk-body-input'].forEach(sel => {
       const el = $(sel);
       if (el) el.value = '';
     });
@@ -6077,7 +6076,7 @@ function startSmsCountdown(el) {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
-    const serviceWorkerVersion = '20260628_nav_simple_hover_fix';
+    const serviceWorkerVersion = '20260628_nav_icon_hover_force_fix';
     navigator.serviceWorker.register(`/sw.js?v=${serviceWorkerVersion}`).then(registration => {
       if (typeof registration.update === 'function') registration.update().catch(() => {});
     }).catch(() => {});
@@ -6178,11 +6177,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }) || null;
   }
 
+  function getEventClientPoint(event) {
+    const touch = event.changedTouches?.[0] || event.touches?.[0];
+    return {
+      clientX: touch?.clientX ?? event.clientX,
+      clientY: touch?.clientY ?? event.clientY
+    };
+  }
+
   function getBottomNavItemFromEvent(event) {
     const directItem = event.target.closest?.('.bottom-nav .nav-item');
     if (directItem) return directItem;
-    const nav = event.target.closest?.('.bottom-nav') || document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.bottom-nav');
-    return getBottomNavItemByPoint(nav, event.clientX, event.clientY);
+    const { clientX, clientY } = getEventClientPoint(event);
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+    const nav = event.target.closest?.('.bottom-nav') || document.elementFromPoint(clientX, clientY)?.closest?.('.bottom-nav');
+    return getBottomNavItemByPoint(nav, clientX, clientY);
   }
 
   function setBottomNavHover(nav, navItem) {
@@ -6212,10 +6221,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setBottomNavHover(null, null);
   }, { passive: true });
 
-  document.addEventListener('click', event => {
+  let lastBottomNavActivation = { target: '', at: 0 };
+  function handleBottomNavActivation(event) {
     const navItem = getBottomNavItemFromEvent(event);
-    if (navigateBottomNavItem(navItem, event)) return;
-  }, { capture: true });
+    if (!navItem) return;
+    const target = navItem.dataset.navTarget || navItem.id || '';
+    const now = Date.now();
+    if (target && lastBottomNavActivation.target === target && now - lastBottomNavActivation.at < 260) {
+      event?.preventDefault?.();
+      return;
+    }
+    lastBottomNavActivation = { target, at: now };
+    navigateBottomNavItem(navItem, event);
+  }
+
+  ['pointerup', 'touchend', 'mouseup', 'click'].forEach(type => {
+    document.addEventListener(type, handleBottomNavActivation, { capture: true, passive: false });
+  });
 
   document.addEventListener('pointerover', event => {
     const writeBtn = event.target.closest?.('.talk-write-floating');

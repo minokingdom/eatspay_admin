@@ -3615,7 +3615,7 @@ html.native-app .screen-container {
 }
 
 .bottom-nav .nav-item > * {
-  pointer-events: none !important;
+  pointer-events: auto !important;
 }
 
 html.nav-cursor-pointer,
@@ -3695,7 +3695,7 @@ html.nav-cursor-pointer body * {
   color: currentColor;
   background: currentColor;
   opacity: .82;
-  pointer-events: none !important;
+  pointer-events: auto !important;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;
@@ -3724,7 +3724,7 @@ html.nav-cursor-pointer body * {
 .nav-item svg {
   width: 22px;
   height: 22px;
-  pointer-events: none !important;
+  pointer-events: auto !important;
   stroke: currentColor;
   transition: transform 0.18s ease, color 0.18s ease;
 }
@@ -3747,7 +3747,7 @@ html.nav-cursor-pointer body * {
   z-index: 1;
   font-size: 11px;
   font-weight: 650;
-  pointer-events: none;
+  pointer-events: auto;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;
@@ -3795,6 +3795,18 @@ html.nav-cursor-pointer body * {
 .bottom-nav:has(.nav-item:hover) .nav-item.active:not(:hover):not(:focus-visible) .nav-label {
   color: var(--text-muted);
   font-weight: 650;
+}
+
+.bottom-nav .nav-item.nav-hover,
+.bottom-nav .nav-item.nav-hover .bottom-nav-icon,
+.bottom-nav .nav-item.nav-hover svg,
+.bottom-nav .nav-item.nav-hover .nav-label {
+  color: #03c75a !important;
+  opacity: 1;
+}
+
+.bottom-nav .nav-item.nav-hover .nav-label {
+  font-weight: 800;
 }
 
 .agency-summary-card {
