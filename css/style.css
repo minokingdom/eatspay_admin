@@ -2196,6 +2196,7 @@ html.native-app .screen-container {
   line-height: 1;
   box-shadow: 0 12px 26px rgba(3, 199, 90, .28);
   cursor: pointer;
+  transition: background-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
 .talk-screen-content {
@@ -2325,7 +2326,7 @@ html.native-app .screen-container {
   border-radius: 999px;
   font-size: 16px;
   overflow: hidden;
-  transition: width .22s ease, min-width .22s ease, padding .22s ease, gap .22s ease, box-shadow .22s ease, transform .18s ease;
+  transition: width .22s ease, min-width .22s ease, padding .22s ease, gap .22s ease, background-color .18s ease, box-shadow .22s ease, transform .18s ease;
 }
 
 .talk-write-floating span {
@@ -2352,7 +2353,8 @@ html.native-app .screen-container {
   height: 54px;
   padding: 0 15px;
   gap: 5px;
-  box-shadow: 0 14px 28px rgba(3, 199, 90, .34);
+  background: #02a94d;
+  box-shadow: 0 14px 28px rgba(2, 169, 77, .36);
 }
 
 .talk-write-floating:hover strong,

@@ -31,6 +31,7 @@ test('talk board UI is polished on root and app mirror', () => {
     assert.match(css, /\.talk-write-floating strong/, `${prefix}floating write label needs hover-expand styling`);
     assert.match(css, /\.talk-write-floating\s*\{[\s\S]*?width:\s*54px;[\s\S]*?height:\s*54px;/, `${prefix}floating write button must be circular before hover`);
     assert.match(css, /\.talk-write-floating:hover,[\s\S]*?\.talk-write-floating\.is-expanded\s*\{[\s\S]*?width:\s*106px;/, `${prefix}floating write button should expand only on hover/focus`);
+    assert.match(css, /\.talk-write-floating:hover,[\s\S]*?background:\s*#02a94d;/, `${prefix}floating write button should darken on hover/focus`);
     assert.doesNotMatch(css, /\.phone-frame \.talk-write-floating\s*\{[\s\S]*?width:\s*106px;/, `${prefix}app frame should not force the write button open`);
     assert.match(css, /@media \(max-width:\s*390px\)[\s\S]*?\.talk-write-floating\s*\{[\s\S]*?width:\s*52px;[\s\S]*?height:\s*52px;/, `${prefix}mobile floating write button must stay circular before hover`);
     assert.match(css, /\.talk-detail-chat-chip\b/, `${prefix}detail chat chip styles are required`);
@@ -47,9 +48,10 @@ test('bottom navigation icon hit area resolves to its parent button', () => {
 
   assert.match(css, /\.bottom-nav \.nav-item > \*[\s\S]*?pointer-events: none !important;/, 'nav children should not steal icon clicks from the button');
   assert.match(css, /\.bottom-nav \.nav-item::after[\s\S]*?pointer-events: none;/, 'decorative nav overlay must not intercept clicks');
-  assert.match(js, /const navItem = event\.target\.closest\('\.bottom-nav \.nav-item'\)/, 'nav clicks are delegated from the button');
-  assert.match(js, /document\.addEventListener\('pointerup'[\s\S]*navigateBottomNavItem/, 'nav should also handle pointerup for webview icon taps');
-  assert.match(js, /button\.addEventListener\('touchend',\s*activateNav,\s*\{\s*passive:\s*false\s*\}\)/, 'nav buttons should bind touchend directly for webview taps');
-  assert.match(js, /serviceWorkerVersion\s*=\s*'20260628_nav_write_fix'/, 'app should register a new service worker version for nav/write changes');
-  assert.match(sw, /eatspay-pwa-v66-nav-write-fix/, 'service worker cache name should change when nav/write behavior changes');
+  assert.match(js, /function getBottomNavItemByPoint/, 'nav hover/click should resolve one button by the nav hit area');
+  assert.match(js, /function getBottomNavItemFromEvent/, 'nav clicks should fall back to the direct event target');
+  assert.match(js, /document\.addEventListener\('click'[\s\S]*navigateBottomNavItem[\s\S]*capture:\s*true/, 'nav clicks should be handled by one capture-level click delegate');
+  assert.doesNotMatch(js, /button\.addEventListener\('touchend'/, 'nav buttons should not carry duplicate per-button touch handlers');
+  assert.match(js, /serviceWorkerVersion\s*=\s*'20260628_nav_simple_hover_fix'/, 'app should register a new service worker version for nav/write changes');
+  assert.match(sw, /eatspay-pwa-v67-nav-simple-hover-fix/, 'service worker cache name should change when nav/write behavior changes');
 });

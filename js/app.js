@@ -3448,26 +3448,6 @@ function renderBottomNavs(activeScreen = state.currentScreen) {
     </button>
   `).join('');
     nav.innerHTML = html;
-    $$('.nav-item', nav).forEach(button => {
-      const activateNav = event => {
-        const now = Date.now();
-        if (now - Number(button.dataset.lastNavAt || 0) < 320) {
-          event?.preventDefault?.();
-          return;
-        }
-        button.dataset.lastNavAt = String(now);
-        const target = button.dataset.navTarget || '';
-        if (!target) return;
-        event?.preventDefault?.();
-        if (target === 'home') navigate('home');
-        else if (target === 'agency') navigate('agency');
-        else if (target === 'my') navigate('my');
-        else if (target === 'cs') navigate('cs-main');
-      };
-      button.addEventListener('click', activateNav);
-      button.addEventListener('pointerup', activateNav);
-      button.addEventListener('touchend', activateNav, { passive: false });
-    });
   });
 }
 
@@ -6097,7 +6077,7 @@ function startSmsCountdown(el) {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
-    const serviceWorkerVersion = '20260628_nav_write_fix';
+    const serviceWorkerVersion = '20260628_nav_simple_hover_fix';
     navigator.serviceWorker.register(`/sw.js?v=${serviceWorkerVersion}`).then(registration => {
       if (typeof registration.update === 'function') registration.update().catch(() => {});
     }).catch(() => {});
@@ -6169,72 +6149,6 @@ document.addEventListener('DOMContentLoaded', () => {
   $$('.btn-back').forEach(btn => btn.addEventListener('click', goBack));
 
   // Bottom Nav & Home Banner Click Bindings
-  function clearBottomNavHover(exceptNav = null, exceptItem = null) {
-    $$('.bottom-nav.nav-hovering').forEach(nav => {
-      if (nav !== exceptNav) nav.classList.remove('nav-hovering');
-    });
-    $$('.bottom-nav .nav-item.nav-hover').forEach(item => {
-      if (item !== exceptItem) item.classList.remove('nav-hover');
-    });
-  }
-
-  function setBottomNavHoverByPoint(clientX, clientY) {
-    let hoveredNav = null;
-    let hoveredItem = null;
-    $$('.bottom-nav').some(nav => {
-      const navRect = nav.getBoundingClientRect();
-      if (clientX < navRect.left || clientX > navRect.right || clientY < navRect.top || clientY > navRect.bottom) {
-        return false;
-      }
-      hoveredNav = nav;
-      hoveredItem = $$('.nav-item', nav).find(item => {
-        const rect = item.getBoundingClientRect();
-        return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
-      }) || null;
-      return true;
-    });
-    clearBottomNavHover(hoveredNav, hoveredItem);
-    document.documentElement.classList.toggle('nav-cursor-pointer', Boolean(hoveredItem));
-    if (hoveredNav && hoveredItem) {
-      hoveredNav.classList.add('nav-hovering');
-      hoveredItem.classList.add('nav-hover');
-    }
-  }
-
-  document.addEventListener('pointermove', event => {
-    setBottomNavHoverByPoint(event.clientX, event.clientY);
-  }, { passive: true });
-  document.addEventListener('mousemove', event => {
-    setBottomNavHoverByPoint(event.clientX, event.clientY);
-  }, { passive: true });
-  document.addEventListener('pointerover', event => {
-    const navItem = event.target.closest('.bottom-nav .nav-item');
-    if (!navItem) return;
-    const nav = navItem.closest('.bottom-nav');
-    clearBottomNavHover(nav, navItem);
-    nav?.classList.add('nav-hovering');
-    navItem.classList.add('nav-hover');
-  });
-  document.addEventListener('pointerout', event => {
-    const navItem = event.target.closest('.bottom-nav .nav-item');
-    if (!navItem) return;
-    const next = event.relatedTarget;
-    if (next && navItem.contains(next)) return;
-    const nav = navItem.closest('.bottom-nav');
-    navItem.classList.remove('nav-hover');
-    if (!next || !nav?.contains(next)) {
-      nav?.classList.remove('nav-hovering');
-      document.documentElement.classList.remove('nav-cursor-pointer');
-    }
-  });
-
-  function getBottomNavItemFromEvent(event) {
-    const fromPath = event.target.closest?.('.bottom-nav .nav-item');
-    if (fromPath) return fromPath;
-    const fromPoint = document.elementFromPoint(event.clientX, event.clientY);
-    return fromPoint?.closest?.('.bottom-nav .nav-item') || null;
-  }
-
   function navigateBottomNavItem(navItem, event) {
     if (!navItem) return false;
     const id = navItem.id || '';
@@ -6252,10 +6166,55 @@ document.addEventListener('DOMContentLoaded', () => {
     return true;
   }
 
-  document.addEventListener('pointerup', event => {
+  function getBottomNavItemByPoint(nav, clientX, clientY) {
+    if (!nav) return null;
+    const navRect = nav.getBoundingClientRect();
+    if (clientX < navRect.left || clientX > navRect.right || clientY < navRect.top || clientY > navRect.bottom) {
+      return null;
+    }
+    return $$('.nav-item', nav).find(item => {
+      const rect = item.getBoundingClientRect();
+      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    }) || null;
+  }
+
+  function getBottomNavItemFromEvent(event) {
+    const directItem = event.target.closest?.('.bottom-nav .nav-item');
+    if (directItem) return directItem;
+    const nav = event.target.closest?.('.bottom-nav') || document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.bottom-nav');
+    return getBottomNavItemByPoint(nav, event.clientX, event.clientY);
+  }
+
+  function setBottomNavHover(nav, navItem) {
+    $$('.bottom-nav.nav-hovering').forEach(itemNav => {
+      if (itemNav !== nav) itemNav.classList.remove('nav-hovering');
+    });
+    $$('.bottom-nav .nav-item.nav-hover').forEach(item => {
+      if (item !== navItem) item.classList.remove('nav-hover');
+    });
+    const hasHover = Boolean(nav && navItem);
+    document.documentElement.classList.toggle('nav-cursor-pointer', hasHover);
+    if (!hasHover) {
+      nav?.classList.remove('nav-hovering');
+      return;
+    }
+    nav.classList.add('nav-hovering');
+    navItem.classList.add('nav-hover');
+  }
+
+  document.addEventListener('pointermove', event => {
+    const nav = event.target.closest?.('.bottom-nav') || document.elementFromPoint(event.clientX, event.clientY)?.closest?.('.bottom-nav');
+    const navItem = getBottomNavItemByPoint(nav, event.clientX, event.clientY);
+    setBottomNavHover(nav, navItem);
+  }, { passive: true });
+
+  document.addEventListener('pointerleave', () => {
+    setBottomNavHover(null, null);
+  }, { passive: true });
+
+  document.addEventListener('click', event => {
     const navItem = getBottomNavItemFromEvent(event);
-    if (!navItem) return;
-    navigateBottomNavItem(navItem, event);
+    if (navigateBottomNavItem(navItem, event)) return;
   }, { capture: true });
 
   document.addEventListener('pointerover', event => {
@@ -6276,23 +6235,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (bannerUrl) openAppBannerUrl(bannerUrl);
       else toggleAppBannerDetail(managedBanner);
       return;
-    }
-    const navItem = getBottomNavItemFromEvent(event);
-    if (navigateBottomNavItem(navItem, event)) return;
-    if (!navItem) return;
-    const id = navItem.id || '';
-    if (id.startsWith('nav-home')) {
-      event.preventDefault();
-      navigate('home');
-    } else if (id.startsWith('nav-agency')) {
-      event.preventDefault();
-      navigate('agency');
-    } else if (id.startsWith('nav-my')) {
-      event.preventDefault();
-      navigate('my');
-    } else if (id.startsWith('nav-cs')) {
-      event.preventDefault();
-      navigate('cs-main');
     }
   });
   $$('img[src*="logo.png"]').forEach(logo => {
