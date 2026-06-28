@@ -10,6 +10,9 @@ const { createPool } = require('./db/pool');
 const { createRepository } = require('./db/repository');
 const { parseCardGorillaRanking } = require('./lib/cardgorilla');
 const { createPublicAgencyInvite } = require('./lib/public-agency-invite');
+const { buildAuditChangeSet, sanitizeAuditData } = require('./lib/audit-log');
+const { createSignupAttribution } = require('./lib/signup-attribution');
+const { isProtectedAgencyJoinCode } = require('./lib/agency-link-policy');
 
 loadEnv();
 
@@ -253,6 +256,9 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_file_key TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS franchise_fee_rate NUMERIC(5,2)');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_agency_id BIGINT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_join_code TEXT');
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_level TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_permissions JSONB");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_active BOOLEAN NOT NULL DEFAULT true");
@@ -326,6 +332,30 @@ const dbBootstrapPromise = (async () => {
   await pool.query("ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS corporation_name TEXT");
   await pool.query("ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS business_number TEXT");
   await pool.query("ALTER TABLE delivery_agencies ADD COLUMN IF NOT EXISTS business_file_key TEXT");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      actor_user_id BIGINT,
+      actor_role TEXT NOT NULL DEFAULT '',
+      actor_login_id TEXT NOT NULL DEFAULT '',
+      actor_name TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL DEFAULT '',
+      entity_name TEXT NOT NULL DEFAULT '',
+      before_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      after_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      changed_fields TEXT[] NOT NULL DEFAULT '{}',
+      request_method TEXT NOT NULL DEFAULT '',
+      request_path TEXT NOT NULL DEFAULT '',
+      ip_address TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id, created_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action, created_at DESC)');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS benefit_cards (
       id BIGSERIAL PRIMARY KEY,
@@ -1424,6 +1454,16 @@ app.post('/api/auth/reset-password', asyncHandler(async (req, res) => {
   }
 
   await repo.updateUserPasswordById(user.id, await hashPassword(password));
+  await recordAuditLog(req, {
+    action: 'USER_PASSWORD_RESET',
+    entityType: 'user',
+    entityId: user.id,
+    entityName: user.franchiseName || user.name || user.loginId,
+    beforeData: { password: 'previous' },
+    afterData: { password: 'changed' },
+    changedFields: ['password'],
+    force: true
+  });
   console.info('[AUTH_RESET_PASSWORD_SUCCESS]', {
     userId: user.id,
     loginId: user.loginId || user.email,
@@ -1472,6 +1512,11 @@ app.post('/api/auth/register', upload.fields([
     }
   }
   const defaultAgency = agency ? null : await repo.ensureDefaultAgency();
+  const signupAttribution = createSignupAttribution({
+    source: agency ? 'agency_link' : 'direct_default',
+    agency,
+    defaultAgency
+  });
   if (isAligoConfigured() && !isSmsVerified(phone)) {
     return sendError(res, 400, 'PHONE_NOT_VERIFIED', '휴대번호 인증을 완료해 주세요.');
   }
@@ -1491,9 +1536,21 @@ app.post('/api/auth/register', upload.fields([
     address,
     tel,
     businessNumber: isTestBizNo ? createStoredTestBusinessNumber(loginId) : businessNumber,
-    agencyId: agency?.id || defaultAgency?.id || null,
+    agencyId: signupAttribution.agencyId,
+    signupSource: signupAttribution.signupSource,
+    signupAgencyId: signupAttribution.signupAgencyId,
+    signupJoinCode: signupAttribution.signupJoinCode,
     bizDocFileKey: bizDoc?.fileKey || null,
     franchiseFeeRate: 0
+  });
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_REGISTER',
+    entityType: 'franchise',
+    entityId: user.franchiseId,
+    entityName: user.franchiseName,
+    beforeData: {},
+    afterData: pickFranchiseAuditData(user),
+    force: true
   });
 
   return res.status(201).json({
@@ -1623,6 +1680,20 @@ app.patch('/api/auth/me', authenticate, asyncHandler(async (req, res) => {
   }
 
   const updated = await repo.updateUserProfile(user.id, fields);
+  const beforeAudit = pickFranchiseAuditData(user);
+  const afterAudit = pickFranchiseAuditData(updated);
+  if (fields.passwordHash !== undefined) {
+    beforeAudit.password = 'previous';
+    afterAudit.password = 'changed';
+  }
+  await recordAuditLog(req, {
+    action: 'USER_PROFILE_UPDATE',
+    entityType: 'user',
+    entityId: user.id,
+    entityName: updated.franchiseName || updated.name || updated.loginId,
+    beforeData: beforeAudit,
+    afterData: afterAudit
+  });
   return res.status(200).json({
     success: true,
     data: {
@@ -1958,6 +2029,28 @@ app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUp
   });
   await notifyAccountApprovalTxidApplied(results);
   const updated = results.filter(item => item.status === 'UPDATED').length;
+  await recordAuditLog(req, {
+    action: 'ACCOUNT_TXID_UPLOAD',
+    entityType: 'account_approval_batch',
+    entityId: batchIdMatch ? batchIdMatch[1] : req.file.originalname,
+    entityName: req.file.originalname,
+    beforeData: {},
+    afterData: {
+      fileName: req.file.originalname,
+      batchId: batchIdMatch ? batchIdMatch[1] : '',
+      total: results.length,
+      updated,
+      updatedTargets: results
+        .filter(item => item.status === 'UPDATED')
+        .map(item => ({
+          txid: item.txid,
+          accountNo: item.accountNo,
+          franchiseName: item.franchiseName,
+          affected: item.affected || []
+        }))
+    },
+    force: true
+  });
   return res.status(200).json({
     success: true,
     data: {
@@ -2372,6 +2465,7 @@ app.put('/api/card/:id', authenticate, asyncHandler(async (req, res) => {
   }
 
   const finalCardCompany = digits ? (cardCompany || inferCardName(digits)) : (cardCompany || null);
+  const beforeCard = await repo.findCardByUserId(req.params.id, req.user.id);
   const updated = await repo.updateCardByUserId(req.params.id, req.user.id, {
     maskedNumber: digits ? `****-****-****-${digits.slice(-4)}` : null,
     cardName: finalCardCompany,
@@ -2381,6 +2475,14 @@ app.put('/api/card/:id', authenticate, asyncHandler(async (req, res) => {
   if (!updated) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'CARD_UPDATE',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: updated.alias || updated.cardName || '',
+    beforeData: pickCardAuditData(beforeCard),
+    afterData: pickCardAuditData(updated)
+  });
 
   return res.status(200).json({
     success: true,
@@ -2394,10 +2496,19 @@ app.patch('/api/card/:id/active', authenticate, asyncHandler(async (req, res) =>
     return sendError(res, 400, 'BAD_REQUEST', 'active must be boolean.');
   }
 
+  const beforeCard = await repo.findCardByUserId(req.params.id, req.user.id);
   const updated = await repo.updateCardActiveByUserId(req.params.id, req.user.id, req.body.active);
   if (!updated) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: req.body.active ? 'CARD_SHOW' : 'CARD_HIDE',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: updated.alias || updated.cardName || '',
+    beforeData: pickCardAuditData(beforeCard),
+    afterData: pickCardAuditData(updated)
+  });
 
   return res.status(200).json({
     success: true,
@@ -2411,10 +2522,19 @@ app.patch('/api/card/:id/hidden', authenticate, asyncHandler(async (req, res) =>
     return sendError(res, 400, 'BAD_REQUEST', 'hidden must be boolean.');
   }
 
+  const beforeCard = await repo.findCardByUserId(req.params.id, req.user.id);
   const updated = await repo.updateCardHiddenByUserId(req.params.id, req.user.id, req.body.hidden);
   if (!updated) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: req.body.hidden ? 'CARD_HIDE' : 'CARD_SHOW',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: updated.alias || updated.cardName || '',
+    beforeData: pickCardAuditData(beforeCard),
+    afterData: pickCardAuditData(updated)
+  });
 
   return res.status(200).json({
     success: true,
@@ -2425,6 +2545,10 @@ app.patch('/api/card/:id/hidden', authenticate, asyncHandler(async (req, res) =>
 
 app.patch('/api/admin/cards/:id/hidden', authenticateAdmin, asyncHandler(async (req, res) => {
   const hidden = typeof req.body.hidden === 'boolean' ? req.body.hidden : true;
+  const beforeResult = await pool.query(
+    'SELECT id, user_id, masked_number, card_name, card_company, alias, active, hidden FROM cards WHERE id = $1',
+    [req.params.id]
+  );
   const result = await pool.query(
     `UPDATE cards
      SET hidden = $2,
@@ -2437,6 +2561,14 @@ app.patch('/api/admin/cards/:id/hidden', authenticateAdmin, asyncHandler(async (
   if (!result.rows[0]) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: hidden ? 'CARD_ADMIN_HIDE' : 'CARD_ADMIN_SHOW',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: result.rows[0].alias || result.rows[0].card_name || '',
+    beforeData: pickCardAuditData(beforeResult.rows[0]),
+    afterData: pickCardAuditData(result.rows[0])
+  });
 
   return res.status(200).json({
     success: true,
@@ -2451,6 +2583,10 @@ app.patch('/api/admin/cards/:id/alias', authenticateAdmin, asyncHandler(async (r
     return sendError(res, 400, 'MISSING_ALIAS', 'alias is required.');
   }
 
+  const beforeResult = await pool.query(
+    'SELECT id, user_id, masked_number, card_name, card_company, alias, active, hidden FROM cards WHERE id = $1',
+    [req.params.id]
+  );
   const result = await pool.query(
     `UPDATE cards
      SET alias = $2
@@ -2462,6 +2598,14 @@ app.patch('/api/admin/cards/:id/alias', authenticateAdmin, asyncHandler(async (r
   if (!result.rows[0]) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'CARD_ADMIN_ALIAS_UPDATE',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: result.rows[0].alias || '',
+    beforeData: pickCardAuditData(beforeResult.rows[0]),
+    afterData: pickCardAuditData(result.rows[0])
+  });
 
   return res.status(200).json({
     success: true,
@@ -2471,10 +2615,20 @@ app.patch('/api/admin/cards/:id/alias', authenticateAdmin, asyncHandler(async (r
 }));
 
 app.delete('/api/card/:id', authenticate, asyncHandler(async (req, res) => {
+  const beforeCard = await repo.findCardByUserId(req.params.id, req.user.id);
   const deleted = await repo.deleteCardByUserId(req.params.id, req.user.id);
   if (!deleted) {
     return sendError(res, 404, 'CARD_NOT_FOUND', 'Card was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'CARD_DELETE',
+    entityType: 'card',
+    entityId: req.params.id,
+    entityName: deleted.alias || deleted.cardName || '',
+    beforeData: pickCardAuditData(beforeCard || deleted),
+    afterData: {},
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -2580,6 +2734,15 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
       payerTel: resolvedPayerTel,
       cardIdentity: resolvedCardIdentity
     });
+    await recordAuditLog(req, {
+      action: 'CARD_CREATE',
+      entityType: 'card',
+      entityId: card.id,
+      entityName: card.alias || card.cardName || '',
+      beforeData: {},
+      afterData: pickCardAuditData(card),
+      force: true
+    });
 
     return res.status(200).json({
       success: true,
@@ -2607,6 +2770,15 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     payerEmail: resolvedPayerEmail,
     payerTel: resolvedPayerTel,
     cardIdentity: resolvedCardIdentity
+  });
+  await recordAuditLog(req, {
+    action: 'CARD_CREATE',
+    entityType: 'card',
+    entityId: card.id,
+    entityName: card.alias || card.cardName || '',
+    beforeData: {},
+    afterData: pickCardAuditData(card),
+    force: true
   });
 
   return res.status(200).json({
@@ -2658,6 +2830,14 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
     } else {
       return sendError(res, 400, 'INVALID_ACTION', 'action must be APPROVED or REJECTED.');
     }
+    await recordAuditLog(req, {
+      action: action === 'APPROVED' ? 'DELIVERY_ACCOUNT_VERIFY' : 'DELIVERY_ACCOUNT_REJECT',
+      entityType: 'delivery_account',
+      entityId: numericAccountId,
+      entityName: account.agencyName || '',
+      beforeData: pickDeliveryAccountAuditData(account),
+      afterData: pickDeliveryAccountAuditData(updatedAccount)
+    });
     return res.status(200).json({
       success: true,
       message: 'Account processed.',
@@ -2707,6 +2887,34 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
   } else {
     return sendError(res, 400, 'INVALID_ACTION', 'action must be APPROVED or REJECTED.');
   }
+  await recordAuditLog(req, {
+    action: action === 'APPROVED' ? 'ACCOUNT_REQUEST_VERIFY' : 'ACCOUNT_REQUEST_REJECT',
+    entityType: 'account_request',
+    entityId: requestId,
+    entityName: request.franchiseName || '',
+    beforeData: {
+      requestId: request.requestId,
+      franchiseId: request.franchiseId,
+      franchiseName: request.franchiseName,
+      deliveryAgencyName: request.deliveryAgencyName,
+      bankName: request.bankName,
+      accountNo: request.accountNo,
+      status: request.status,
+      txid: request.txid || ''
+    },
+    afterData: {
+      requestId: updated.requestId,
+      franchiseId: updated.franchiseId,
+      franchiseName: updated.franchiseName,
+      deliveryAgencyName: updated.deliveryAgencyName,
+      bankName: updated.bankName,
+      accountNo: updated.accountNo,
+      status: updated.status,
+      txid: updated.txid || '',
+      assignedVirtualAccount: action === 'APPROVED' ? assignedVirtualAccount : null,
+      rejectionReason: action === 'REJECTED' ? rejectionReason : ''
+    }
+  });
 
   const owner = await repo.findUserByFranchiseId(request.franchiseId);
   if (owner) {
@@ -2743,10 +2951,21 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
 app.post('/api/franchise/:id/reset-password', authenticateAdmin, asyncHandler(async (req, res) => {
   const franchiseId = Number(req.params.id);
   const temporaryPassword = createTemporaryPassword();
+  const beforeUser = await repo.findUserByFranchiseId(franchiseId);
   const user = await repo.updateUserPasswordByFranchiseId(franchiseId, await hashPassword(temporaryPassword));
   if (!user) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_PASSWORD_RESET',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: user.franchiseName || user.loginId,
+    beforeData: { ...pickFranchiseAuditData(beforeUser), password: 'previous' },
+    afterData: { ...pickFranchiseAuditData(user), password: 'changed' },
+    changedFields: ['password'],
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -2761,10 +2980,22 @@ app.post('/api/franchise/:id/reset-password', authenticateAdmin, asyncHandler(as
 app.post('/api/agency/:id/reset-password', authenticateAdmin, asyncHandler(async (req, res) => {
   const agencyId = Number(req.params.id);
   const temporaryPassword = createTemporaryPassword();
+  const agencies = await repo.listAgencies();
+  const beforeAgency = agencies.find(item => Number(item.id) === agencyId);
   const agency = await repo.updateAgencyPasswordById(agencyId, await hashPassword(temporaryPassword));
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_PASSWORD_RESET',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: agency.name || beforeAgency?.name || '',
+    beforeData: { ...pickAgencyAuditData(beforeAgency), password: 'previous' },
+    afterData: { ...pickAgencyAuditData(beforeAgency), password: 'changed' },
+    changedFields: ['password'],
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -2836,6 +3067,22 @@ app.post('/api/franchise/:id/biz-doc', authenticateAdmin, singleUpload('file'), 
   if (!user) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_BIZ_DOC_UPDATE',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: user.franchiseName || currentUser?.franchiseName || '',
+    beforeData: {
+      franchiseId,
+      bizDocFileKey: currentUser?.bizDocFileKey || '',
+      bizDocFileName: currentUser?.bizDocFileName || ''
+    },
+    afterData: {
+      franchiseId,
+      bizDocFileKey: file.fileKey,
+      bizDocFileName: file.originalName
+    }
+  });
 
   return res.status(200).json({
     success: true,
@@ -2865,6 +3112,24 @@ app.post('/api/franchise/:id/delivery-accounts', authenticateAdmin, singleUpload
     accountNo,
     fileKey: file?.fileKey || null
   });
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_DELIVERY_ACCOUNT_CREATE',
+    entityType: 'delivery_account',
+    entityId: account.id,
+    entityName: agencyName,
+    beforeData: {},
+    afterData: {
+      franchiseId,
+      agencyId: agencyId ? Number(agencyId) : null,
+      agencyName,
+      bankName,
+      accountHolder,
+      accountNo,
+      fileKey: file?.fileKey || '',
+      fileName: file?.originalName || ''
+    },
+    force: true
+  });
 
   return res.status(201).json({
     success: true,
@@ -2880,6 +3145,8 @@ app.post('/api/agency/:id/settle-account', authenticateAdmin, singleUpload('file
     return sendError(res, 400, 'MISSING_FIELDS', 'bankName, accountNo, and accountHolder are required.');
   }
 
+  const agencies = await repo.listAgencies();
+  const beforeAgency = agencies.find(item => Number(item.id) === agencyId);
   const file = req.file ? await persistUpload(req.file, req.user.id) : null;
   const agency = await repo.updateAgencySettleAccount(agencyId, {
     bankName,
@@ -2890,6 +3157,23 @@ app.post('/api/agency/:id/settle-account', authenticateAdmin, singleUpload('file
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_SETTLE_ACCOUNT_UPDATE',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: beforeAgency?.name || agency.name || '',
+    beforeData: {
+      settleBankName: beforeAgency?.settleBankName || '',
+      settleAccountNo: beforeAgency?.settleAccountNo || '',
+      settleAccountHolder: beforeAgency?.settleAccountHolder || ''
+    },
+    afterData: {
+      settleBankName: agency.settle_bank_name || bankName,
+      settleAccountNo: agency.settle_account_no || accountNo,
+      settleAccountHolder: agency.settle_account_holder || accountHolder,
+      settleDocFileKey: agency.settle_doc_file_key || file?.fileKey || ''
+    }
+  });
 
   return res.status(200).json({ success: true, data: agency });
 }));
@@ -2911,6 +3195,20 @@ app.post('/api/agency/:id/contract', authenticateAdmin, singleUpload('file'), as
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_CONTRACT_FILE_UPDATE',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: currentAgency.name || agency.name || '',
+    beforeData: {
+      contractFileKey: currentAgency.contractFileKey || '',
+      contractFileName: currentAgency.contractFileName || ''
+    },
+    afterData: {
+      contractFileKey: file.fileKey,
+      contractFileName: file.originalName
+    }
+  });
 
   return res.status(200).json({
     success: true,
@@ -3133,6 +3431,9 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       name: user.franchiseName || 'Unregistered store',
       agencyId: user.agencyId || null,
       agency: displayAgencyName(user.agencyName),
+      signupSource: user.signupSource || '',
+      signupAgencyId: user.signupAgencyId || null,
+      signupJoinCode: user.signupJoinCode || '',
       owner: user.name,
       phone: user.phone || '',
       address: user.address || '',
@@ -3212,6 +3513,12 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   }
 
   const defaultAgency = agencyId ? null : await repo.ensureDefaultAgency();
+  const selectedAgency = Number.isFinite(agencyId) ? { id: agencyId } : null;
+  const signupAttribution = createSignupAttribution({
+    source: 'admin_create',
+    agency: selectedAgency,
+    defaultAgency
+  });
   const user = await repo.createUser({
     email: loginId,
     loginId,
@@ -3223,8 +3530,20 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     address,
     tel,
     businessNumber,
-    agencyId: Number.isFinite(agencyId) ? agencyId : (defaultAgency?.id || null),
+    agencyId: signupAttribution.agencyId,
+    signupSource: signupAttribution.signupSource,
+    signupAgencyId: signupAttribution.signupAgencyId,
+    signupJoinCode: signupAttribution.signupJoinCode,
     franchiseFeeRate
+  });
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_CREATE',
+    entityType: 'franchise',
+    entityId: user.franchiseId,
+    entityName: user.franchiseName,
+    beforeData: {},
+    afterData: pickFranchiseAuditData(user),
+    force: true
   });
 
   const savedDeliveryAccounts = [];
@@ -3299,10 +3618,22 @@ app.patch('/api/admin/franchises/:id/agency', authenticateAdmin, asyncHandler(as
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
 
+  const beforeUser = await repo.findUserByFranchiseId(franchiseId);
   const user = await repo.updateFranchiseAgency(franchiseId, agencyId);
   if (!user) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', 'Franchise was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_AGENCY_UPDATE',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: user.franchiseName || beforeUser?.franchiseName || '',
+    beforeData: pickFranchiseAuditData(beforeUser),
+    afterData: {
+      ...pickFranchiseAuditData(user),
+      agencyName: displayAgencyName(agency.name)
+    }
+  });
   const removedDuplicateAccounts = typeof repo.dedupeDeliveryAccountsForFranchise === 'function'
     ? await repo.dedupeDeliveryAccountsForFranchise(franchiseId)
     : [];
@@ -3331,7 +3662,25 @@ app.post('/api/admin/franchises/agency/bulk', authenticateAdmin, asyncHandler(as
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
 
+  const beforeUsers = await Promise.all(
+    franchiseIds.map(id => repo.findUserByFranchiseId(Number(id))).filter(Boolean)
+  );
+  const beforeByFranchiseId = new Map(beforeUsers.filter(Boolean).map(user => [String(user.franchiseId), user]));
   const users = await repo.updateFranchisesAgency(franchiseIds, agencyId);
+  for (const user of users) {
+    const beforeUser = beforeByFranchiseId.get(String(user.franchiseId));
+    await recordAuditLog(req, {
+      action: 'FRANCHISE_AGENCY_BULK_UPDATE',
+      entityType: 'franchise',
+      entityId: user.franchiseId,
+      entityName: user.franchiseName || beforeUser?.franchiseName || '',
+      beforeData: pickFranchiseAuditData(beforeUser),
+      afterData: {
+        ...pickFranchiseAuditData(user),
+        agencyName: displayAgencyName(agency.name)
+      }
+    });
+  }
   return res.status(200).json({
     success: true,
     data: {
@@ -3396,6 +3745,8 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
       return sendError(res, 409, 'BUSINESS_EXISTS', '이미 가입된 사업자등록번호입니다.');
     }
   }
+  const beforeUser = await repo.findUserByFranchiseId(franchiseId);
+  const beforeDeliveryAccounts = await repo.listDeliveryAccountsByFranchise(franchiseId);
   let agency = null;
   if (agencyId) {
     const agencies = await repo.listAgencies();
@@ -3455,6 +3806,35 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     franchiseId,
     normalizedDeliveryAccounts
   );
+  const beforeAudit = pickFranchiseAuditData(beforeUser);
+  const afterAudit = pickFranchiseAuditData(updated);
+  if (password) {
+    beforeAudit.password = 'previous';
+    afterAudit.password = 'changed';
+  }
+  if (agency) {
+    afterAudit.agencyName = displayAgencyName(agency.name);
+  }
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_UPDATE',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: updated.franchiseName || beforeUser?.franchiseName || '',
+    beforeData: beforeAudit,
+    afterData: afterAudit
+  });
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_DELIVERY_ACCOUNTS_REPLACE',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: updated.franchiseName || beforeUser?.franchiseName || '',
+    beforeData: {
+      accounts: beforeDeliveryAccounts.map(pickDeliveryAccountAuditData)
+    },
+    afterData: {
+      accounts: savedDeliveryAccounts.map(pickDeliveryAccountAuditData)
+    }
+  });
 
   return res.status(200).json({
     success: true,
@@ -3505,10 +3885,20 @@ app.delete('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (r
     return sendError(res, 400, 'BAD_REQUEST', 'franchiseId is required.');
   }
 
+  const beforeUser = await repo.findUserByFranchiseId(franchiseId);
   const deleted = await repo.deleteFranchiseById(franchiseId);
   if (!deleted) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
   }
+  await recordAuditLog(req, {
+    action: 'FRANCHISE_DELETE',
+    entityType: 'franchise',
+    entityId: franchiseId,
+    entityName: deleted.franchiseName || beforeUser?.franchiseName || '',
+    beforeData: pickFranchiseAuditData(beforeUser || deleted),
+    afterData: {},
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -3977,6 +4367,19 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
   });
 }));
 
+app.get('/api/admin/audit-logs', authenticateAdmin, asyncHandler(async (req, res) => {
+  const logs = await repo.listAuditLogs({
+    entityType: req.query.entityType,
+    entityId: req.query.entityId,
+    action: req.query.action,
+    limit: req.query.limit
+  });
+  return res.status(200).json({
+    success: true,
+    data: logs.map(serializeAuditLog)
+  });
+}));
+
 app.patch('/api/admin/me/password', authenticateAdmin, asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) {
@@ -3991,6 +4394,16 @@ app.patch('/api/admin/me/password', authenticateAdmin, asyncHandler(async (req, 
   }
   const updated = await repo.updateAdminUser(user.id, {
     passwordHash: await hashPassword(newPassword)
+  });
+  await recordAuditLog(req, {
+    action: 'ADMIN_PASSWORD_UPDATE',
+    entityType: 'admin',
+    entityId: user.id,
+    entityName: user.name || user.loginId,
+    beforeData: { ...pickAdminAuditData(user), password: 'previous' },
+    afterData: { ...pickAdminAuditData(updated), password: 'changed' },
+    changedFields: ['password'],
+    force: true
   });
   return res.status(200).json({
     success: true,
@@ -4031,6 +4444,15 @@ app.post('/api/admin/admins', authenticateAdmin, requireSuperAdmin, asyncHandler
     adminLevel,
     adminPermissions,
     passwordHash: await hashPassword(password)
+  });
+  await recordAuditLog(req, {
+    action: 'ADMIN_USER_CREATE',
+    entityType: 'admin',
+    entityId: created.id,
+    entityName: created.name || created.loginId,
+    beforeData: {},
+    afterData: pickAdminAuditData(created),
+    force: true
   });
   return res.status(201).json({
     success: true,
@@ -4085,6 +4507,20 @@ app.patch('/api/admin/admins/:id', authenticateAdmin, requireSuperAdmin, asyncHa
     fields.passwordHash = await hashPassword(password);
   }
   const updated = await repo.updateAdminUser(id, fields);
+  const beforeAudit = pickAdminAuditData(current);
+  const afterAudit = pickAdminAuditData(updated);
+  if (fields.passwordHash !== undefined) {
+    beforeAudit.password = 'previous';
+    afterAudit.password = 'changed';
+  }
+  await recordAuditLog(req, {
+    action: 'ADMIN_USER_UPDATE',
+    entityType: 'admin',
+    entityId: id,
+    entityName: updated.name || current.name || updated.loginId,
+    beforeData: beforeAudit,
+    afterData: afterAudit
+  });
   return res.status(200).json({
     success: true,
     data: serializeAdminUser(updated)
@@ -4110,6 +4546,15 @@ app.delete('/api/admin/admins/:id', authenticateAdmin, requireSuperAdmin, asyncH
     }
   }
   const deleted = await repo.updateAdminUser(id, { adminActive: false });
+  await recordAuditLog(req, {
+    action: 'ADMIN_USER_DELETE',
+    entityType: 'admin',
+    entityId: id,
+    entityName: target.name || target.loginId,
+    beforeData: pickAdminAuditData(target),
+    afterData: pickAdminAuditData(deleted),
+    force: true
+  });
   return res.status(200).json({
     success: true,
     data: serializeAdminUser(deleted)
@@ -4808,6 +5253,15 @@ app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res)
     deliveryNote: String(deliveryNote || '').trim(),
     joinCode: `JOIN-${Date.now()}`
   });
+  await recordAuditLog(req, {
+    action: 'AGENCY_CREATE',
+    entityType: 'agency',
+    entityId: agency.id,
+    entityName: agency.name,
+    beforeData: {},
+    afterData: pickAgencyAuditData(agency),
+    force: true
+  });
 
   return res.status(201).json({
     success: true,
@@ -4829,6 +5283,8 @@ app.patch('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req,
   }
   const agencyKind = normalizeAdminAgencyKind(type, level);
 
+  const agencies = await repo.listAgencies();
+  const beforeAgency = agencies.find(item => Number(item.id) === agencyId);
   const agency = await repo.updateAgency(agencyId, {
     type: agencyKind.type,
     level: agencyKind.level,
@@ -4848,6 +5304,20 @@ app.patch('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req,
   if (nextPassword) {
     await repo.updateAgencyPasswordById(agencyId, await hashPassword(nextPassword));
   }
+  const beforeAudit = pickAgencyAuditData(beforeAgency);
+  const afterAudit = pickAgencyAuditData(agency);
+  if (nextPassword) {
+    beforeAudit.password = 'previous';
+    afterAudit.password = 'changed';
+  }
+  await recordAuditLog(req, {
+    action: 'AGENCY_UPDATE',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: agency.name || beforeAgency?.name || '',
+    beforeData: beforeAudit,
+    afterData: afterAudit
+  });
 
   return res.status(200).json({
     success: true,
@@ -4864,11 +5334,27 @@ app.patch('/api/admin/agencies/:id/join-code', authenticateAdmin, asyncHandler(a
   if (!Number.isFinite(agencyId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'agency id is required.');
   }
+  const agencies = await repo.listAgencies();
+  const beforeAgency = agencies.find(item => Number(item.id) === agencyId);
+  if (!beforeAgency) {
+    return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
+  }
+  if (isProtectedAgencyJoinCode(beforeAgency)) {
+    return sendError(res, 403, 'HQ_JOIN_CODE_LOCKED', '본사 가입링크는 변경할 수 없습니다.');
+  }
   const joinCode = bodyCode || `JOIN-${agencyId}-${Date.now().toString(36).toUpperCase()}`;
   const agency = await repo.updateAgencyJoinCode(agencyId, joinCode);
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_JOIN_CODE_UPDATE',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: agency.name || beforeAgency.name || '',
+    beforeData: pickAgencyAuditData(beforeAgency),
+    afterData: pickAgencyAuditData(agency)
+  });
   return res.status(200).json({
     success: true,
     data: {
@@ -4885,11 +5371,25 @@ app.delete('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req
   }
 
   const assignedCount = await repo.countUsersByAgencyId(agencyId);
+  const agencies = await repo.listAgencies();
+  const beforeAgency = agencies.find(item => Number(item.id) === agencyId);
 
   const agency = await repo.deleteAgency(agencyId);
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_DELETE',
+    entityType: 'agency',
+    entityId: agencyId,
+    entityName: agency.name || beforeAgency?.name || '',
+    beforeData: {
+      ...pickAgencyAuditData(beforeAgency || agency),
+      assignedFranchiseCount: assignedCount
+    },
+    afterData: {},
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -5306,10 +5806,19 @@ app.post('/api/admin/franchise/approve', authenticateAdmin, asyncHandler(async (
     return sendError(res, 400, 'INVALID_ACTION', 'action must be APPROVED or REJECTED.');
   }
 
+  const beforeUser = await repo.findUserByLoginId(email);
   const user = await repo.updateUserRoleByEmail(email, role);
   if (!user) {
     return sendError(res, 404, 'USER_NOT_FOUND', 'User was not found.');
   }
+  await recordAuditLog(req, {
+    action: action === 'APPROVED' ? 'FRANCHISE_APPROVE' : 'FRANCHISE_REJECT',
+    entityType: 'franchise',
+    entityId: user.franchiseId,
+    entityName: user.franchiseName || user.loginId,
+    beforeData: pickFranchiseAuditData(beforeUser),
+    afterData: pickFranchiseAuditData(user)
+  });
 
   return res.status(200).json({
     success: true,
@@ -5337,10 +5846,12 @@ app.put('/api/admin/accounts/:id', authenticateAdmin, singleUpload('documentFile
   }
 
   let updated;
+  let beforeAccount = null;
   if (source === 'delivery_account') {
     if (!/^\d+$/.test(id)) {
       return sendError(res, 400, 'INVALID_ACCOUNT_ID', 'delivery account id must be numeric.');
     }
+    beforeAccount = await repo.findDeliveryAccountById(Number(id));
     updated = await repo.updateDeliveryAccount(Number(id), {
       agencyName: deliveryAgencyName,
       bankName,
@@ -5349,6 +5860,7 @@ app.put('/api/admin/accounts/:id', authenticateAdmin, singleUpload('documentFile
       fileKey: uploadedFile?.fileKey || null
     });
   } else {
+    beforeAccount = await repo.findAccountRequest(id);
     updated = await repo.updateAccountRequestDetails(id, {
       bankName,
       deliveryAgencyName,
@@ -5361,6 +5873,14 @@ app.put('/api/admin/accounts/:id', authenticateAdmin, singleUpload('documentFile
   if (!updated) {
     return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
   }
+  await recordAuditLog(req, {
+    action: 'ACCOUNT_DETAIL_UPDATE',
+    entityType: source === 'delivery_account' ? 'delivery_account' : 'account_request',
+    entityId: id,
+    entityName: deliveryAgencyName || beforeAccount?.deliveryAgencyName || beforeAccount?.agencyName || '',
+    beforeData: source === 'delivery_account' ? pickDeliveryAccountAuditData(beforeAccount) : pickAccountRequestAuditData(beforeAccount),
+    afterData: source === 'delivery_account' ? pickDeliveryAccountAuditData(updated) : pickAccountRequestAuditData(updated)
+  });
 
   return res.status(200).json({
     success: true,
@@ -5378,16 +5898,21 @@ app.patch('/api/admin/accounts/:id/hidden', authenticateAdmin, asyncHandler(asyn
 
   const visibility = { active: !req.body.hidden, hidden: req.body.hidden };
   let updated;
+  let beforeAccount = null;
   if (source === 'delivery_account') {
     if (/^\d+$/.test(id)) {
+      beforeAccount = await repo.findDeliveryAccountById(Number(id));
       updated = await repo.updateDeliveryAccountVisibility(Number(id), visibility);
     }
     if (!updated) {
+      beforeAccount = beforeAccount || await repo.findAccountRequest(id);
       updated = await repo.updateAccountRequestVisibility(id, visibility);
     }
   } else {
+    beforeAccount = await repo.findAccountRequest(id);
     updated = await repo.updateAccountRequestVisibility(id, visibility);
     if (!updated && /^\d+$/.test(id)) {
+      beforeAccount = await repo.findDeliveryAccountById(Number(id));
       updated = await repo.updateDeliveryAccountVisibility(Number(id), visibility);
     }
   }
@@ -5395,6 +5920,19 @@ app.patch('/api/admin/accounts/:id/hidden', authenticateAdmin, asyncHandler(asyn
   if (!updated) {
     return sendError(res, 404, 'ACCOUNT_NOT_FOUND', '출금계좌를 DB에서 찾지 못했습니다.');
   }
+  const resolvedSource = updated.requestId ? 'account_request' : 'delivery_account';
+  await recordAuditLog(req, {
+    action: req.body.hidden ? 'ACCOUNT_HIDE' : 'ACCOUNT_SHOW',
+    entityType: resolvedSource,
+    entityId: updated.requestId || updated.id || id,
+    entityName: updated.deliveryAgencyName || updated.agencyName || '',
+    beforeData: resolvedSource === 'delivery_account'
+      ? pickDeliveryAccountAuditData(beforeAccount)
+      : pickAccountRequestAuditData(beforeAccount),
+    afterData: resolvedSource === 'delivery_account'
+      ? pickDeliveryAccountAuditData(updated)
+      : pickAccountRequestAuditData(updated)
+  });
 
   return res.status(200).json({
     success: true,
@@ -5407,18 +5945,24 @@ app.delete('/api/admin/accounts/:id', authenticateAdmin, asyncHandler(async (req
   const { id } = req.params;
   const source = String(req.query.source || 'account_request');
   let hiddenAccount;
+  let beforeAccount = null;
   if (source === 'delivery_account') {
     if (!/^\d+$/.test(id)) {
+      beforeAccount = await repo.findAccountRequest(id);
       hiddenAccount = await repo.updateAccountRequestVisibility(id, { active: false, hidden: true });
     } else {
+      beforeAccount = await repo.findDeliveryAccountById(Number(id));
       hiddenAccount = await repo.updateDeliveryAccountVisibility(Number(id), { active: false, hidden: true });
       if (!hiddenAccount) {
+        beforeAccount = await repo.findAccountRequest(id);
         hiddenAccount = await repo.updateAccountRequestVisibility(id, { active: false, hidden: true });
       }
     }
   } else {
+    beforeAccount = await repo.findAccountRequest(id);
     hiddenAccount = await repo.updateAccountRequestVisibility(id, { active: false, hidden: true });
     if (!hiddenAccount && /^\d+$/.test(id)) {
+      beforeAccount = await repo.findDeliveryAccountById(Number(id));
       hiddenAccount = await repo.updateDeliveryAccountVisibility(Number(id), { active: false, hidden: true });
     }
   }
@@ -5426,6 +5970,20 @@ app.delete('/api/admin/accounts/:id', authenticateAdmin, asyncHandler(async (req
   if (!hiddenAccount) {
     return sendError(res, 404, 'ACCOUNT_NOT_FOUND', '숨김 처리할 출금계좌를 DB에서 찾지 못했습니다.');
   }
+  const resolvedSource = hiddenAccount.requestId ? 'account_request' : 'delivery_account';
+  await recordAuditLog(req, {
+    action: 'ACCOUNT_DELETE',
+    entityType: resolvedSource,
+    entityId: hiddenAccount.requestId || hiddenAccount.id || id,
+    entityName: hiddenAccount.deliveryAgencyName || hiddenAccount.agencyName || '',
+    beforeData: resolvedSource === 'delivery_account'
+      ? pickDeliveryAccountAuditData(beforeAccount)
+      : pickAccountRequestAuditData(beforeAccount),
+    afterData: resolvedSource === 'delivery_account'
+      ? pickDeliveryAccountAuditData(hiddenAccount)
+      : pickAccountRequestAuditData(hiddenAccount),
+    force: true
+  });
 
   return res.status(200).json({
     success: true,
@@ -5599,6 +6157,198 @@ function sendError(res, statusCode, code, message, details = []) {
       timestamp: new Date().toISOString()
     }
   });
+}
+
+function auditActorFromRequest(req) {
+  const user = req.user || {};
+  return {
+    actorUserId: user.id || null,
+    actorRole: user.role || user.adminLevel || '',
+    actorLoginId: user.loginId || user.email || '',
+    actorName: user.name || user.franchiseName || user.agencyName || ''
+  };
+}
+
+function auditRequestMeta(req) {
+  const forwardedFor = String(req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  return {
+    requestMethod: req.method || '',
+    requestPath: req.originalUrl || req.url || '',
+    ipAddress: forwardedFor || req.ip || '',
+    userAgent: String(req.headers?.['user-agent'] || '')
+  };
+}
+
+async function recordAuditLog(req, {
+  action,
+  entityType,
+  entityId,
+  entityName = '',
+  beforeData = {},
+  afterData = {},
+  changedFields = null,
+  force = false
+}) {
+  if (!action || !entityType) return null;
+  const changeSet = Array.isArray(changedFields)
+    ? {
+        beforeData: sanitizeAuditData(beforeData || {}),
+        afterData: sanitizeAuditData(afterData || {}),
+        changedFields: changedFields.map(String)
+      }
+    : buildAuditChangeSet(beforeData || {}, afterData || {});
+  if (!force && changeSet.changedFields.length === 0) return null;
+  try {
+    return await repo.createAuditLog({
+      ...auditActorFromRequest(req),
+      action,
+      entityType,
+      entityId,
+      entityName,
+      beforeData: changeSet.beforeData,
+      afterData: changeSet.afterData,
+      changedFields: changeSet.changedFields,
+      ...auditRequestMeta(req)
+    });
+  } catch (err) {
+    console.warn('[AUDIT_LOG_WRITE_FAILED]', {
+      action,
+      entityType,
+      entityId,
+      message: err?.message || String(err)
+    });
+    return null;
+  }
+}
+
+function pickFranchiseAuditData(user) {
+  if (!user) return {};
+  return {
+    id: user.id,
+    franchiseId: user.franchiseId,
+    loginId: user.loginId,
+    contactEmail: user.contactEmail || '',
+    franchiseName: user.franchiseName || '',
+    ownerName: user.name || '',
+    phone: user.phone || '',
+    address: user.address || '',
+    tel: user.tel || '',
+    businessNumber: user.businessNumber || '',
+    agencyId: user.agencyId || null,
+    agencyName: user.agencyName || '',
+    franchiseFeeRate: user.franchiseFeeRate == null ? null : Number(user.franchiseFeeRate),
+    role: user.role || '',
+    bizDocFileKey: user.bizDocFileKey || '',
+    signupSource: user.signupSource || '',
+    signupAgencyId: user.signupAgencyId || null,
+    signupJoinCode: user.signupJoinCode || ''
+  };
+}
+
+function pickAgencyAuditData(agency) {
+  if (!agency) return {};
+  return {
+    id: agency.id,
+    type: agency.type || '',
+    level: agency.level == null ? null : Number(agency.level),
+    parentId: agency.parentId || null,
+    name: displayAgencyName(agency.name),
+    loginId: agency.loginId || '',
+    owner: agency.owner || '',
+    phone: agency.phone || '',
+    region: agency.region || agency.address || '',
+    feeRate: agency.feeRate == null ? 0 : Number(agency.feeRate),
+    deliveryNote: agency.deliveryNote || '',
+    joinCode: agency.joinCode || ''
+  };
+}
+
+function pickDeliveryAccountAuditData(account) {
+  if (!account) return {};
+  return {
+    id: account.id,
+    franchiseId: account.franchiseId,
+    agencyId: account.agencyId || null,
+    agencyName: account.agencyName || '',
+    bankName: account.bankName || '',
+    accountHolder: account.accountHolder || '',
+    accountNo: account.accountNo || '',
+    fileKey: account.fileKey || '',
+    fileName: deliveryAccountDisplayFileName(account),
+    accountStatus: account.accountStatus || account.status || '',
+    txid: account.txid || '',
+    active: account.active !== false,
+    hidden: account.hidden === true
+  };
+}
+
+function pickAccountRequestAuditData(request) {
+  if (!request) return {};
+  return {
+    requestId: request.requestId,
+    franchiseId: request.franchiseId,
+    franchiseName: request.franchiseName || '',
+    businessNumber: request.businessNumber || '',
+    bankName: request.bankName || '',
+    deliveryAgencyName: request.deliveryAgencyName || '',
+    accountNo: request.accountNo || '',
+    accountHolder: request.representativeName || '',
+    status: request.status || '',
+    documentUrl: request.documentUrl || '',
+    documentOriginalName: request.documentOriginalName || '',
+    assignedVirtualAccount: request.assignedVirtualAccount || null,
+    txid: request.txid || '',
+    active: request.active !== false,
+    hidden: request.hidden === true
+  };
+}
+
+function pickCardAuditData(card) {
+  if (!card) return {};
+  return {
+    id: card.id,
+    userId: card.userId || card.user_id || null,
+    maskedNumber: card.maskedNumber || card.masked_number || '',
+    cardName: card.cardName || card.card_name || '',
+    cardCompany: card.cardCompany || card.card_company || '',
+    alias: card.alias || '',
+    active: card.active !== false,
+    hidden: card.hidden === true
+  };
+}
+
+function pickAdminAuditData(user) {
+  if (!user) return {};
+  return {
+    id: user.id,
+    loginId: user.loginId || user.email || '',
+    name: user.name || '',
+    adminLevel: normalizeAdminLevel(user.adminLevel),
+    adminPermissions: normalizeAdminPermissions(user.adminPermissions, user.adminLevel),
+    adminActive: user.adminActive !== false
+  };
+}
+
+function serializeAuditLog(log) {
+  return {
+    id: log.id,
+    actorUserId: log.actorUserId,
+    actorRole: log.actorRole,
+    actorLoginId: log.actorLoginId,
+    actorName: log.actorName,
+    action: log.action,
+    entityType: log.entityType,
+    entityId: log.entityId,
+    entityName: log.entityName,
+    beforeData: log.beforeData || {},
+    afterData: log.afterData || {},
+    changedFields: log.changedFields || [],
+    requestMethod: log.requestMethod,
+    requestPath: log.requestPath,
+    ipAddress: log.ipAddress,
+    userAgent: log.userAgent,
+    createdAt: log.createdAt
+  };
 }
 
 function handleError(err, res) {

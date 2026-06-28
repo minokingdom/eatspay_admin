@@ -21,6 +21,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id TEXT UNIQUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_email TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS biz_doc_file_key TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pos_file_key TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_agency_id BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_join_code TEXT;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_business_number_key;
 DROP INDEX IF EXISTS users_business_number_unique_except_test_idx;
 CREATE UNIQUE INDEX IF NOT EXISTS users_business_number_unique_except_test_idx
@@ -107,6 +110,30 @@ CREATE TABLE IF NOT EXISTS stored_files (
   uploaded_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT,
+  actor_role TEXT NOT NULL DEFAULT '',
+  actor_login_id TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL DEFAULT '',
+  entity_name TEXT NOT NULL DEFAULT '',
+  before_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  after_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  changed_fields TEXT[] NOT NULL DEFAULT '{}',
+  request_method TEXT NOT NULL DEFAULT '',
+  request_path TEXT NOT NULL DEFAULT '',
+  ip_address TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS agencies (
   id BIGSERIAL PRIMARY KEY,

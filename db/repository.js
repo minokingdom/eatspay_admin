@@ -26,7 +26,33 @@ function toUser(row) {
     bizDocFileKey: row.biz_doc_file_key,
     bizDocFileName: row.biz_doc_original_name,
     posFileKey: row.pos_file_key,
+    signupSource: row.signup_source,
+    signupAgencyId: row.signup_agency_id,
+    signupJoinCode: row.signup_join_code,
     createdAt: row.created_at
+  };
+}
+
+function toAuditLog(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    actorUserId: row.actor_user_id,
+    actorRole: row.actor_role,
+    actorLoginId: row.actor_login_id,
+    actorName: row.actor_name,
+    action: row.action,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    entityName: row.entity_name,
+    beforeData: row.before_data || {},
+    afterData: row.after_data || {},
+    changedFields: Array.isArray(row.changed_fields) ? row.changed_fields : [],
+    requestMethod: row.request_method,
+    requestPath: row.request_path,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
   };
 }
 
@@ -917,6 +943,66 @@ function createRepository(pool) {
       return toNotification(result.rows[0]);
     },
 
+    async createAuditLog(log) {
+      const result = await pool.query(
+        `INSERT INTO audit_logs (
+          actor_user_id, actor_role, actor_login_id, actor_name,
+          action, entity_type, entity_id, entity_name,
+          before_data, changed_fields, after_data,
+          request_method, request_path, ip_address, user_agent
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::text[], $11::jsonb, $12, $13, $14, $15)
+        RETURNING *`,
+        [
+          log.actorUserId || null,
+          log.actorRole || '',
+          log.actorLoginId || '',
+          log.actorName || '',
+          log.action,
+          log.entityType,
+          String(log.entityId || ''),
+          log.entityName || '',
+          JSON.stringify(log.beforeData || {}),
+          Array.isArray(log.changedFields) ? log.changedFields.map(String) : [],
+          JSON.stringify(log.afterData || {}),
+          log.requestMethod || '',
+          log.requestPath || '',
+          log.ipAddress || '',
+          log.userAgent || ''
+        ]
+      );
+      return toAuditLog(result.rows[0]);
+    },
+
+    async listAuditLogs(filters = {}) {
+      const clauses = [];
+      const params = [];
+      if (filters.entityType) {
+        params.push(String(filters.entityType));
+        clauses.push(`entity_type = $${params.length}`);
+      }
+      if (filters.entityId) {
+        params.push(String(filters.entityId));
+        clauses.push(`entity_id = $${params.length}`);
+      }
+      if (filters.action) {
+        params.push(String(filters.action));
+        clauses.push(`action = $${params.length}`);
+      }
+      const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
+      params.push(limit);
+      const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      const result = await pool.query(
+        `SELECT *
+         FROM audit_logs
+         ${whereSql}
+         ORDER BY created_at DESC, id DESC
+         LIMIT $${params.length}`,
+        params
+      );
+      return result.rows.map(toAuditLog);
+    },
+
     async listUnreadNotifications(userId) {
       const result = await pool.query(
         `SELECT * FROM notifications
@@ -1038,9 +1124,10 @@ function createRepository(pool) {
       const result = await pool.query(
         `INSERT INTO users (
           email, password_hash, name, franchise_name, role, balance,
-          phone, address, tel, business_number, agency_id, biz_doc_file_key, pos_file_key, franchise_fee_rate
+          phone, address, tel, business_number, agency_id, biz_doc_file_key, pos_file_key, franchise_fee_rate,
+          signup_source, signup_agency_id, signup_join_code
         )
-        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING *`,
         [
           user.email,
@@ -1054,7 +1141,10 @@ function createRepository(pool) {
           user.agencyId || null,
           user.bizDocFileKey || null,
           user.posFileKey || null,
-          user.franchiseFeeRate == null || user.franchiseFeeRate === '' ? 0 : Number(user.franchiseFeeRate)
+          user.franchiseFeeRate == null || user.franchiseFeeRate === '' ? 0 : Number(user.franchiseFeeRate),
+          user.signupSource || null,
+          user.signupAgencyId || null,
+          user.signupJoinCode || null
         ]
       );
       if (user.loginId || user.contactEmail) {

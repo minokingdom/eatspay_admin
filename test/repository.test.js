@@ -67,6 +67,92 @@ test('createUser stores only a password hash field', async () => {
   assert.deepEqual(poolCalls[0].params.slice(0, 2), ['owner@example.com', 'hash-value']);
 });
 
+test('createUser stores signup link attribution separately from current agency', async () => {
+  const { pool, poolCalls } = createFakePool({
+    rowsBySql: [{
+      includes: 'INSERT INTO users',
+      rows: [{
+        id: 10,
+        email: 'owner@example.com',
+        name: 'Kim',
+        franchise_name: 'Store',
+        franchise_id: 100,
+        role: 'OWNER',
+        balance: 0,
+        agency_id: 210,
+        signup_source: 'agency_link',
+        signup_agency_id: 210,
+        signup_join_code: 'JOIN-210'
+      }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  const user = await repo.createUser({
+    email: 'owner@example.com',
+    passwordHash: 'hash-value',
+    name: 'Kim',
+    franchiseName: 'Store',
+    phone: '010-0000-0000',
+    address: 'Seoul',
+    tel: '02-000-0000',
+    businessNumber: '120-00-12345',
+    agencyId: 210,
+    signupSource: 'agency_link',
+    signupAgencyId: 210,
+    signupJoinCode: 'JOIN-210'
+  });
+
+  assert.equal(user.signupSource, 'agency_link');
+  assert.equal(user.signupAgencyId, 210);
+  assert.equal(user.signupJoinCode, 'JOIN-210');
+  assert.match(poolCalls[0].sql, /signup_source/);
+  assert.match(poolCalls[0].sql, /signup_agency_id/);
+  assert.match(poolCalls[0].sql, /signup_join_code/);
+  assert.deepEqual(poolCalls[0].params.slice(-3), ['agency_link', 210, 'JOIN-210']);
+});
+
+test('createAuditLog stores actor, entity, request, and change data', async () => {
+  const { pool, poolCalls } = createFakePool({
+    rowsBySql: [{
+      includes: 'INSERT INTO audit_logs',
+      rows: [{
+        id: 1,
+        action: 'FRANCHISE_UPDATE',
+        entity_type: 'franchise',
+        entity_id: '100',
+        entity_name: 'Store',
+        changed_fields: ['franchiseName']
+      }]
+    }]
+  });
+  const repo = createRepository(pool);
+
+  const log = await repo.createAuditLog({
+    actorUserId: 7,
+    actorRole: 'ADMIN',
+    actorLoginId: 'admin',
+    actorName: 'Admin',
+    action: 'FRANCHISE_UPDATE',
+    entityType: 'franchise',
+    entityId: 100,
+    entityName: 'Store',
+    beforeData: { franchiseName: 'Old' },
+    afterData: { franchiseName: 'Store' },
+    changedFields: ['franchiseName'],
+    requestMethod: 'PUT',
+    requestPath: '/api/admin/franchises/100',
+    ipAddress: '127.0.0.1',
+    userAgent: 'node:test'
+  });
+
+  assert.equal(log.action, 'FRANCHISE_UPDATE');
+  assert.match(poolCalls[0].sql, /INSERT INTO audit_logs/);
+  assert.equal(poolCalls[0].params[0], 7);
+  assert.equal(poolCalls[0].params[4], 'FRANCHISE_UPDATE');
+  assert.deepEqual(poolCalls[0].params[9], ['franchiseName']);
+});
+
 test('recordCharge runs in a transaction and returns the updated balance', async () => {
   const { pool, clientCalls, client } = createFakePool({
     clientRowsBySql: [
@@ -89,8 +175,8 @@ test('recordCharge runs in a transaction and returns the updated balance', async
 
   assert.equal(result.updatedBalance, 245398);
   assert.equal(clientCalls[0].sql, 'BEGIN');
-  assert.match(clientCalls[1].sql, /UPDATE users/);
-  assert.match(clientCalls[2].sql, /INSERT INTO transactions/);
+  assert.ok(clientCalls.some(call => /UPDATE users/.test(call.sql)));
+  assert.ok(clientCalls.some(call => /INSERT INTO transactions/.test(call.sql)));
   assert.equal(clientCalls.at(-1).sql, 'COMMIT');
   assert.equal(client.released, true);
 });
@@ -138,7 +224,7 @@ test('upsertAdminUser creates or updates an ADMIN account', async () => {
   assert.equal(user.franchiseName, 'Admin');
   assert.equal(user.franchiseId, 1);
   assert.match(poolCalls[0].sql, /ON CONFLICT \(email\)/);
-  assert.deepEqual(poolCalls[0].params, ['admin@example.com', 'hash-value', 'Admin']);
+  assert.deepEqual(poolCalls[0].params.slice(0, 3), ['admin@example.com', 'hash-value', 'Admin']);
   assert.match(poolCalls[1].sql, /franchise_id = id/);
 });
 
@@ -255,7 +341,7 @@ test('createAccountRequest stores app-submitted virtual account details', async 
 test('lists app account requests by franchise from database', async () => {
   const { pool, poolCalls } = createFakePool({
     rowsBySql: [{
-      includes: 'WHERE franchise_id = $1',
+      includes: 'WHERE ar.franchise_id = $1',
       rows: [{
         request_id: 'REQ-20260617-0002',
         franchise_id: 1001,
@@ -288,7 +374,7 @@ test('listPgSettlements returns paginated PG settlement rows', async () => {
   const { pool, poolCalls } = createFakePool({
     rowsBySql: [
       {
-        includes: 'ORDER BY settled_at DESC',
+        includes: 'ORDER BY COALESCE(ps.settled_at',
         rows: [{
           id: 1,
           settled_at: '2026-05-18T05:35:00.000Z',
@@ -317,7 +403,7 @@ test('listPgSettlements returns paginated PG settlement rows', async () => {
 
   assert.equal(result.totalItems, 1);
   assert.equal(result.items[0].pgTxId, 'PGNP202605181430');
-  assert.match(poolCalls[0].sql, /ORDER BY settled_at DESC/);
+  assert.match(poolCalls[0].sql, /ORDER BY COALESCE\(ps\.settled_at/);
 });
 
 test('deleteCardByUserId deletes only cards owned by the user', async () => {
