@@ -2297,12 +2297,14 @@ html.native-app .screen-container {
 }
 
 .talk-cafe-thumb {
+  grid-column: 2;
   width: 54px;
   height: 54px;
   border-radius: 12px;
 }
 
 .talk-cafe-comment-box {
+  grid-column: 3;
   width: 54px;
   height: 54px;
   border-radius: 12px;
@@ -2314,13 +2316,15 @@ html.native-app .screen-container {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  width: auto;
-  min-width: 92px;
+  gap: 0;
+  width: 54px;
+  min-width: 54px;
   height: 46px;
-  padding: 0 15px;
+  padding: 0;
   border-radius: 999px;
   font-size: 16px;
+  overflow: hidden;
+  transition: width .22s ease, min-width .22s ease, padding .22s ease, gap .22s ease, box-shadow .22s ease, transform .18s ease;
 }
 
 .talk-write-floating span {
@@ -2329,9 +2333,31 @@ html.native-app .screen-container {
 }
 
 .talk-write-floating strong {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 900;
   line-height: 1;
+  transition: max-width .22s ease, opacity .16s ease;
+}
+
+.talk-write-floating:hover,
+.talk-write-floating:focus-visible,
+.talk-write-floating.is-expanded {
+  width: 106px;
+  min-width: 106px;
+  padding: 0 15px;
+  gap: 5px;
+  box-shadow: 0 14px 28px rgba(3, 199, 90, .34);
+}
+
+.talk-write-floating:hover strong,
+.talk-write-floating:focus-visible strong,
+.talk-write-floating.is-expanded strong {
+  max-width: 46px;
+  opacity: 1;
 }
 
 .talk-write-floating.home-talk-write-floating {
@@ -2385,18 +2411,116 @@ html.native-app .screen-container {
   text-align: center;
 }
 
+.talk-detail-chat-card {
+  position: relative;
+  width: 100%;
+  min-height: 58px;
+  margin-top: 16px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #06c85f 0%, #0bab50 100%);
+  padding: 12px 44px 12px 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #fff;
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(3, 199, 90, .24);
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+
+.talk-detail-chat-card::after {
+  content: "›";
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-52%);
+  color: rgba(255, 255, 255, .86);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.talk-detail-chat-card:active {
+  transform: translateY(1px) scale(.992);
+  box-shadow: 0 8px 18px rgba(3, 199, 90, .2);
+}
+
+.talk-detail-chat-card:disabled {
+  cursor: not-allowed;
+  opacity: .68;
+  filter: grayscale(.3);
+}
+
+.talk-detail-chat-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .96);
+  color: #05aa50;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.talk-detail-chat-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.talk-detail-chat-copy strong,
+.talk-detail-chat-copy em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+
+.talk-detail-chat-copy strong {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.talk-detail-chat-copy em {
+  color: rgba(255, 255, 255, .82);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 @media (max-width: 390px) {
   .talk-cafe-post {
-    grid-template-columns: minmax(0, 1fr) 48px;
+    grid-template-columns: minmax(0, 1fr) 52px 52px;
+    gap: 8px;
+    padding: 13px 12px;
   }
 
+  .talk-cafe-thumb,
   .talk-cafe-comment-box {
-    display: none;
+    width: 52px;
+    height: 52px;
   }
 
   .talk-write-floating {
-    min-width: 82px;
+    width: 52px;
+    min-width: 52px;
     height: 44px;
+  }
+
+  .talk-write-floating:hover,
+  .talk-write-floating:focus-visible,
+  .talk-write-floating.is-expanded {
+    width: 100px;
+    min-width: 100px;
     padding: 0 13px;
   }
 }
@@ -3536,11 +3660,11 @@ html.native-app .screen-container {
   z-index: 10;
   display: block;
   background: transparent;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .bottom-nav .nav-item > * {
-  pointer-events: auto !important;
+  pointer-events: none !important;
 }
 
 html.nav-cursor-pointer,
@@ -3620,7 +3744,7 @@ html.nav-cursor-pointer body * {
   color: currentColor;
   background: currentColor;
   opacity: .82;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;
@@ -3649,7 +3773,7 @@ html.nav-cursor-pointer body * {
 .nav-item svg {
   width: 22px;
   height: 22px;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   stroke: currentColor;
   transition: transform 0.18s ease, color 0.18s ease;
 }
@@ -3672,7 +3796,7 @@ html.nav-cursor-pointer body * {
   z-index: 1;
   font-size: 11px;
   font-weight: 650;
-  pointer-events: auto;
+  pointer-events: none;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;

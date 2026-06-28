@@ -1207,13 +1207,13 @@ function ensureAppBannerSlot(type) {
   const place = {
     '메인': { parent: '#screen-home .scrollable-content', before: '#home-coway-banner' },
     '결제': { parent: '#screen-charge .scrollable-content', before: '#screen-charge .scrollable-content > div:first-child' },
-    '이츠톡': { parent: '#screen-talk .screen-content', before: '#talk-status-filter' },
+    '이츠톡': { parent: '#screen-talk .screen-content', before: '.talk-screen-panel' },
     '고객센터': { parent: '#screen-cs-main .cs-main-content', before: '.cs-main-contact' }
   }[type];
   const parent = place ? $(place.parent) : null;
   if (!parent) return null;
   const before = place.before ? $(place.before, parent) || $(place.before) : null;
-  if (before) parent.insertBefore(slot, before);
+  if (before && before.parentNode === parent) parent.insertBefore(slot, before);
   else parent.prepend(slot);
   return slot;
 }
@@ -5190,14 +5190,8 @@ function renderTalkDetail() {
   const wrap = $('#talk-detail-body');
   if (!wrap) return;
   const post = talkPostCache.find(item => String(item.id) === String(selectedTalkPostId));
-  const chatButton = $('#btn-talk-start-chat');
   if (!post) {
     wrap.innerHTML = '<div style="padding:32px 0;color:var(--text-muted);font-weight:800;text-align:center;">게시글을 찾을 수 없습니다.</div>';
-    if (chatButton) {
-      chatButton.disabled = true;
-      chatButton.textContent = '채팅할 수 없습니다';
-      chatButton.onclick = null;
-    }
     return;
   }
   const images = getTalkImages(post);
@@ -5221,6 +5215,13 @@ function renderTalkDetail() {
           <span>${escapeHtml(detailDate)} · 조회 ${escapeHtml(viewCount)}</span>
         </div>
       </div>
+      <button id="btn-talk-start-chat" type="button" class="talk-detail-chat-card">
+        <span class="talk-detail-chat-icon" aria-hidden="true">톡</span>
+        <span class="talk-detail-chat-copy">
+          <strong>${escapeHtml(author)}와 1:1 채팅</strong>
+          <em>게시글 내용으로 바로 대화를 시작합니다.</em>
+        </span>
+      </button>
       <div class="talk-detail-body-text">${escapeHtml(post.body || '')}</div>
       ${images.length ? `
         <div class="talk-detail-images">
@@ -5235,6 +5236,7 @@ function renderTalkDetail() {
     </article>
     ${renderTalkCommentsSection({ ...post, commentCount: Number(post.commentCount || comments.length || 0) })}
   `;
+  const chatButton = $('#btn-talk-start-chat');
   const likeBtn = $('#btn-talk-like');
   const likeCountEl = $('#talk-detail-like-count');
   const commentCountEl = $('#talk-detail-comment-count');
@@ -5245,13 +5247,19 @@ function renderTalkDetail() {
   if (likeCountEl) likeCountEl.textContent = likeCount;
   if (commentCountEl) commentCountEl.textContent = commentCount;
   if (chatButton) {
+    const chatTitle = $('.talk-detail-chat-copy strong', chatButton);
+    const chatDesc = $('.talk-detail-chat-copy em', chatButton);
     if (isOwnPost) {
       chatButton.disabled = false;
-      chatButton.textContent = '1:1 채팅';
+      chatButton.classList.remove('is-disabled');
+      if (chatTitle) chatTitle.textContent = '이 게시글 채팅 보기';
+      if (chatDesc) chatDesc.textContent = '이 글로 시작된 1:1 대화를 확인합니다.';
       chatButton.onclick = () => openTalkChatsForPost(post.id);
     } else {
       chatButton.disabled = Boolean(isSold);
-      chatButton.textContent = isSold ? '판매완료' : '1:1 채팅';
+      chatButton.classList.toggle('is-disabled', isSold);
+      if (chatTitle) chatTitle.textContent = isSold ? '거래가 완료된 게시글입니다' : `${author}와 1:1 채팅`;
+      if (chatDesc) chatDesc.textContent = isSold ? '완료된 글은 새 대화를 시작할 수 없습니다.' : '게시글 내용으로 바로 대화를 시작합니다.';
       chatButton.onclick = isSold ? null : () => startTalkChat(post.id);
     }
   }
@@ -6209,6 +6217,47 @@ document.addEventListener('DOMContentLoaded', () => {
       document.documentElement.classList.remove('nav-cursor-pointer');
     }
   });
+
+  function getBottomNavItemFromEvent(event) {
+    const fromPath = event.target.closest?.('.bottom-nav .nav-item');
+    if (fromPath) return fromPath;
+    const fromPoint = document.elementFromPoint(event.clientX, event.clientY);
+    return fromPoint?.closest?.('.bottom-nav .nav-item') || null;
+  }
+
+  function navigateBottomNavItem(navItem, event) {
+    if (!navItem) return false;
+    const id = navItem.id || '';
+    const target = navItem.dataset.navTarget
+      || (id.startsWith('nav-home') ? 'home' : '')
+      || (id.startsWith('nav-agency') ? 'agency' : '')
+      || (id.startsWith('nav-my') ? 'my' : '')
+      || (id.startsWith('nav-cs') ? 'cs' : '');
+    if (!target) return false;
+    event?.preventDefault?.();
+    if (target === 'home') navigate('home');
+    else if (target === 'agency') navigate('agency');
+    else if (target === 'my') navigate('my');
+    else if (target === 'cs') navigate('cs-main');
+    return true;
+  }
+
+  document.addEventListener('pointerup', event => {
+    const navItem = getBottomNavItemFromEvent(event);
+    if (!navItem) return;
+    navigateBottomNavItem(navItem, event);
+  }, { capture: true });
+
+  document.addEventListener('pointerover', event => {
+    const writeBtn = event.target.closest?.('.talk-write-floating');
+    if (writeBtn) writeBtn.classList.add('is-expanded');
+  }, { passive: true });
+  document.addEventListener('pointerout', event => {
+    const writeBtn = event.target.closest?.('.talk-write-floating');
+    const next = event.relatedTarget;
+    if (writeBtn && next && writeBtn.contains(next)) return;
+    if (writeBtn) writeBtn.classList.remove('is-expanded');
+  }, { passive: true });
   document.addEventListener('click', event => {
     const managedBanner = event.target.closest('.app-managed-banner');
     if (managedBanner) {
@@ -6218,22 +6267,10 @@ document.addEventListener('DOMContentLoaded', () => {
       else toggleAppBannerDetail(managedBanner);
       return;
     }
-    const navItem = event.target.closest('.bottom-nav .nav-item');
+    const navItem = getBottomNavItemFromEvent(event);
+    if (navigateBottomNavItem(navItem, event)) return;
     if (!navItem) return;
     const id = navItem.id || '';
-    const target = navItem.dataset.navTarget
-      || (id.startsWith('nav-home') ? 'home' : '')
-      || (id.startsWith('nav-agency') ? 'agency' : '')
-      || (id.startsWith('nav-my') ? 'my' : '')
-      || (id.startsWith('nav-cs') ? 'cs' : '');
-    if (target) {
-      event.preventDefault();
-      if (target === 'home') navigate('home');
-      else if (target === 'agency') navigate('agency');
-      else if (target === 'my') navigate('my');
-      else if (target === 'cs') navigate('cs-main');
-      return;
-    }
     if (id.startsWith('nav-home')) {
       event.preventDefault();
       navigate('home');
