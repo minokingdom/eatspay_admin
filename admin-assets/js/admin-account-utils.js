@@ -20,6 +20,14 @@
     return `/api/files/${encodeURIComponent(fileName)}`;
   }
 
+  function proofZoomButton(documentUrl, displayName = '증빙 이미지', imageClass = 'account-proof-img', altText = '증빙 이미지') {
+    const safeUrl = esc(documentUrl);
+    const safeName = esc(displayName || '증빙 이미지');
+    return `<button type="button" class="proof-thumb-button" data-proof-zoom-open="1" data-proof-zoom-url="${safeUrl}" data-proof-zoom-name="${safeName}" title="확대/축소">
+      <img src="${safeUrl}" alt="${esc(altText || displayName || '증빙 이미지')}" class="${esc(imageClass)}">
+    </button>`;
+  }
+
   function accountProofPreview(account = {}) {
     const fileName = String(account.fileName || '').trim();
     const documentUrl = accountDocumentUrl(account);
@@ -30,7 +38,7 @@
     }
     return `<div class="account-proof-preview">
       ${isImage
-        ? `<img src="${safeUrl}" alt="포스 증빙 사진" class="account-proof-preview-img">`
+        ? proofZoomButton(documentUrl, fileName || '포스 증빙 사진', 'account-proof-preview-img', '포스 증빙 사진')
         : '<div class="account-proof-preview-note">이미지 미리보기를 지원하지 않는 파일입니다.</div>'}
       <a class="btn bo xs" href="${safeUrl}" target="_blank" rel="noopener">원본 열기</a>
     </div>`;
@@ -56,6 +64,7 @@
   window.EatsAdminAccountUtils = Object.assign(root, {
     version: '2026-06-26.account-utils.1',
     accountDocumentUrl,
+    proofZoomButton,
     accountProofPreview,
     accountEditForm,
     getManagedAccountIdentity

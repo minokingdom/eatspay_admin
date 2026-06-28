@@ -151,9 +151,12 @@
     const readOnlyAccount = da.readonly === true || da.source === 'pg_settlement';
     const documentUrl = da.documentUrl || (da.fileKey ? `/uploads/${encodeURIComponent(da.fileKey)}` : '');
     const isImage = /\.(png|jpe?g|gif|webp)$/i.test(documentUrl || da.fileName || '');
+    const proofZoomButton = window.EatsAdminAccountUtils?.proofZoomButton;
     const filePreview = documentUrl
       ? (isImage
-        ? `<img src="${esc(documentUrl)}" alt="증빙 이미지" class="account-proof-img">`
+        ? (typeof proofZoomButton === 'function'
+          ? proofZoomButton(documentUrl, da.fileName || '증빙 이미지', 'account-proof-img', '증빙 이미지')
+          : `<button type="button" class="proof-thumb-button" data-proof-zoom-open="1" data-proof-zoom-url="${esc(documentUrl)}" data-proof-zoom-name="${esc(da.fileName || '증빙 이미지')}" title="확대/축소"><img src="${esc(documentUrl)}" alt="증빙 이미지" class="account-proof-img"></button>`)
         : `<a class="btn bo" href="${esc(documentUrl)}" target="_blank" rel="noopener">증빙 파일 열기</a>`)
       : `<div class="account-proof-empty"><span>파일 없음</span><small>업로드된 증빙 파일이 없습니다.</small></div>`;
     const footerButtons = [];

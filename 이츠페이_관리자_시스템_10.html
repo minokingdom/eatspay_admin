@@ -10,8 +10,8 @@
 <script src="/admin-assets/js/admin-agency-tree.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260628-card-payment-chip"></script>
-<script src="/admin-assets/js/admin-account-utils.js?v=20260628-account-filekey"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260628-account-filekey"></script>
+<script src="/admin-assets/js/admin-account-utils.js?v=20260628-proof-zoom"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260628-proof-zoom"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260627-admin54"></script>
@@ -55,7 +55,7 @@ try{
   pgProviders:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260628-xlsx-export">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260628-proof-zoom">
 </head>
 <body>
 <div class="app">
@@ -490,6 +490,77 @@ function adminModalButton(label,attrs='',variant='secondary'){
 }
 function adminModalFooter(...buttons){
   return`<div class="admin-modal-footer-actions">${buttons.join('')}</div>`;
+}
+let proofZoomScale=1;
+function proofZoomThumb(url,name='증빙 이미지',imageClass='account-proof-img',altText='증빙 이미지'){
+  const safeUrl=esc(url||'');
+  const safeName=esc(name||'증빙 이미지');
+  return`<button type="button" class="proof-thumb-button" data-proof-zoom-open="1" data-proof-zoom-url="${safeUrl}" data-proof-zoom-name="${safeName}" title="확대/축소">
+    <img src="${safeUrl}" alt="${esc(altText||name||'증빙 이미지')}" class="${esc(imageClass)}">
+  </button>`;
+}
+function ensureProofImageZoomOverlay(){
+  let overlay=document.querySelector('[data-proof-zoom-overlay]');
+  if(overlay)return overlay;
+  overlay=document.createElement('div');
+  overlay.className='proof-zoom-overlay admin-hidden';
+  overlay.setAttribute('data-proof-zoom-overlay','1');
+  overlay.innerHTML=`
+    <div class="proof-zoom-shell" role="dialog" aria-modal="true" aria-label="증빙 이미지 확대 보기">
+      <div class="proof-zoom-toolbar">
+        <div class="proof-zoom-title" data-proof-zoom-title>증빙 이미지</div>
+        <div class="proof-zoom-controls">
+          <button type="button" class="btn bo xs" data-proof-zoom-out="1" aria-label="축소">-</button>
+          <span class="proof-zoom-value" data-proof-zoom-value>100%</span>
+          <button type="button" class="btn bo xs" data-proof-zoom-in="1" aria-label="확대">+</button>
+          <button type="button" class="btn bo xs" data-proof-zoom-reset="1">100%</button>
+          <button type="button" class="btn bg2 xs" data-proof-zoom-close="1">닫기</button>
+        </div>
+      </div>
+      <div class="proof-zoom-stage" data-proof-zoom-stage tabindex="0">
+        <img class="proof-zoom-image" data-proof-zoom-image alt="증빙 이미지">
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+function proofZoomParts(){
+  const overlay=ensureProofImageZoomOverlay();
+  return{
+    overlay,
+    stage:overlay.querySelector('[data-proof-zoom-stage]'),
+    image:overlay.querySelector('[data-proof-zoom-image]'),
+    title:overlay.querySelector('[data-proof-zoom-title]'),
+    value:overlay.querySelector('[data-proof-zoom-value]')
+  };
+}
+function setProofImageZoom(nextScale){
+  proofZoomScale=Math.max(.5,Math.min(4,Number(nextScale)||1));
+  const parts=proofZoomParts();
+  const pct=Math.round(proofZoomScale*100);
+  if(parts.image)parts.image.style.width=`${pct}%`;
+  if(parts.value)parts.value.textContent=`${pct}%`;
+}
+function openProofImageZoom(url,name='증빙 이미지'){
+  if(!url){adminAlert('확대할 이미지가 없습니다.');return;}
+  const parts=proofZoomParts();
+  if(parts.title)parts.title.textContent=name||'증빙 이미지';
+  if(parts.image){
+    parts.image.src=url;
+    parts.image.alt=name||'증빙 이미지';
+  }
+  parts.overlay.classList.remove('admin-hidden');
+  document.body.classList.add('proof-zoom-open');
+  setProofImageZoom(1);
+  setTimeout(()=>parts.stage?.focus(),20);
+}
+function closeProofImageZoom(){
+  const overlay=document.querySelector('[data-proof-zoom-overlay]');
+  if(!overlay)return;
+  overlay.classList.add('admin-hidden');
+  document.body.classList.remove('proof-zoom-open');
+  const image=overlay.querySelector('[data-proof-zoom-image]');
+  if(image)image.removeAttribute('src');
 }
 let deliveryAgencyLogoCropState=null;
 function openDeliveryAgencyLogoModal(id,name,url){
@@ -4162,7 +4233,7 @@ async function previewDeliveryAgencyBusinessFile(fileKey,displayName='사업자�
     const f=(D.franchises||[]).find(item=>String(item.id)===String(franchiseId))||{};
     const title=f.name?`사업자등록증 확인 — ${f.name}`:'사업자등록증 확인';
     const preview=isImage
-      ? `<img src="${esc(fileUrl)}" alt="${esc(displayName)}" class="account-proof-img business-doc-preview-img">`
+      ? proofZoomThumb(fileUrl,displayName,'account-proof-img business-doc-preview-img','사업자등록증 이미지')
       : `<iframe src="${esc(fileUrl)}" title="${esc(displayName)}" class="business-doc-preview-frame"></iframe>`;
     openM(title,`
       <div class="account-check-modal business-doc-check-modal">
@@ -5055,6 +5126,19 @@ document.addEventListener('click',ev=>{
     ev.stopPropagation();
     closeM();
   }
+});
+document.addEventListener('wheel',ev=>{
+  const stage=ev.target.closest?.('[data-proof-zoom-stage]');
+  if(!stage||stage.closest('.admin-hidden'))return;
+  ev.preventDefault();
+  setProofImageZoom(proofZoomScale+(ev.deltaY<0?.25:-.25));
+},{passive:false});
+document.addEventListener('keydown',ev=>{
+  if(ev.key!=='Escape')return;
+  const overlay=document.querySelector('[data-proof-zoom-overlay]:not(.admin-hidden)');
+  if(!overlay)return;
+  ev.preventDefault();
+  closeProofImageZoom();
 });
 document.addEventListener('input',ev=>{
   const accountFilterInput=ev.target.closest?.('[data-account-filter]');
@@ -6069,6 +6153,41 @@ async function rejectAccount(fid,idx){
 document.addEventListener('click',function(ev){
   const delegatedAdminActionTarget=ev.target.closest('[data-admin-action]');
   if(delegatedAdminActionTarget&&window.EatsAdminModules?.actions?.[delegatedAdminActionTarget.dataset.adminAction]){
+    return;
+  }
+  const proofZoomOpenTarget=ev.target.closest?.('[data-proof-zoom-open]');
+  if(proofZoomOpenTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    openProofImageZoom(proofZoomOpenTarget.dataset.proofZoomUrl||'',proofZoomOpenTarget.dataset.proofZoomName||'증빙 이미지');
+    return;
+  }
+  const proofZoomInTarget=ev.target.closest?.('[data-proof-zoom-in]');
+  if(proofZoomInTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    setProofImageZoom(proofZoomScale+.25);
+    return;
+  }
+  const proofZoomOutTarget=ev.target.closest?.('[data-proof-zoom-out]');
+  if(proofZoomOutTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    setProofImageZoom(proofZoomScale-.25);
+    return;
+  }
+  const proofZoomResetTarget=ev.target.closest?.('[data-proof-zoom-reset]');
+  if(proofZoomResetTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    setProofImageZoom(1);
+    return;
+  }
+  const proofZoomCloseTarget=ev.target.closest?.('[data-proof-zoom-close]');
+  if(proofZoomCloseTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeProofImageZoom();
     return;
   }
   const deliveryAgencyLogoTarget=ev.target.closest?.('[data-admin-action="da-logo-preview"]');
