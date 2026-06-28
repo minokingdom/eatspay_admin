@@ -1,0 +1,1109 @@
+:root {
+  --header-h: 106px;
+  --ink: #050505;
+  --muted: #333333;
+  --green: #27933a;
+  --red: #e13c2d;
+  --line: #58a84b;
+  --max: 1220px;
+  font-family: "NanumSquare", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@font-face {
+  font-family: "NanumSquare";
+  src: url("assets/fonts/NanumSquareR.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "NanumSquare";
+  src: url("assets/fonts/NanumSquareB.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "NanumSquare";
+  src: url("assets/fonts/NanumSquareEB.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: var(--header-h);
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+main {
+  padding-top: var(--header-h);
+}
+
+.site-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  height: var(--header-h);
+  border-top: 1px solid #d7d7d7;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.header-inner {
+  width: min(var(--max), calc(100% - 80px));
+  height: 100%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  width: 112px;
+  height: 74px;
+  display: flex;
+  align-items: center;
+}
+
+.brand img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.download-button {
+  width: 120px;
+  height: 44px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #000000;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.download-button img {
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+}
+
+.call-link {
+  font-size: 26px;
+  font-weight: 500;
+  color: #111111;
+  white-space: nowrap;
+}
+
+.slide {
+  min-height: calc(100svh - var(--header-h));
+  background: #ffffff;
+  overflow: hidden;
+  scroll-margin-top: var(--header-h);
+}
+
+.slide-inner {
+  width: min(var(--max), calc(100% - 80px));
+  min-height: calc(100svh - var(--header-h));
+  margin: 0 auto;
+  position: relative;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 0.98fr 0.82fr;
+  gap: 54px;
+  align-items: center;
+  padding: 72px 0 38px;
+}
+
+.hero-grid.reverse {
+  grid-template-columns: 0.82fr 0.98fr;
+}
+
+.copy-block {
+  position: relative;
+  z-index: 2;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+  word-break: keep-all;
+}
+
+h1,
+h2 {
+  color: #000000;
+  font-size: clamp(48px, 4.15vw, 62px);
+  line-height: 1.2;
+  letter-spacing: 0;
+  font-weight: 950;
+}
+
+.lead {
+  margin-top: 22px;
+  color: #222222;
+  font-size: clamp(20px, 1.65vw, 24px);
+  line-height: 1.36;
+}
+
+.lead strong {
+  color: var(--green);
+  font-weight: 950;
+}
+
+.subcopy {
+  margin-top: 20px;
+  color: #111111;
+  font-size: 22px;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.notice {
+  margin-top: 22px;
+  color: var(--red);
+  font-size: 23px;
+  line-height: 1.35;
+  font-weight: 900;
+}
+
+.notice.green {
+  color: var(--green);
+}
+
+.caption {
+  margin-top: 24px;
+  color: #555555;
+  font-size: 18px;
+  line-height: 1.55;
+}
+
+.people-img {
+  align-self: end;
+  justify-self: center;
+  width: min(470px, 38vw);
+  max-height: calc(100svh - var(--header-h) - 90px);
+  object-fit: contain;
+}
+
+.rider-img,
+.store-team-img {
+  justify-self: center;
+  width: min(430px, 36vw);
+  max-height: calc(100svh - var(--header-h) - 90px);
+  object-fit: contain;
+}
+
+.agency-owner .slide-inner {
+  display: block;
+  min-height: calc(100svh - var(--header-h));
+  padding: 0;
+}
+
+.agency-owner .rider-img {
+  position: absolute;
+  left: 55px;
+  top: 292px;
+  width: 455px;
+  max-height: none;
+}
+
+.agency-owner .copy-block {
+  position: absolute;
+  left: 700px;
+  top: 100px;
+  width: 560px;
+  padding: 0;
+}
+
+.agency-owner h2 {
+  font-size: 56px;
+  line-height: 1.18;
+}
+
+.agency-owner .lead {
+  margin-top: 24px;
+  font-size: 22px;
+  line-height: 1.34;
+}
+
+.agency-owner .notice {
+  margin-top: 26px;
+  font-size: 22px;
+}
+
+.agency-owner .caption {
+  margin-top: 36px;
+  color: #222222;
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.partner-logos {
+  position: relative;
+  width: 430px;
+  height: 190px;
+  margin-top: clamp(54px, 8vh, 88px);
+}
+
+.partner-logos img {
+  position: absolute;
+  object-fit: contain;
+}
+
+.fd-logo {
+  left: 0;
+  top: 0;
+  width: 132px;
+}
+
+.saenggak-logo {
+  left: 170px;
+  top: 38px;
+  width: 206px;
+}
+
+.barogo-logo {
+  left: 30px;
+  top: 128px;
+  width: 248px;
+}
+
+.g-logo {
+  left: 288px;
+  top: 142px;
+  width: 126px;
+}
+
+.three-column {
+  display: grid;
+  grid-template-columns: 0.95fr 300px 0.9fr;
+  gap: 52px;
+  align-items: center;
+  padding: 66px 0;
+}
+
+.phone-img {
+  justify-self: center;
+  width: min(260px, 22vw);
+  max-height: calc(100svh - var(--header-h) - 90px);
+  object-fit: contain;
+}
+
+.feature-list {
+  display: grid;
+  gap: 28px;
+}
+
+.feature-list div {
+  border-left: 7px solid var(--green);
+  padding-left: 22px;
+}
+
+.feature-list b {
+  display: block;
+  font-size: 34px;
+  line-height: 1.12;
+}
+
+.feature-list span {
+  display: block;
+  margin-top: 8px;
+  color: #333333;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: 0.9fr 0.9fr 260px;
+  gap: 48px;
+  align-items: center;
+  padding: 66px 0;
+}
+
+.brand-cloud {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(110px, 1fr));
+  gap: 18px;
+  align-items: center;
+}
+
+.brand-cloud img {
+  width: 100%;
+  height: 88px;
+  object-fit: contain;
+}
+
+.agency-phone {
+  width: min(245px, 22vw);
+}
+
+.faq-layout {
+  padding: 84px 0 70px;
+}
+
+.faq-layout h2 {
+  margin-bottom: 42px;
+}
+
+.faq-list {
+  width: min(780px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+details {
+  border: 1px solid #d8d8d8;
+  background: #ffffff;
+}
+
+summary {
+  cursor: pointer;
+  padding: 20px 24px;
+  font-size: 20px;
+  line-height: 1.4;
+  font-weight: 900;
+}
+
+details p {
+  padding: 0 24px 22px;
+  color: #444444;
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.partner-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 0.8fr;
+  gap: 70px;
+  align-items: center;
+  padding: 72px 0 40px;
+}
+
+.partner-form {
+  display: grid;
+  gap: 14px;
+}
+
+.partner-form label {
+  display: grid;
+  gap: 8px;
+  color: #222222;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.partner-form input {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #cfcfcf;
+  padding: 0 14px;
+  font: inherit;
+}
+
+.partner-form input:focus {
+  outline: 3px solid rgba(39, 147, 58, 0.2);
+  border-color: var(--green);
+}
+
+.partner-form button {
+  height: 52px;
+  border: 0;
+  background: var(--green);
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.partner-form button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.partner-form-message {
+  min-height: 20px;
+  margin: 0;
+  color: #555555;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.partner-form-message[data-state="success"] {
+  color: var(--green);
+}
+
+.partner-form-message[data-state="error"] {
+  color: #d93025;
+}
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  width: min(var(--max), calc(100% - 80px));
+  margin: 0 auto;
+  padding: 20px 0 28px;
+  color: #333333;
+  font-size: 13px;
+  border-top: 1px solid #dddddd;
+}
+
+@media (max-width: 980px) {
+  :root {
+    --header-h: 86px;
+  }
+
+  .header-inner,
+  .slide-inner,
+  .site-footer {
+    width: min(100% - 40px, 760px);
+  }
+
+  .brand {
+    width: 96px;
+    height: 62px;
+  }
+
+  .header-actions {
+    gap: 10px;
+  }
+
+  .download-button {
+    width: 96px;
+    height: 38px;
+    font-size: 14px;
+  }
+
+  .download-button img {
+    width: 23px;
+    height: 23px;
+  }
+
+  .call-link {
+    font-size: 18px;
+  }
+
+  .hero-grid,
+  .hero-grid.reverse,
+  .three-column,
+  .card-grid,
+  .partner-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    gap: 34px;
+    padding: 58px 0;
+  }
+
+  .slide {
+    min-height: auto;
+  }
+
+  .slide-inner {
+    min-height: auto;
+  }
+
+  .people-img,
+  .rider-img,
+  .store-team-img,
+  .phone-img,
+  .agency-phone {
+    width: min(420px, 86vw);
+    max-height: none;
+  }
+
+  .partner-logos {
+    margin-top: 46px;
+  }
+
+  .feature-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  :root {
+    --header-h: 74px;
+  }
+
+  .header-inner,
+  .slide-inner,
+  .site-footer {
+    width: min(100% - 28px, 420px);
+  }
+
+  .brand {
+    width: 78px;
+    height: 52px;
+  }
+
+  .download-button {
+    width: 38px;
+    height: 36px;
+    padding: 0;
+  }
+
+  .download-button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .call-link {
+    font-size: 14px;
+  }
+
+  h1,
+  h2 {
+    font-size: clamp(34px, 10vw, 46px);
+  }
+
+  .lead {
+    font-size: 18px;
+  }
+
+  .partner-logos {
+    width: 320px;
+    max-width: 100%;
+    height: 150px;
+    margin-top: 34px;
+  }
+
+  .fd-logo {
+    width: 96px;
+  }
+
+  .saenggak-logo {
+    left: 122px;
+    top: 30px;
+    width: 160px;
+  }
+
+  .barogo-logo {
+    left: 16px;
+    top: 98px;
+    width: 182px;
+  }
+
+  .g-logo {
+    left: 215px;
+    top: 108px;
+    width: 92px;
+  }
+
+  .feature-list,
+  .brand-cloud {
+    grid-template-columns: 1fr;
+  }
+
+  summary {
+    font-size: 17px;
+  }
+}
+
+/* Reference slide alignment: 1280 x 720 source PNGs */
+@media (min-width: 981px) {
+  :root {
+    --header-h: 75px;
+    --max: 760px;
+  }
+
+  main {
+    padding-top: var(--header-h);
+  }
+
+  .site-header {
+    height: var(--header-h);
+  }
+
+  .header-inner {
+    width: 760px;
+  }
+
+  .brand {
+    width: 70px;
+    height: 54px;
+  }
+
+  .header-actions {
+    gap: 20px;
+  }
+
+  .download-button {
+    width: 78px;
+    height: 29px;
+    border-radius: 6px;
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .download-button img {
+    width: 19px;
+    height: 19px;
+  }
+
+  .call-link {
+    font-size: 16px;
+    color: #222222;
+  }
+
+  .slide {
+    min-height: 645px;
+    height: 645px;
+    scroll-margin-top: var(--header-h);
+  }
+
+  .slide-inner {
+    width: 760px;
+    height: 645px;
+    min-height: 645px;
+    position: relative;
+  }
+
+  .slide h1,
+  .slide h2 {
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.24;
+  }
+
+  .slide .lead,
+  .slide .body-copy,
+  .slide .caption,
+  .slide .notice {
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  .hero-store .hero-copy {
+    position: absolute;
+    left: 5px;
+    top: 72px;
+    width: 420px;
+  }
+
+  .hero-store h1 {
+    font-size: 38px;
+    line-height: 1.23;
+  }
+
+  .hero-store .lead {
+    margin-top: 18px;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .hero-store .lead strong,
+  .pay-card .lead strong,
+  .advance-pay .lead strong,
+  .card-benefit .lead strong,
+  .agency-search .lead strong {
+    color: var(--green);
+    font-weight: 400;
+  }
+
+  .hero-owners {
+    position: absolute;
+    left: 460px;
+    top: 190px;
+    width: 260px;
+    max-height: none;
+  }
+
+  .hero-store .partner-logos {
+    position: absolute;
+    left: 0;
+    top: 285px;
+    width: 250px;
+    height: 190px;
+    margin: 0;
+  }
+
+  .hero-store .fd-logo {
+    left: 0;
+    top: 0;
+    width: 96px;
+  }
+
+  .hero-store .saenggak-logo {
+    left: 116px;
+    top: 38px;
+    width: 140px;
+  }
+
+  .hero-store .barogo-logo {
+    left: 18px;
+    top: 116px;
+    width: 154px;
+  }
+
+  .hero-store .g-logo {
+    left: 182px;
+    top: 132px;
+    width: 76px;
+  }
+
+  .agency-owner .slide-inner {
+    display: block;
+  }
+
+  .agency-owner .rider-img {
+    position: absolute;
+    left: 4px;
+    top: 195px;
+    width: 405px;
+  }
+
+  .agency-owner .copy-block {
+    position: absolute;
+    left: 445px;
+    top: 67px;
+    width: 390px;
+  }
+
+  .agency-owner h2 {
+    font-size: 38px;
+    line-height: 1.22;
+  }
+
+  .agency-owner .lead {
+    margin-top: 18px;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .agency-owner .notice {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #ff1b12;
+  }
+
+  .agency-owner .caption {
+    margin-top: 34px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #222222;
+  }
+
+  .pay-card .copy-block {
+    position: absolute;
+    left: 5px;
+    top: 72px;
+    width: 380px;
+  }
+
+  .pay-card h2 {
+    font-size: 38px;
+    line-height: 1.22;
+  }
+
+  .pay-card .lead {
+    margin-top: 14px;
+    font-size: 25px;
+  }
+
+  .pay-card .body-copy {
+    margin-top: 64px;
+    font-size: 13px;
+    line-height: 1.42;
+  }
+
+  .pay-card .caption {
+    margin-top: 38px;
+    font-size: 11px;
+    color: #222222;
+  }
+
+  .pay-card .notice {
+    margin-top: 70px;
+    font-size: 13px;
+    line-height: 1.32;
+    color: #ff1b12;
+  }
+
+  .pay-card .notice span {
+    color: var(--green);
+  }
+
+  .representative-img {
+    position: absolute;
+    left: 510px;
+    top: 138px;
+    width: 265px;
+  }
+
+  .advance-pay .agency-team-img {
+    position: absolute;
+    left: 20px;
+    top: 127px;
+    width: 335px;
+  }
+
+  .advance-pay .copy-block {
+    position: absolute;
+    left: 440px;
+    top: 68px;
+    width: 390px;
+  }
+
+  .advance-pay h2,
+  .card-benefit h2,
+  .agency-search h2,
+  .faq-slide h2,
+  .partner-slide h2 {
+    font-size: 38px;
+    line-height: 1.24;
+  }
+
+  .advance-pay .lead,
+  .card-benefit .lead,
+  .agency-search .lead {
+    margin-top: 16px;
+    font-size: 25px;
+  }
+
+  .advance-pay .body-copy,
+  .agency-search .body-copy {
+    margin-top: 64px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .advance-pay .notice {
+    margin-top: 44px;
+    font-size: 13px;
+  }
+
+  .delivery-apps {
+    display: flex;
+    gap: 13px;
+    margin-top: 25px;
+  }
+
+  .delivery-apps img {
+    width: 75px;
+    height: 75px;
+    object-fit: contain;
+  }
+
+  .card-benefit .copy-block {
+    position: absolute;
+    left: 5px;
+    top: 72px;
+    width: 430px;
+  }
+
+  .card-benefit .card-lines {
+    margin-top: 48px;
+    display: grid;
+    gap: 20px;
+    font-size: 14px;
+  }
+
+  .card-benefit .card-lines p {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .card-benefit .card-lines img {
+    width: 82px;
+    height: 34px;
+    object-fit: contain;
+  }
+
+  .card-benefit .caption {
+    margin-top: 45px;
+    font-size: 14px;
+  }
+
+  .card-benefit .caption strong {
+    color: var(--green);
+    font-size: 22px;
+  }
+
+  .card-benefit .store-team-img {
+    position: absolute;
+    left: 455px;
+    top: 230px;
+    width: 190px;
+  }
+
+  .card-benefit .card-phone {
+    position: absolute;
+    left: 607px;
+    top: 65px;
+    width: 200px;
+  }
+
+  .agency-search .agency-phone {
+    position: absolute;
+    left: 0;
+    top: 34px;
+    width: 188px;
+  }
+
+  .agency-search .rider-front-img {
+    position: absolute;
+    left: 140px;
+    top: 145px;
+    width: 250px;
+  }
+
+  .agency-search .copy-block {
+    position: absolute;
+    left: 440px;
+    top: 68px;
+    width: 410px;
+  }
+
+  .agency-search .notice {
+    margin-top: 74px;
+    font-size: 14px;
+  }
+
+  .faq-slide .slide-inner,
+  .partner-slide .slide-inner {
+    display: block;
+  }
+
+  .faq-slide h2 {
+    position: absolute;
+    left: 5px;
+    top: 72px;
+  }
+
+  .faq-slide .faq-list {
+    position: absolute;
+    left: 0;
+    top: 190px;
+    width: 850px;
+    max-width: none;
+    display: grid;
+    gap: 0;
+  }
+
+  .faq-slide details {
+    border: 0;
+    border-bottom: 1px solid #555555;
+    background: transparent;
+  }
+
+  .faq-slide summary {
+    padding: 20px 0 13px;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .faq-slide details p {
+    padding: 0 0 12px;
+    font-size: 12px;
+  }
+
+  .partner-slide h2 {
+    position: absolute;
+    left: 5px;
+    top: 72px;
+  }
+
+  .partner-form {
+    position: absolute;
+    left: 0;
+    top: 188px;
+    width: 850px;
+    display: grid;
+    gap: 27px;
+  }
+
+  .partner-form label {
+    display: grid;
+    grid-template-columns: 110px 20px 1fr;
+    align-items: end;
+    gap: 0;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .partner-form label span::after {
+    content: " :";
+    padding-left: 16px;
+  }
+
+  .partner-form input {
+    grid-column: 3;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid #555555;
+    border-radius: 0;
+  }
+
+  .partner-form button {
+    justify-self: end;
+    width: 222px;
+    height: 47px;
+    margin-top: 0;
+    border-radius: 7px;
+    background: #43a52d;
+    font-size: 20px;
+    font-weight: 400;
+  }
+
+  .site-footer {
+    width: 100%;
+    height: 73px;
+    margin: 0;
+    padding: 10px calc((100% - 760px) / 2);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: #d9d9d9;
+    border: 0;
+    color: #777777;
+    font-size: 9px;
+  }
+
+  .footer-logo {
+    color: #ffffff;
+    font-size: 26px;
+  }
+}

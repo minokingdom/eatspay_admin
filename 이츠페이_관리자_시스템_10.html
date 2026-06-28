@@ -17,7 +17,7 @@
 <script src="/admin-assets/js/admin-pg.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-push.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-banners.js?v=20260627-banner-detail-logo-hint"></script>
-<script src="/admin-assets/js/admin-inquiries.js?v=20260627-admin54"></script>
+<script src="/admin-assets/js/admin-inquiries.js?v=20260629-branch-inquiries"></script>
 <script src="/admin-assets/js/admin-payments.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-pg-settlements.js?v=20260628-xlsx-export"></script>
 <script src="/admin-assets/js/admin-agency-settlement-calculator.js?v=20260628-agency-split"></script>
@@ -40,7 +40,7 @@ try{
   menu:{
     dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
     settlements:"대리점 정산", franchises:"가맹점 목록", franchiseDetail:"가맹점 상세", accounts:"출금계좌 목록",
-    agencies:"대리점 관리", agencyDetail:"대리점 상세", ag_detail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"영업대리점 개설문의",
+    agencies:"대리점 관리", agencyDetail:"대리점 상세", ag_detail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"지사/지점 개설문의",
     banners:"배너 관리", legalDocs:"개인정보/약관", faqs:"FAQ 관리", installments:"무이자 할부", push:"푸시알림",
     pg:"PG사 관리", admins:"관리자 계정",
     notices:"공지사항", guides:"이용가이드",
@@ -4480,18 +4480,18 @@ async function delLegalDoc(id){
   }catch(e){await adminAlert(e.message||'삭제에 실패했습니다.');}
 }
 
-// ═══ 영업대리점 개설문의 ═══
+// ═══ 지사/지점 개설문의 ═══
 const inquiriesCtx=()=>({data:D,esc,bdg,adminActionChip});
 function pgInquiries(){return window.EatsAdminInquiries.pgInquiries(inquiriesCtx());}
 function inquiryForm(i={}){return`
-  <div class="fr2"><div class="fg"><label class="fl">이름 *</label><input class="fi" id="iqn" value="${esc(i.name||'')}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="iqp" value="${esc(i.phone||'')}" placeholder="010-1234-5678"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">배달대행사 이용</label><select class="fs" id="iqdp"><option ${(i.deliveryAgency||'')==='유'?'selected':''} value="유">유</option><option ${i.deliveryAgency==='무'?'selected':''} value="무">무</option></select></div><div class="fg"><label class="fl">희망지역</label><input class="fi" id="iqr" value="${esc(i.region||'')}" placeholder="예: 서울 강남구"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">담당자</label><input class="fi" id="iqh" value="${esc(i.handler||'')}" placeholder="담당자명 입력"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
-function addInquiry(){openM('문의 등록',inquiryForm(),adminModalFooter(adminModalButton('취소','data-modal-close="1"'),adminModalButton('저장','data-admin-action="inquiry-save" data-inquiry-id="new"','primary')));}
-function edInquiry(id){const i=D.inquiries.find(x=>String(x.id)===String(id));if(!i){adminAlert('문의 정보를 찾을 수 없습니다.');return;}openM('문의 수정',inquiryForm(i),adminModalFooter(adminModalButton('취소','data-modal-close="1"'),adminModalButton('저장',`data-admin-action="inquiry-save" data-inquiry-id="${esc(id)}"`,'primary')));}
+  <div class="fr2"><div class="fg"><label class="fl">성함 / 회사명 *</label><input class="fi" id="iqn" value="${esc(i.name||'')}" placeholder="성함 또는 회사명"></div><div class="fg"><label class="fl">연락처 *</label><input class="fi" id="iqp" value="${esc(i.phone||'')}" placeholder="010-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">희망지역 *</label><input class="fi" id="iqr" value="${esc(i.region||'')}" placeholder="예: 서울 강남구"></div><div class="fg"><label class="fl">현 업종 *</label><input class="fi" id="iqdp" value="${esc(i.deliveryAgency||'')}" placeholder="예: 배달대행, 음식점"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">알게된경로 *</label><input class="fi" id="iqh" value="${esc(i.handler||'')}" placeholder="예: 홈페이지, 지인소개, 검색"></div><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
+function addInquiry(){openM('지사/지점 문의 등록',inquiryForm(),adminModalFooter(adminModalButton('취소','data-modal-close="1"'),adminModalButton('저장','data-admin-action="inquiry-save" data-inquiry-id="new"','primary')));}
+function edInquiry(id){const i=D.inquiries.find(x=>String(x.id)===String(id));if(!i){adminAlert('문의 정보를 찾을 수 없습니다.');return;}openM('지사/지점 문의 수정',inquiryForm(i),adminModalFooter(adminModalButton('취소','data-modal-close="1"'),adminModalButton('저장',`data-admin-action="inquiry-save" data-inquiry-id="${esc(id)}"`,'primary')));}
 async function savInquiry(id){
   const n=v('iqn');
-  if(!n.trim()){await adminAlert('이름 필요');return;}
+  if(!n.trim()||!v('iqp').trim()||!v('iqr').trim()||!v('iqdp').trim()||!v('iqh').trim()){await adminAlert('필수 항목을 모두 입력해주세요.');return;}
   const data={name:n.trim(),phone:v('iqp'),deliveryAgency:v('iqdp'),region:v('iqr'),handler:v('iqh'),status:v('iqs')};
   try{
     const res=await fetch(id?`/api/admin/inquiries/${encodeURIComponent(id)}`:'/api/admin/inquiries',{method:id?'PUT':'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify(data)});

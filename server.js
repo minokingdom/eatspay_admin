@@ -4662,6 +4662,44 @@ app.delete('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(async 
   return res.status(200).json({ success: true, data: deleted });
 }));
 
+function normalizeAgencyInquiryPayload(body = {}) {
+  return {
+    name: String(body.name || '').trim(),
+    phone: String(body.phone || '').trim(),
+    deliveryAgency: String(body.deliveryAgency || body.business || body.currentBusiness || '').trim(),
+    region: String(body.region || body.area || '').trim(),
+    handler: String(body.handler || body.source || body.referralSource || '').trim(),
+    status: String(body.status || '상담 대기').trim()
+  };
+}
+
+function validateAgencyInquiryPayload(inquiry, requireAll = false) {
+  if (!inquiry.name) {
+    return '성함 / 회사명은 필수입니다.';
+  }
+  if (requireAll && (!inquiry.phone || !inquiry.deliveryAgency || !inquiry.region || !inquiry.handler)) {
+    return '필수 항목을 모두 입력해주세요.';
+  }
+  return '';
+}
+
+app.post('/api/agency-inquiries', asyncHandler(async (req, res) => {
+  const inquiryData = normalizeAgencyInquiryPayload(req.body || {});
+  const validationMessage = validateAgencyInquiryPayload(inquiryData, true);
+  if (validationMessage) {
+    return sendError(res, 400, 'BAD_REQUEST', validationMessage);
+  }
+  const inquiry = await repo.createAgencyInquiry({
+    ...inquiryData,
+    status: '상담 대기'
+  });
+  return res.status(201).json({
+    success: true,
+    data: inquiry,
+    message: '문의가 접수되었습니다.'
+  });
+}));
+
 app.get('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res) => {
   const inquiries = await repo.listAgencyInquiries();
   return res.status(200).json({ success: true, data: inquiries });
@@ -4669,17 +4707,18 @@ app.get('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res)
 
 app.post('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const name = String(body.name || '').trim();
-  if (!name) {
-    return sendError(res, 400, 'BAD_REQUEST', '이름은 필수입니다.');
+  const inquiryData = normalizeAgencyInquiryPayload(body);
+  const validationMessage = validateAgencyInquiryPayload(inquiryData, false);
+  if (validationMessage) {
+    return sendError(res, 400, 'BAD_REQUEST', validationMessage);
   }
   const inquiry = await repo.createAgencyInquiry({
-    name,
-    phone: String(body.phone || '').trim(),
-    deliveryAgency: String(body.deliveryAgency || '').trim(),
-    region: String(body.region || '').trim(),
-    handler: String(body.handler || '').trim(),
-    status: String(body.status || '상담 대기').trim()
+    name: inquiryData.name,
+    phone: inquiryData.phone,
+    deliveryAgency: inquiryData.deliveryAgency,
+    region: inquiryData.region,
+    handler: inquiryData.handler,
+    status: inquiryData.status
   });
   return res.status(201).json({ success: true, data: inquiry });
 }));
@@ -4687,20 +4726,21 @@ app.post('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res
 async function updateAdminInquiryHandler(req, res) {
   const id = Number(req.params.id);
   const body = req.body || {};
-  const name = String(body.name || '').trim();
+  const inquiryData = normalizeAgencyInquiryPayload(body);
   if (!Number.isFinite(id)) {
     return sendError(res, 400, 'BAD_REQUEST', '문의 ID가 올바르지 않습니다.');
   }
-  if (!name) {
-    return sendError(res, 400, 'BAD_REQUEST', '이름은 필수입니다.');
+  const validationMessage = validateAgencyInquiryPayload(inquiryData, false);
+  if (validationMessage) {
+    return sendError(res, 400, 'BAD_REQUEST', validationMessage);
   }
   const inquiry = await repo.updateAgencyInquiry(id, {
-    name,
-    phone: String(body.phone || '').trim(),
-    deliveryAgency: String(body.deliveryAgency || '').trim(),
-    region: String(body.region || '').trim(),
-    handler: String(body.handler || '').trim(),
-    status: String(body.status || '상담 대기').trim()
+    name: inquiryData.name,
+    phone: inquiryData.phone,
+    deliveryAgency: inquiryData.deliveryAgency,
+    region: inquiryData.region,
+    handler: inquiryData.handler,
+    status: inquiryData.status
   });
   if (!inquiry) {
     return sendError(res, 404, 'INQUIRY_NOT_FOUND', '문의를 찾을 수 없습니다.');
