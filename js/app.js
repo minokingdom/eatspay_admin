@@ -1649,7 +1649,20 @@ function syncCsFaqActiveTab() {
   });
 }
 
-function renderCsFaqList(items = faqCache) {
+function scrollCsFaqActiveTab(options = {}) {
+  const tabs = $('#cs-faq-tabs');
+  const activeTab = tabs?.querySelector('.cs-faq-tab.active');
+  if (!tabs || !activeTab || tabs.scrollWidth <= tabs.clientWidth) return;
+
+  const targetLeft = activeTab.offsetLeft - (tabs.clientWidth - activeTab.offsetWidth) / 2;
+  const maxLeft = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+  tabs.scrollTo({
+    left: Math.max(0, Math.min(maxLeft, targetLeft)),
+    behavior: options.instant ? 'auto' : 'smooth'
+  });
+}
+
+function renderCsFaqList(items = faqCache, options = {}) {
   const tabs = $('#cs-faq-tabs');
   const list = $('#cs-faq-list');
   if (!tabs || !list) return;
@@ -1665,6 +1678,7 @@ function renderCsFaqList(items = faqCache) {
     </button>
   `).join('');
   syncCsFaqActiveTab();
+  requestAnimationFrame(() => scrollCsFaqActiveTab({ instant: options.smoothTabs !== true }));
 
   if (!items.length) {
     list.innerHTML = `
@@ -1695,6 +1709,7 @@ function renderCsFaqList(items = faqCache) {
     </div>
   `).join('');
   syncCsFaqActiveTab();
+  requestAnimationFrame(() => scrollCsFaqActiveTab({ instant: options.smoothTabs !== true }));
 }
 
 async function fetchCsFaqs() {
@@ -6076,7 +6091,7 @@ function startSmsCountdown(el) {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
-    const serviceWorkerVersion = '20260628_nav_hit_write_instant_fix';
+    const serviceWorkerVersion = '20260629_advance_icons_faq_tabs';
     navigator.serviceWorker.register(`/sw.js?v=${serviceWorkerVersion}`).then(registration => {
       if (typeof registration.update === 'function') registration.update().catch(() => {});
     }).catch(() => {});
@@ -8134,8 +8149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!tab) return;
     activeFaqCategory = tab.dataset.faqCategory || tab.textContent.trim();
     syncCsFaqActiveTab();
-    renderCsFaqList(faqCache);
-    requestAnimationFrame(syncCsFaqActiveTab);
+    renderCsFaqList(faqCache, { smoothTabs: true });
   });
   $('#cs-faq-list')?.addEventListener('click', event => {
     const retry = event.target.closest('#cs-faq-retry');

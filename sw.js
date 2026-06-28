@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eatspay-pwa-v72-nav-hit-write-instant-fix';
+const CACHE_NAME = 'eatspay-pwa-v73-advance-icons-faq-tabs';
 const APP_SHELL = [
   '/',
   '/index.html',

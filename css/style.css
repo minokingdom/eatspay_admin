@@ -1247,16 +1247,16 @@ html.native-app .screen-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  min-height: 20px;
+  gap: 4px;
+  min-height: 22px;
   width: 100%;
   overflow: hidden;
 }
 
 .home-platform-icon {
-  width: 19px;
-  height: 19px;
-  flex: 0 0 19px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   border-radius: 7px;
   overflow: hidden;
   display: flex;
@@ -1264,7 +1264,7 @@ html.native-app .screen-container {
   justify-content: center;
 }
 
-.home-platform-icon.baemin {
+.home-platform-icon.hh {
   background: #68cbc8;
   box-shadow: 0 2px 5px rgba(46, 183, 178, .18);
 }
@@ -1280,7 +1280,58 @@ html.native-app .screen-container {
   box-shadow: 0 2px 5px rgba(0, 0, 0, .05);
 }
 
+.home-platform-icon.ddangyo {
+  background: #f15a24;
+  box-shadow: 0 2px 5px rgba(241, 90, 36, .16);
+}
+
 .home-platform-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.advance-platform-icons {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.advance-platform-icon {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.advance-platform-icon.hh {
+  background: #68cbc8;
+  box-shadow: 0 8px 16px rgba(46, 183, 178, .22);
+}
+
+.advance-platform-icon.yogiyo {
+  background: #d93655;
+  box-shadow: 0 8px 16px rgba(217, 54, 85, .22);
+}
+
+.advance-platform-icon.coupang {
+  background: #fff;
+  border: 1.5px solid #d8d8d8;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, .08);
+}
+
+.advance-platform-icon.ddangyo {
+  background: #f15a24;
+  box-shadow: 0 8px 16px rgba(241, 90, 36, .18);
+}
+
+.advance-platform-icon img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -3496,6 +3547,8 @@ html.native-app .screen-container {
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-padding-inline: 12px;
   padding-bottom: 10px;
   margin-bottom: 8px;
   scrollbar-width: none;
@@ -5187,10 +5240,15 @@ html.nav-cursor-pointer body * {
   background: linear-gradient(135deg, #3db43a, #2f9630);
   color: #fff;
   box-shadow: 0 8px 18px rgba(58,148,48,.2);
+  transform: translateY(-2px);
 }
 
 .cs-faq-tab:active {
   transform: scale(.96);
+}
+
+.cs-faq-tab.active:active {
+  transform: translateY(-1px) scale(.98);
 }
 
 .cs-faq-item {

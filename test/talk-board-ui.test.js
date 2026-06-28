@@ -61,6 +61,6 @@ test('bottom navigation icon hit area resolves to its parent button', () => {
   assert.match(js, /\['pointerup',\s*'touchend',\s*'mouseup',\s*'click'\]\.forEach/, 'nav should handle pointer, touch, mouse, and click activation through one delegate');
   assert.match(js, /handleBottomNavActivation[\s\S]*navigateBottomNavItem/, 'nav activations should share one handler');
   assert.doesNotMatch(js, /button\.addEventListener\('touchend'/, 'nav buttons should not carry duplicate per-button touch handlers');
-  assert.match(js, /serviceWorkerVersion\s*=\s*'20260628_nav_hit_write_instant_fix'/, 'app should register a new service worker version for nav/write changes');
-  assert.match(sw, /eatspay-pwa-v72-nav-hit-write-instant-fix/, 'service worker cache name should change when nav/write behavior changes');
+  assert.match(js, /serviceWorkerVersion\s*=\s*'20260629_advance_icons_faq_tabs'/, 'app should register a new service worker version for visible UI asset changes');
+  assert.match(sw, /eatspay-pwa-v73-advance-icons-faq-tabs/, 'service worker cache name should change when visible UI assets change');
 });
