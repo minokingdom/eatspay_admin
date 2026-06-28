@@ -3448,6 +3448,26 @@ function renderBottomNavs(activeScreen = state.currentScreen) {
     </button>
   `).join('');
     nav.innerHTML = html;
+    $$('.nav-item', nav).forEach(button => {
+      const activateNav = event => {
+        const now = Date.now();
+        if (now - Number(button.dataset.lastNavAt || 0) < 320) {
+          event?.preventDefault?.();
+          return;
+        }
+        button.dataset.lastNavAt = String(now);
+        const target = button.dataset.navTarget || '';
+        if (!target) return;
+        event?.preventDefault?.();
+        if (target === 'home') navigate('home');
+        else if (target === 'agency') navigate('agency');
+        else if (target === 'my') navigate('my');
+        else if (target === 'cs') navigate('cs-main');
+      };
+      button.addEventListener('click', activateNav);
+      button.addEventListener('pointerup', activateNav);
+      button.addEventListener('touchend', activateNav, { passive: false });
+    });
   });
 }
 

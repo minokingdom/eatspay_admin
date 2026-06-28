@@ -2362,6 +2362,32 @@ html.native-app .screen-container {
   opacity: 1;
 }
 
+.phone-frame .talk-write-floating {
+  width: 106px;
+  min-width: 106px;
+  padding: 0 15px;
+  gap: 5px;
+}
+
+.phone-frame .talk-write-floating strong {
+  max-width: 46px;
+  opacity: 1;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .talk-write-floating {
+    width: 106px;
+    min-width: 106px;
+    padding: 0 15px;
+    gap: 5px;
+  }
+
+  .talk-write-floating strong {
+    max-width: 46px;
+    opacity: 1;
+  }
+}
+
 .talk-write-floating.home-talk-write-floating {
   right: 22px;
   bottom: calc(var(--bottom-nav-height) + var(--app-bottom-inset) + 16px);
@@ -2471,6 +2497,22 @@ html.native-app .screen-container {
     min-width: 100px;
     height: 52px;
     padding: 0 13px;
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    .talk-write-floating {
+      width: 100px;
+      min-width: 100px;
+      padding: 0 13px;
+      gap: 5px;
+    }
+  }
+
+  .phone-frame .talk-write-floating {
+    width: 100px;
+    min-width: 100px;
+    padding: 0 13px;
+    gap: 5px;
   }
 }
 
