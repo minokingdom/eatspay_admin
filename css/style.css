@@ -2196,7 +2196,7 @@ html.native-app .screen-container {
   line-height: 1;
   box-shadow: 0 12px 26px rgba(3, 199, 90, .28);
   cursor: pointer;
-  transition: background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  transition: background-color .05s ease, box-shadow .08s ease, transform .05s ease;
 }
 
 .talk-screen-content {
@@ -2326,7 +2326,7 @@ html.native-app .screen-container {
   border-radius: 999px;
   font-size: 16px;
   overflow: hidden;
-  transition: width .22s ease, min-width .22s ease, padding .22s ease, gap .22s ease, background-color .18s ease, box-shadow .22s ease, transform .18s ease;
+  transition: width .06s ease-out, min-width .06s ease-out, padding .06s ease-out, gap .06s ease-out, background-color .05s ease, box-shadow .08s ease, transform .05s ease;
 }
 
 .talk-write-floating span {
@@ -2342,7 +2342,7 @@ html.native-app .screen-container {
   font-size: 13px;
   font-weight: 900;
   line-height: 1;
-  transition: max-width .22s ease, opacity .16s ease;
+  transition: max-width .06s ease-out, opacity .05s ease;
 }
 
 .talk-write-floating:hover,
@@ -3611,11 +3611,12 @@ html.native-app .screen-container {
   z-index: 10;
   display: block;
   background: transparent;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .bottom-nav .nav-item > * {
-  pointer-events: auto !important;
+  pointer-events: none !important;
 }
 
 html.nav-cursor-pointer,
@@ -3695,7 +3696,7 @@ html.nav-cursor-pointer body * {
   color: currentColor;
   background: currentColor;
   opacity: .82;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;
@@ -3724,7 +3725,7 @@ html.nav-cursor-pointer body * {
 .nav-item svg {
   width: 22px;
   height: 22px;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   stroke: currentColor;
   transition: transform 0.18s ease, color 0.18s ease;
 }
@@ -3747,7 +3748,7 @@ html.nav-cursor-pointer body * {
   z-index: 1;
   font-size: 11px;
   font-weight: 650;
-  pointer-events: auto;
+  pointer-events: none;
   cursor: pointer !important;
   -webkit-user-select: none;
   user-select: none;

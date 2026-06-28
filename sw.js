@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eatspay-pwa-v70-nav-icon-hover-force-fix';
+const CACHE_NAME = 'eatspay-pwa-v72-nav-hit-write-instant-fix';
 const APP_SHELL = [
   '/',
   '/index.html',

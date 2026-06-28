@@ -6076,7 +6076,7 @@ function startSmsCountdown(el) {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
-    const serviceWorkerVersion = '20260628_nav_icon_hover_force_fix';
+    const serviceWorkerVersion = '20260628_nav_hit_write_instant_fix';
     navigator.serviceWorker.register(`/sw.js?v=${serviceWorkerVersion}`).then(registration => {
       if (typeof registration.update === 'function') registration.update().catch(() => {});
     }).catch(() => {});
