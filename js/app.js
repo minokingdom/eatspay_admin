@@ -105,6 +105,7 @@ let inAppNotificationTimer = null;
 let notificationPollTimer = null;
 let notificationPollingStarted = false;
 const REGISTER_DRAFT_KEY = 'eatspay.registerDraft';
+const AGENCY_INVITE_SESSION_KEY = 'eatspay.agencyInvite';
 const APP_LAST_ACTIVE_KEY = 'eatspay.lastActiveAt';
 const APP_STANDARD_RESUME_HOME_MS = 10 * 60 * 1000;
 const APP_RESUME_HOME_EXCLUDE_SCREENS = new Set(['splash', 'location-setup', 'login', 'account-status', 'reg-step1', 'reg-step2', 'reg-step3', 'reg-step4']);
@@ -3233,6 +3234,7 @@ function navigate(screenId, direction = 'forward') {
 
   state.currentScreen = screenId;
   normalizeBackButtons();
+  renderAgencyInviteNotice();
   if (screenId !== 'card-add') {
     cardEditDraft = null;
   }
@@ -3688,7 +3690,8 @@ function persistRegisterDraft(markExternal = false) {
     storeName: $('#reg-store-name')?.value || '',
     ceoName: $('#reg-ceo-name')?.value || '',
     address: $('#reg-address')?.value || '',
-    addressDetail: getRegisterAddressDetail()
+    addressDetail: getRegisterAddressDetail(),
+    agencyInvite: getStoredAgencyInvite()
   };
   sessionStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify(draft));
   if (markExternal) sessionStorage.setItem(EXTERNAL_FLOW_KEY, '1');
@@ -3702,6 +3705,19 @@ function restoreRegisterDraft() {
     draft = JSON.parse(raw);
   } catch (err) {
     return null;
+  }
+  const currentInvite = getStoredAgencyInvite();
+  const draftInvite = draft.agencyInvite && {
+    agencyId: String(draft.agencyInvite.agencyId || '').trim(),
+    agencyName: String(draft.agencyInvite.agencyName || '').trim(),
+    joinCode: String(draft.agencyInvite.joinCode || '').trim()
+  };
+  if (draftInvite?.joinCode && currentInvite?.joinCode && draftInvite.joinCode !== currentInvite.joinCode) {
+    sessionStorage.removeItem(REGISTER_DRAFT_KEY);
+    return null;
+  }
+  if (draftInvite?.joinCode && !currentInvite) {
+    saveAgencyInvite(draftInvite);
   }
   const values = {
     '#reg-biz-no': draft.businessNumber,
@@ -3958,6 +3974,7 @@ function clearSessionAuth() {
 function clearAllAuth() {
   stopNotificationPolling();
   clearSessionAuth();
+  clearAgencyInviteSession();
   clearAuthCookie();
   localStorage.removeItem('eatspay.keepLogin');
   localStorage.removeItem('eatspay.accessToken');
@@ -4284,6 +4301,119 @@ function getAgencyJoinCodeFromUrl() {
   if (pathMatch?.[1]) return decodeURIComponent(pathMatch[1]).trim();
   const params = new URLSearchParams(window.location.search || '');
   return String(params.get('ref') || params.get('joinCode') || params.get('agencyJoinCode') || '').trim();
+}
+
+function getStoredAgencyInvite() {
+  const raw = sessionStorage.getItem(AGENCY_INVITE_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const invite = JSON.parse(raw);
+    const agencyId = String(invite?.agencyId || '').trim();
+    const agencyName = String(invite?.agencyName || '').trim();
+    const joinCode = String(invite?.joinCode || '').trim();
+    if (!agencyId || !agencyName || !joinCode) return null;
+    return { agencyId, agencyName, joinCode };
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveAgencyInvite(invite) {
+  const agencyId = String(invite?.agencyId || '').trim();
+  const agencyName = String(invite?.agencyName || '').trim();
+  const joinCode = String(invite?.joinCode || '').trim();
+  if (!agencyId || !agencyName || !joinCode) {
+    clearAgencyInviteSession();
+    return null;
+  }
+  const safeInvite = { agencyId, agencyName, joinCode };
+  sessionStorage.setItem(AGENCY_INVITE_SESSION_KEY, JSON.stringify(safeInvite));
+  return safeInvite;
+}
+
+function clearAgencyInviteSession() {
+  sessionStorage.removeItem(AGENCY_INVITE_SESSION_KEY);
+  renderAgencyInviteNotice();
+}
+
+function renderAgencyInviteNotice() {
+  $$('.agency-invite-notice').forEach(node => node.remove());
+  const invite = getStoredAgencyInvite();
+  if (!invite || !/^reg-step\d$/.test(state.currentScreen || '')) return;
+  const screen = $(`#screen-${state.currentScreen}`);
+  const content = $('.auth-content', screen);
+  if (!content) return;
+  const notice = document.createElement('div');
+  notice.className = 'agency-invite-notice';
+  const title = document.createElement('div');
+  title.className = 'agency-invite-title';
+  title.textContent = '대리점 가입 링크';
+  const body = document.createElement('div');
+  body.className = 'agency-invite-body';
+  body.textContent = `${invite.agencyName} 가입 링크로 접속했습니다.`;
+  notice.append(title, body);
+  const headline = $('.auth-headline', content);
+  if (headline?.parentNode === content) {
+    headline.insertAdjacentElement('afterend', notice);
+  } else {
+    content.prepend(notice);
+  }
+}
+
+async function fetchAgencyInviteByJoinCode(joinCode) {
+  const response = await fetch(apiUrl(`/api/public/agency-invites/${encodeURIComponent(joinCode)}`), {
+    cache: 'no-store'
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.success === false || !payload.data) {
+    throw new Error(getFriendlyErrorMessage(payload, '유효하지 않은 가입 링크입니다.'));
+  }
+  return payload.data;
+}
+
+async function handleAgencyInviteStartup() {
+  const joinCode = getAgencyJoinCodeFromUrl();
+  if (!joinCode) {
+    renderAgencyInviteNotice();
+    return;
+  }
+  try {
+    const invite = saveAgencyInvite(await fetchAgencyInviteByJoinCode(joinCode));
+    if (!invite) throw new Error('유효하지 않은 가입 링크입니다.');
+    const rawDraft = sessionStorage.getItem(REGISTER_DRAFT_KEY);
+    let draftInviteJoinCode = '';
+    if (rawDraft) {
+      try {
+        draftInviteJoinCode = String(JSON.parse(rawDraft)?.agencyInvite?.joinCode || '').trim();
+      } catch (err) {
+        draftInviteJoinCode = '';
+      }
+    }
+    if (rawDraft && draftInviteJoinCode !== invite.joinCode) {
+      sessionStorage.removeItem(REGISTER_DRAFT_KEY);
+      if (typeof clearBizLicenseSelection === 'function') clearBizLicenseSelection();
+    }
+    if (isAuthenticated()) {
+      clearAgencyInviteSession();
+      void showAppAlert('이미 로그인된 계정에는 가입 링크를 적용할 수 없습니다. 로그아웃 후 다시 접속해 주세요.', '가입 링크 안내');
+      return;
+    }
+    clearTimeout(state.splashTimer);
+    pendingLocationGateTarget = 'reg-step1';
+    const targetScreen = hasCertifiedStartupLocation() ? 'reg-step1' : 'location-setup';
+    navigate(targetScreen, 'replace');
+    if (targetScreen === 'location-setup') {
+      renderLocationSetupState('회원가입 전 현재 위치 확인이 필요합니다.');
+    }
+    renderAgencyInviteNotice();
+    showToast(`${invite.agencyName} 가입 링크로 접속했습니다.`);
+  } catch (err) {
+    clearAgencyInviteSession();
+    sessionStorage.removeItem(REGISTER_DRAFT_KEY);
+    const message = getFriendlyErrorMessage(err, '유효하지 않은 가입 링크입니다.');
+    showToast(message);
+    void showAppAlert(`${message}\n가입 링크를 다시 확인해 주세요.`, '가입 링크 확인');
+  }
 }
 
 function getPushRouteFromUrl() {
@@ -5967,6 +6097,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBankInstitutions();
   resetAppToSplash();
   startInitialFlow();
+  void handleAgencyInviteStartup();
   const startupPushRoute = getPushRouteFromUrl();
   if (startupPushRoute) rememberPushRoute(startupPushRoute);
   if (isAuthenticated()) {
@@ -6358,6 +6489,7 @@ document.addEventListener('DOMContentLoaded', () => {
           resPayload.data.user || null,
           keepLogin
         );
+        clearAgencyInviteSession();
         syncLoggedInViews();
         registerDevicePushToken();
         const approvalState = getApprovalState(resPayload.data.user || null);
@@ -6916,8 +7048,13 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('address', address || '');
       formData.append('tel', tel || '');
       formData.append('businessNumber', businessNumber || '');
-      const agencyJoinCode = getAgencyJoinCodeFromUrl();
-      if (agencyJoinCode) formData.append('agencyJoinCode', agencyJoinCode);
+      const urlAgencyJoinCode = getAgencyJoinCodeFromUrl();
+      const agencyInvite = getStoredAgencyInvite();
+      if (urlAgencyJoinCode && !agencyInvite) {
+        showToast('가입 링크 확인이 끝난 뒤 다시 시도해 주세요.');
+        return;
+      }
+      if (agencyInvite?.joinCode) formData.append('agencyJoinCode', agencyInvite.joinCode);
       formData.append('bizLicenseFile', bizLicenseFile, getBizLicenseDisplayName(bizLicenseFile));
 
       const response = await fetch(apiUrl('/api/auth/register'), {
@@ -6932,6 +7069,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       await playSignupCelebration();
       clearBizLicenseSelection();
+      clearAgencyInviteSession();
+      sessionStorage.removeItem(REGISTER_DRAFT_KEY);
       state.history = [];
       navigate('login');
     } catch (err) {

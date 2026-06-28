@@ -3301,10 +3301,7 @@ function currentAgentAgency(){
 }
 function agencyJoinCode(ag){
   if(!ag)return'';
-  const raw=ag.joinCode||ag.join_code||ag.refCode||ag.ref_code||ag.code;
-  if(raw)return String(raw);
-  const key=String(ag.loginId||ag.id||'AG').replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,8)||'AG';
-  return `EP-${key}`;
+  return String(ag.joinCode||ag.join_code||'').trim();
 }
 function agencyJoinUrl(ag){
   const code=agencyJoinCode(ag);

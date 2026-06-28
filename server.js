@@ -9,6 +9,7 @@ const multer = require('multer');
 const { createPool } = require('./db/pool');
 const { createRepository } = require('./db/repository');
 const { parseCardGorillaRanking } = require('./lib/cardgorilla');
+const { createPublicAgencyInvite } = require('./lib/public-agency-invite');
 
 loadEnv();
 
@@ -803,6 +804,20 @@ app.get('/admin', (req, res) => {
 app.get('/join/:joinCode', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
+
+app.get('/api/public/agency-invites/:joinCode', asyncHandler(async (req, res) => {
+  const joinCode = String(req.params.joinCode || '').trim();
+  if (!joinCode) {
+    return sendError(res, 400, 'BAD_REQUEST', '가입 링크 코드가 없습니다.');
+  }
+  const agency = await repo.findAgencyByJoinCode(joinCode);
+  const invite = createPublicAgencyInvite(agency);
+  if (!invite) {
+    return sendError(res, 404, 'AGENCY_JOIN_CODE_NOT_FOUND', '유효하지 않은 가입 링크입니다.');
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ success: true, data: invite });
+}));
 
 function getViewerCoordinateFromQuery(query = {}) {
   const lat = Number(query.lat);

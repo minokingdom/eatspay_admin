@@ -3665,6 +3665,28 @@ html.nav-cursor-pointer body * {
   margin-bottom: 28px;
 }
 
+.agency-invite-notice {
+  margin: -8px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  background: #f4fff7;
+}
+
+.agency-invite-title {
+  margin-bottom: 4px;
+  color: var(--green-primary);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.agency-invite-body {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 /* Form elements */
 .form-group {
   margin-bottom: 12px;
