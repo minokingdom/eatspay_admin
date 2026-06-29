@@ -31,4 +31,11 @@ test('admin proof images expose zoom controls and reusable viewer behavior', () 
   assert.match(combined, /\.proof-zoom-overlay/);
   assert.match(combined, /\.proof-zoom-stage/);
   assert.match(combined, /\.proof-zoom-image/);
+  assert.match(combined, /data-da-logo-crop-pan/);
+  assert.match(combined, /data-da-logo-crop-reset/);
+  assert.match(combined, /function startDeliveryAgencyLogoCropPan/);
+  assert.match(combined, /function moveDeliveryAgencyLogoCropPan/);
+  assert.match(combined, /function endDeliveryAgencyLogoCropPan/);
+  assert.match(combined, /\.delivery-agency-logo-crop-stage\.is-panning/);
+  assert.match(combined, /admin-main\.css\?v=20260629-da-logo-pan/);
 });

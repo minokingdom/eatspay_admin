@@ -55,7 +55,7 @@ try{
   pgProviders:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260628-proof-pan">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260629-da-logo-pan">
 </head>
 <body>
 <div class="app">
@@ -595,17 +595,24 @@ function closeProofImageZoom(){
   if(image)image.removeAttribute('src');
 }
 let deliveryAgencyLogoCropState=null;
+let deliveryAgencyLogoPanState=null;
 function openDeliveryAgencyLogoModal(id,name,url){
   const safeName=String(name||'배달대행사').trim()||'배달대행사';
   const safeUrl=String(url||'').trim();
   if(!safeUrl){adminAlert('등록된 로고 파일이 없습니다.');return;}
   openM(`${safeName} 로고`,
     `<div class="delivery-agency-logo-modal">
-      <div class="delivery-agency-logo-crop-stage"><canvas id="da-logo-crop-canvas" width="320" height="320"></canvas></div>
+      <div class="delivery-agency-logo-crop-stage" data-da-logo-crop-stage>
+        <canvas id="da-logo-crop-canvas" width="320" height="320" data-da-logo-crop-pan="1" aria-label="로고 크롭 영역"></canvas>
+      </div>
       <div class="delivery-agency-logo-crop-controls">
         <label>확대 <input type="range" id="da-logo-crop-zoom" min="1" max="3" step="0.01" value="1"></label>
         <label>좌우 <input type="range" id="da-logo-crop-x" min="-100" max="100" step="1" value="0"></label>
         <label>상하 <input type="range" id="da-logo-crop-y" min="-100" max="100" step="1" value="0"></label>
+      </div>
+      <div class="delivery-agency-logo-crop-actions">
+        <span class="delivery-agency-logo-crop-help">이미지를 손바닥으로 잡고 움직여 위치를 맞출 수 있습니다.</span>
+        <button type="button" class="btn bo xs" data-da-logo-crop-reset="1">초기화</button>
       </div>
       <div class="admin-modal-note">정사각형 영역에 맞춰 조절한 뒤 저장하면 새 로고 파일로 저장됩니다. 원본 파일은 보존됩니다.</div>
     </div>`,
@@ -627,28 +634,121 @@ function initDeliveryAgencyLogoCrop(id,name,url){
     if(!el)return;
     el.addEventListener('input',()=>{
       if(!deliveryAgencyLogoCropState)return;
-      if(key==='zoom')deliveryAgencyLogoCropState.zoom=Number(el.value)||1;
-      if(key==='x')deliveryAgencyLogoCropState.offsetX=Number(el.value)||0;
-      if(key==='y')deliveryAgencyLogoCropState.offsetY=Number(el.value)||0;
-      renderDeliveryAgencyLogoCrop();
+      if(key==='zoom'){setDeliveryAgencyLogoCropZoom(Number(el.value)||1);return;}
+      setDeliveryAgencyLogoCropOffset(
+        key==='x'?Number(el.value):deliveryAgencyLogoCropState.offsetX,
+        key==='y'?Number(el.value):deliveryAgencyLogoCropState.offsetY
+      );
     });
   });
+}
+function clampDeliveryAgencyLogoCropOffset(value){
+  return Math.max(-100,Math.min(100,Number(value)||0));
+}
+function deliveryAgencyLogoCropMetrics(state,canvas){
+  if(!state||!canvas||!state.img?.naturalWidth||!state.img?.naturalHeight)return null;
+  const size=canvas.width;
+  const base=Math.min(size/state.img.naturalWidth,size/state.img.naturalHeight);
+  const scale=base*(Number(state.zoom)||1);
+  const drawW=state.img.naturalWidth*scale;
+  const drawH=state.img.naturalHeight*scale;
+  return{
+    size,
+    drawW,
+    drawH,
+    maxX:Math.max(0,(drawW-size)/2),
+    maxY:Math.max(0,(drawH-size)/2)
+  };
+}
+function syncDeliveryAgencyLogoCropControls(){
+  const state=deliveryAgencyLogoCropState;
+  if(!state)return;
+  const zoom=document.getElementById('da-logo-crop-zoom');
+  const x=document.getElementById('da-logo-crop-x');
+  const y=document.getElementById('da-logo-crop-y');
+  if(zoom)zoom.value=String(state.zoom);
+  if(x)x.value=String(Math.round(state.offsetX));
+  if(y)y.value=String(Math.round(state.offsetY));
+}
+function setDeliveryAgencyLogoCropZoom(nextZoom){
+  const state=deliveryAgencyLogoCropState;
+  if(!state)return;
+  const input=document.getElementById('da-logo-crop-zoom');
+  const min=Number(input?.min)||1;
+  const max=Number(input?.max)||3;
+  state.zoom=Math.max(min,Math.min(max,Number(nextZoom)||1));
+  syncDeliveryAgencyLogoCropControls();
+  renderDeliveryAgencyLogoCrop();
+}
+function setDeliveryAgencyLogoCropOffset(nextX,nextY){
+  const state=deliveryAgencyLogoCropState;
+  if(!state)return;
+  state.offsetX=clampDeliveryAgencyLogoCropOffset(nextX);
+  state.offsetY=clampDeliveryAgencyLogoCropOffset(nextY);
+  syncDeliveryAgencyLogoCropControls();
+  renderDeliveryAgencyLogoCrop();
+}
+function resetDeliveryAgencyLogoCrop(){
+  if(!deliveryAgencyLogoCropState)return;
+  deliveryAgencyLogoCropState.zoom=1;
+  deliveryAgencyLogoCropState.offsetX=0;
+  deliveryAgencyLogoCropState.offsetY=0;
+  syncDeliveryAgencyLogoCropControls();
+  renderDeliveryAgencyLogoCrop();
+}
+function startDeliveryAgencyLogoCropPan(ev){
+  const canvas=ev.target.closest?.('[data-da-logo-crop-pan]');
+  const state=deliveryAgencyLogoCropState;
+  if(!canvas||!state?.ready||ev.button!==0||ev.target.closest?.('button,a,input,select,textarea'))return;
+  const rect=canvas.getBoundingClientRect();
+  deliveryAgencyLogoPanState={
+    canvas,
+    pointerId:ev.pointerId,
+    x:ev.clientX,
+    y:ev.clientY,
+    offsetX:state.offsetX,
+    offsetY:state.offsetY,
+    scaleX:canvas.width/(rect.width||canvas.width),
+    scaleY:canvas.height/(rect.height||canvas.height)
+  };
+  canvas.classList.add('is-panning');
+  canvas.closest?.('[data-da-logo-crop-stage]')?.classList.add('is-panning');
+  canvas.setPointerCapture?.(ev.pointerId);
+  ev.preventDefault();
+}
+function moveDeliveryAgencyLogoCropPan(ev){
+  const pan=deliveryAgencyLogoPanState;
+  const state=deliveryAgencyLogoCropState;
+  if(!pan||!state?.ready||pan.pointerId!==ev.pointerId)return;
+  const metrics=deliveryAgencyLogoCropMetrics(state,pan.canvas);
+  if(!metrics)return;
+  const dx=(ev.clientX-pan.x)*pan.scaleX;
+  const dy=(ev.clientY-pan.y)*pan.scaleY;
+  const nextX=metrics.maxX>0?pan.offsetX+(dx/metrics.maxX)*100:0;
+  const nextY=metrics.maxY>0?pan.offsetY+(dy/metrics.maxY)*100:0;
+  setDeliveryAgencyLogoCropOffset(nextX,nextY);
+  ev.preventDefault();
+}
+function endDeliveryAgencyLogoCropPan(ev){
+  const pan=deliveryAgencyLogoPanState;
+  if(!pan)return;
+  deliveryAgencyLogoPanState=null;
+  pan.canvas.classList.remove('is-panning');
+  pan.canvas.closest?.('[data-da-logo-crop-stage]')?.classList.remove('is-panning');
+  pan.canvas.releasePointerCapture?.(pan.pointerId);
+  ev.preventDefault();
 }
 function renderDeliveryAgencyLogoCrop(){
   const state=deliveryAgencyLogoCropState;
   const canvas=document.getElementById('da-logo-crop-canvas');
   if(!state||!canvas||!state.ready)return;
   const ctx=canvas.getContext('2d');
-  const size=canvas.width;
+  const metrics=deliveryAgencyLogoCropMetrics(state,canvas);
+  if(!metrics)return;
+  const {size,drawW,drawH,maxX,maxY}=metrics;
   ctx.clearRect(0,0,size,size);
   ctx.fillStyle='#fff';
   ctx.fillRect(0,0,size,size);
-  const base=Math.min(size/state.img.naturalWidth,size/state.img.naturalHeight);
-  const scale=base*state.zoom;
-  const drawW=state.img.naturalWidth*scale;
-  const drawH=state.img.naturalHeight*scale;
-  const maxX=Math.max(0,(drawW-size)/2);
-  const maxY=Math.max(0,(drawH-size)/2);
   const dx=(size-drawW)/2+(state.offsetX/100)*maxX;
   const dy=(size-drawH)/2+(state.offsetY/100)*maxY;
   ctx.imageSmoothingEnabled=true;
@@ -5160,17 +5260,33 @@ document.addEventListener('click',ev=>{
   }
 });
 document.addEventListener('wheel',ev=>{
+  const logoCanvas=ev.target.closest?.('[data-da-logo-crop-pan]');
+  if(logoCanvas&&deliveryAgencyLogoCropState?.ready){
+    ev.preventDefault();
+    setDeliveryAgencyLogoCropZoom((deliveryAgencyLogoCropState.zoom||1)+(ev.deltaY<0?.08:-.08));
+    return;
+  }
   const stage=ev.target.closest?.('[data-proof-zoom-stage]');
   if(!stage||stage.closest('.admin-hidden'))return;
   ev.preventDefault();
   setProofImageZoom(proofZoomScale+(ev.deltaY<0?.25:-.25));
 },{passive:false});
 document.addEventListener('pointerdown',ev=>{
+  if(ev.target.closest?.('[data-da-logo-crop-pan]'))startDeliveryAgencyLogoCropPan(ev);
   if(ev.target.closest?.('[data-proof-zoom-pan]'))startProofImagePan(ev);
 });
-document.addEventListener('pointermove',ev=>moveProofImagePan(ev));
-document.addEventListener('pointerup',ev=>endProofImagePan(ev));
-document.addEventListener('pointercancel',ev=>endProofImagePan(ev));
+document.addEventListener('pointermove',ev=>{
+  moveDeliveryAgencyLogoCropPan(ev);
+  moveProofImagePan(ev);
+});
+document.addEventListener('pointerup',ev=>{
+  endDeliveryAgencyLogoCropPan(ev);
+  endProofImagePan(ev);
+});
+document.addEventListener('pointercancel',ev=>{
+  endDeliveryAgencyLogoCropPan(ev);
+  endProofImagePan(ev);
+});
 document.addEventListener('keydown',ev=>{
   if(ev.key!=='Escape')return;
   const overlay=document.querySelector('[data-proof-zoom-overlay]:not(.admin-hidden)');
@@ -6226,6 +6342,13 @@ document.addEventListener('click',function(ev){
     ev.preventDefault();
     ev.stopPropagation();
     closeProofImageZoom();
+    return;
+  }
+  const deliveryAgencyLogoResetTarget=ev.target.closest?.('[data-da-logo-crop-reset]');
+  if(deliveryAgencyLogoResetTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    resetDeliveryAgencyLogoCrop();
     return;
   }
   const deliveryAgencyLogoTarget=ev.target.closest?.('[data-admin-action="da-logo-preview"]');
