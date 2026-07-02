@@ -19,7 +19,7 @@ This project is ready to run as a real web service on a VPS.
 - `css/`
 - `js/`
 - `uploads/`
-- `homepage/` copied to `/var/www/eatspay-home` for homepage static files
+- `homepage/` copied to `/var/www/eatspay-home/site` for homepage static files
 - `.env`
 
 ## Server environment
@@ -46,12 +46,12 @@ Use `deploy/nginx/eatspay.conf` as the first reverse proxy template.
 The initial config routes:
 
 - `eatspay.kr` to the app/API Node server on `127.0.0.1:3000`
-- `eatspay.co.kr` and `www.eatspay.co.kr` to static homepage files in `/var/www/eatspay-home`
+- `eatspay.co.kr` and `www.eatspay.co.kr` to static homepage files in `/var/www/eatspay-home/site`
 
-Homepage files live in `homepage/`. The bootstrap script copies this folder to `/var/www/eatspay-home`. For a manual sync, run:
+Homepage files live in `homepage/`. The bootstrap script copies this folder to `/var/www/eatspay-home/site`. For a manual sync, run:
 
 ```bash
-npm run homepage:sync -- --target /var/www/eatspay-home
+npm run homepage:sync -- --target /var/www/eatspay-home/site
 ```
 
 If the repository has no `homepage/index.html`, the bootstrap script creates a simple placeholder `index.html` only when the folder has no index yet.
