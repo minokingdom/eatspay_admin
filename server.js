@@ -1,6 +1,7 @@
 ﻿const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const express = require('express');
 const ExcelJS = require('exceljs');
@@ -13,6 +14,23 @@ const { createPublicAgencyInvite } = require('./lib/public-agency-invite');
 const { buildAuditChangeSet, sanitizeAuditData } = require('./lib/audit-log');
 const { createSignupAttribution } = require('./lib/signup-attribution');
 const { isProtectedAgencyJoinCode } = require('./lib/agency-link-policy');
+const {
+  buildRouteupBillKeyPayload,
+  buildRouteupBillPayPayload,
+  extractRouteupBillKey,
+  isRouteupSuccess,
+  routeupMessage
+} = require('./lib/routeup-payments');
+const {
+  buildRouteupPaymentContract,
+  hasBillablePgContract,
+  hasRouteupExternalIntegrationKeys,
+  maskPgContract,
+  normalizePgContract,
+  normalizeProviderName,
+  sanitizePgContracts
+} = require('./lib/pg-contracts');
+const { calculateAgencySettlementRows } = require('./admin-assets/js/admin-agency-settlement-calculator');
 
 loadEnv();
 
@@ -33,10 +51,719 @@ const repo = createRepository(pool);
 const DEFAULT_AGENCY_NAME = '이츠페이 본사';
 const TEST_BUSINESS_NUMBER = '1234512345';
 const CHARGE_DEPOSIT_RATE = 0.956;
+const MAX_INSTALLMENT_MONTH = 6;
 const ACCOUNT_EXPORT_TEMPLATE_PATH = path.join(__dirname, 'assets', 'templates', 'merchant_registration_template.xlsx');
 const CARDGORILLA_RANKING_URL = String(process.env.CARDGORILLA_RANKING_URL || '').trim();
 const CARDGORILLA_UPDATE_HOUR_KST = Number(process.env.CARDGORILLA_UPDATE_HOUR_KST || 6);
 const ALIGO_API_URL = 'https://apis.aligo.in/send/';
+const CH_PAYWAY_UID = String(process.env.CH_PAYWAY_UID || process.env.PAYWAY_UID || '').trim();
+const CH_PAYWAY_PW = String(process.env.CH_PAYWAY_PW || process.env.PAYWAY_PW || '').trim();
+const CH_PAYWAY_BASE_URL = 'https://payway.kr';
+const CH_PAYWAY_PROXY_TTL_MS = 10 * 60 * 1000;
+const CH_PAYWAY_FALLBACK_ENABLED = String(process.env.CH_PAYWAY_FALLBACK_ENABLED || 'true').toLowerCase() !== 'false';
+const CH_PAYWAY_FALLBACK_BATCH_SIZE = Math.max(1, Math.min(Number(process.env.CH_PAYWAY_FALLBACK_BATCH_SIZE || 5), 20));
+const CH_PAYWAY_FALLBACK_TIMEOUT_MS = Math.max(5000, Math.min(Number(process.env.CH_PAYWAY_FALLBACK_TIMEOUT_MS || 15000), 60000));
+const ROUTEUP_UID = String(process.env.ROUTEUP_UID || '').trim();
+const ROUTEUP_PW = String(process.env.ROUTEUP_PW || '').trim();
+const ROUTEUP_BASE_URL = 'https://www.routeup.kr';
+const ROUTEUP_API_BASE_URL = 'https://api.routeup.kr';
+const ROUTEUP_SIGN_KEY = String(process.env.ROUTEUP_SIGN_KEY || '').trim();
+const ROUTEUP_MERCHANT_DEFAULT_PW = String(process.env.ROUTEUP_MERCHANT_DEFAULT_PW || process.env.ROUTEUP_DEFAULT_USER_PW || '').trim();
+const ROUTEUP_PROXY_TTL_MS = 10 * 60 * 1000;
+const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+const chPaywayProxyTokens = new Map();
+const chPaywayStartTokens = new Map();
+const routeupProxyTokens = new Map();
+const routeupStartTokens = new Map();
+let chPaywayCookieHeader = '';
+let routeupSessionCache = null;
+
+
+const AVICX_SAFE_TABLES = new Map([
+  ['pg_providers', ['id', 'name', 'mid', 'callback_url', 'status', 'display_order', 'note', 'updated_at']],
+  ['pg_notifications', ['id', 'provider', 'event_type', 'transaction_id', 'pg_transaction_id', 'result_code', 'result_message', 'processed', 'received_at']],
+  ['deposit_notifications', ['id', 'provider', 'event_type', 'txid', 'account_no', 'bank_name', 'depositor_name', 'amount', 'processed', 'received_at']],
+  ['pg_settlements', ['id', 'franchise_name', 'delivery_agency', 'account_no', 'account_holder', 'payment_amt', 'svc_fee', 'net_amt', 'status', 'approval_no', 'pg_tx_id', 'created_at']],
+  ['users', ['id', 'email', 'name', 'franchise_name', 'franchise_id', 'role', 'phone', 'agency_id', 'login_id', 'created_at']],
+  ['cards', ['id', 'user_id', 'masked_number', 'card_name', 'card_company', 'alias', 'active', 'hidden', 'created_at']],
+  ['account_requests', ['request_id', 'franchise_id', 'franchise_name', 'bank_name', 'account_no', 'representative_name', 'status', 'txid', 'manual_tid', 'recurring_tid', 'submitted_at', 'updated_at']],
+  ['agencies', ['id', 'type', 'name', 'login_id', 'parent_id', 'status', 'created_at', 'updated_at']],
+  ['transactions', ['transaction_id', 'franchise_id', 'type', 'amount', 'fee', 'total_amount', 'method', 'pg', 'pg_tx_id', 'auth_code', 'status', 'created_at']]
+]);
+
+function avicxLines(lines = [], tone = 'info') {
+  return { type: 'lines', tone, lines: Array.isArray(lines) ? lines.map(line => String(line)) : [String(lines)] };
+}
+
+function avicxTable(columns, rows) {
+  return { type: 'table', columns, rows };
+}
+
+function avicxLimit(value, fallback = 20, max = 100) {
+  const n = Number(value || fallback);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
+}
+
+function avicxExtractLimit(tokens, fallback = 20, max = 100) {
+  const idx = tokens.findIndex(token => token.toLowerCase() === 'limit');
+  if (idx >= 0) return avicxLimit(tokens[idx + 1], fallback, max);
+  const tail = tokens[tokens.length - 1];
+  if (/^\d+$/.test(tail || '')) return avicxLimit(tail, fallback, max);
+  return fallback;
+}
+
+function avicxNormalizeProvider(input) {
+  const value = String(input || '').trim().toLowerCase();
+  if (!value || value === 'all') return '';
+  if (['gh', 'ghpayments', 'ghpayment', 'gh-payments'].includes(value)) return 'GH Payments';
+  if (['routeup', 'route', '루트업'].includes(value)) return '루트업';
+  if (['next', 'nextpay', '넥스트페이'].includes(value)) return '넥스트페이';
+  return String(input || '').trim();
+}
+
+function defaultFranchiseFeeRateForPg(provider) {
+  return 4.4;
+}
+
+function avicxSessionId(value) {
+  const raw = String(value || '').trim();
+  return /^[a-zA-Z0-9_-]{12,80}$/.test(raw) ? raw : crypto.randomBytes(18).toString('base64url');
+}
+
+async function touchAvicxSession(req, requestedId) {
+  const sessionId = avicxSessionId(requestedId);
+  await pool.query(
+    `INSERT INTO admin_console_sessions (id, admin_user_id, admin_email, updated_at, last_seen_at)
+     VALUES ($1, $2, $3, now(), now())
+     ON CONFLICT (id) DO UPDATE SET
+       admin_user_id = EXCLUDED.admin_user_id,
+       admin_email = EXCLUDED.admin_email,
+       updated_at = now(),
+       last_seen_at = now()`,
+    [sessionId, req.user?.id || null, req.user?.email || req.user?.loginId || null]
+  );
+  return sessionId;
+}
+
+async function recordAvicxCommand(sessionId, req, command, status, output) {
+  await pool.query(
+    `INSERT INTO admin_console_commands (session_id, admin_user_id, command, status, output)
+     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    [sessionId, req.user?.id || null, command, status, JSON.stringify(output || {})]
+  );
+}
+
+async function avicxRows(query, params = []) {
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+async function avicxRunCodexCli(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text) return avicxLines(['사용법: codex exec 질문내용', '예: codex exec 슬건01 결제 실패 원인 찾아줘'], 'warn');
+  const codexBin = String(process.env.AVICX_CODEX_BIN || '/usr/bin/codex').trim();
+  const cwd = String(process.env.AVICX_CODEX_CWD || __dirname).trim();
+  const timeoutMs = Math.max(10000, Math.min(Number(process.env.AVICX_CODEX_TIMEOUT_MS || 30000), 120000));
+  const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', cwd, text];
+  return await new Promise(resolve => {
+    const child = execFile(codexBin, args, {
+      cwd,
+      env: {
+        ...process.env,
+        HOME: process.env.AVICX_CODEX_HOME_DIR || '/opt/eatspay/.codex-runtime/home',
+        CODEX_HOME: process.env.AVICX_CODEX_HOME || '/opt/eatspay/.codex-runtime',
+        XDG_CACHE_HOME: process.env.AVICX_CODEX_CACHE_HOME || '/opt/eatspay/.codex-runtime/xdg-cache',
+        XDG_CONFIG_HOME: process.env.AVICX_CODEX_CONFIG_HOME || '/opt/eatspay/.codex-runtime/xdg-config',
+        XDG_DATA_HOME: process.env.AVICX_CODEX_DATA_HOME || '/opt/eatspay/.codex-runtime/xdg-data',
+        TMPDIR: process.env.AVICX_CODEX_TMPDIR || '/opt/eatspay/.codex-runtime/tmp',
+        CI: '1',
+        NO_COLOR: '1'
+      },
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024
+    }, (error, stdout = '', stderr = '') => {
+      const cleanOut = String(stdout || '').trim();
+      const cleanErr = String(stderr || '').trim();
+      if (error) {
+        const merged = `${cleanErr}\n${cleanOut}`;
+        let message = cleanErr || cleanOut || '출력이 없습니다.';
+        if (/401 Unauthorized|Missing bearer|basic authentication/i.test(merged)) {
+          message = 'OpenAI 인증이 필요합니다. 서버 .env에 OPENAI_API_KEY를 설정하거나 www-data 기준 codex login을 완료하세요.';
+        } else if (/Permission denied|os error 13/i.test(merged)) {
+          message = 'Codex CLI 권한 오류입니다. CODEX_HOME/HOME/XDG 경로 권한을 확인하세요.';
+        } else if (error.killed) {
+          message = `Codex CLI 실행 시간이 ${Math.round(timeoutMs / 1000)}초를 초과했습니다.`;
+        }
+        const lines = [
+          `codex cli 실패: ${error.killed ? 'timeout' : (error.code || 'error')}`,
+          message
+        ];
+        return resolve(avicxLines(lines, 'error'));
+      }
+      return resolve(avicxLines((cleanOut || 'Codex CLI completed with no output.').split(/\r?\n/).slice(0, 80), 'success'));
+    });
+    if (child.stdin) child.stdin.end();
+  });
+}
+
+
+function avicxLooksLikeDestructiveDataRequest(text) {
+  const value = String(text || '').toLowerCase();
+  const destructive = /(삭제|지워|제거|탈퇴|초기화|delete|drop|truncate|remove)/i.test(value);
+  const dataTarget = /(가맹점|계정|카드|결제|정산|db|database|table|user|franchise|card|payment|settlement)/i.test(value);
+  return destructive && dataTarget;
+}
+
+async function avicxRunCodexApply(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text) {
+    return avicxLines([
+      '사용법: codex apply 수정요청',
+      '현재 codex apply는 제안 모드입니다. 파일/DB를 직접 변경하지 않습니다.',
+      '예: codex apply PG 관리 버튼 위치를 수정하려면 어떤 파일을 바꿔야 해?'
+    ], 'warn');
+  }
+  if (avicxLooksLikeDestructiveDataRequest(text)) {
+    return avicxLines([
+      'codex apply는 운영 DB 삭제를 직접 실행하지 않습니다.',
+      '가맹점/카드/결제/정산 삭제는 전용 승인 명령이나 관리자 화면에서 처리해야 합니다.',
+      '먼저 확인용 명령을 사용하세요: franchise search <가맹점명> 또는 card list <가맹점명>'
+    ], 'warn');
+  }
+  const result = await avicxRunCodexCli([
+    'AVICX codex apply 제안 모드입니다.',
+    '운영 서버의 파일, DB, 서비스는 직접 변경하지 마세요.',
+    '요청을 처리하려면 어떤 파일/함수/명령이 필요한지 한국어로 간결하게 제안하세요.',
+    `요청: ${text}`
+  ].join('\n'));
+  return {
+    type: 'group',
+    sections: [
+      avicxLines(['codex apply: 제안 모드입니다. 직접 변경은 하지 않습니다.'], 'warn'),
+      result
+    ]
+  };
+}
+
+function avicxPad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function avicxKstYmd(offsetDays = 0) {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  kst.setUTCDate(kst.getUTCDate() + offsetDays);
+  return `${kst.getUTCFullYear()}-${avicxPad2(kst.getUTCMonth() + 1)}-${avicxPad2(kst.getUTCDate())}`;
+}
+
+function avicxResolveSalesDate(token) {
+  const value = String(token || 'today').trim().toLowerCase();
+  if (!value || value === 'today' || value === '오늘') return avicxKstYmd(0);
+  if (value === 'yesterday' || value === '어제') return avicxKstYmd(-1);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return '';
+}
+
+function avicxWon(value) {
+  const num = Number(value || 0);
+  return `${Math.round(num).toLocaleString('ko-KR')}원`;
+}
+
+function avicxNumber(value) {
+  return Number(value || 0).toLocaleString('ko-KR');
+}
+
+async function avicxSalesReport(tokens) {
+  const ymd = avicxResolveSalesDate(tokens[1]);
+  if (!ymd) return avicxLines(['사용법: sales today | sales yesterday | sales YYYY-MM-DD'], 'warn');
+  const start = `${ymd} 00:00:00+09`;
+  const end = `${ymd} 00:00:00+09`;
+  const params = [start, end];
+  const txSummary = await avicxRows(
+    `SELECT count(*)::int AS count,
+            COALESCE(sum(amount),0)::numeric AS amount,
+            COALESCE(sum(fee),0)::numeric AS fee,
+            COALESCE(sum(total_amount),0)::numeric AS total,
+            COALESCE(avg(total_amount),0)::numeric AS avg_total
+       FROM transactions
+      WHERE created_at >= $1::timestamptz
+        AND created_at < ($2::timestamptz + interval '1 day')`,
+    params
+  );
+  const settlementSummary = await avicxRows(
+    `SELECT count(*)::int AS count,
+            COALESCE(sum(payment_amt),0)::numeric AS payment,
+            COALESCE(sum(svc_fee),0)::numeric AS fee,
+            COALESCE(sum(net_amt),0)::numeric AS net
+       FROM pg_settlements
+      WHERE created_at >= $1::timestamptz
+        AND created_at < ($2::timestamptz + interval '1 day')`,
+    params
+  );
+  const statusRows = await avicxRows(
+    `SELECT COALESCE(NULLIF(status,''), '-') AS status,
+            count(*)::int AS count,
+            COALESCE(sum(total_amount),0)::numeric AS total
+       FROM transactions
+      WHERE created_at >= $1::timestamptz
+        AND created_at < ($2::timestamptz + interval '1 day')
+      GROUP BY COALESCE(NULLIF(status,''), '-')
+      ORDER BY total DESC, count DESC`,
+    params
+  );
+  const pgRows = await avicxRows(
+    `SELECT COALESCE(NULLIF(pg,''), '미지정') AS pg,
+            count(*)::int AS count,
+            COALESCE(sum(total_amount),0)::numeric AS total,
+            COALESCE(sum(fee),0)::numeric AS fee
+       FROM transactions
+      WHERE created_at >= $1::timestamptz
+        AND created_at < ($2::timestamptz + interval '1 day')
+      GROUP BY COALESCE(NULLIF(pg,''), '미지정')
+      ORDER BY total DESC, count DESC`,
+    params
+  );
+  const hourlyRows = await avicxRows(
+    `SELECT to_char(created_at AT TIME ZONE 'Asia/Seoul', 'HH24') AS hour,
+            count(*)::int AS count,
+            COALESCE(sum(total_amount),0)::numeric AS total
+       FROM transactions
+      WHERE created_at >= $1::timestamptz
+        AND created_at < ($2::timestamptz + interval '1 day')
+      GROUP BY hour
+      ORDER BY hour ASC`,
+    params
+  );
+  const topRows = await avicxRows(
+    `SELECT COALESCE(u.franchise_name, '가맹점 ' || t.franchise_id::text) AS franchise,
+            count(*)::int AS count,
+            COALESCE(sum(t.total_amount),0)::numeric AS total,
+            COALESCE(sum(t.fee),0)::numeric AS fee
+       FROM transactions t
+       LEFT JOIN users u ON u.franchise_id = t.franchise_id
+      WHERE t.created_at >= $1::timestamptz
+        AND t.created_at < ($2::timestamptz + interval '1 day')
+      GROUP BY COALESCE(u.franchise_name, '가맹점 ' || t.franchise_id::text)
+      ORDER BY total DESC, count DESC
+      LIMIT 10`,
+    params
+  );
+  const tx = txSummary[0] || {};
+  const st = settlementSummary[0] || {};
+  const peak = hourlyRows.reduce((best, row) => Number(row.total || 0) > Number(best?.total || 0) ? row : best, null);
+  return {
+    type: 'group',
+    sections: [
+      avicxLines([
+        `매출 분석: ${ymd} (한국시간)`,
+        `거래 매출: ${avicxWon(tx.total)} / ${avicxNumber(tx.count)}건 / 객단가 ${avicxWon(tx.avg_total)}`,
+        `거래 원금: ${avicxWon(tx.amount)} / 수수료: ${avicxWon(tx.fee)}`,
+        `PG 정산: 결제 ${avicxWon(st.payment)} / 수수료 ${avicxWon(st.fee)} / 입금 ${avicxWon(st.net)} / ${avicxNumber(st.count)}건`,
+        peak ? `피크 시간대: ${peak.hour}시 (${avicxWon(peak.total)}, ${avicxNumber(peak.count)}건)` : '피크 시간대: 데이터 없음'
+      ], 'success'),
+      avicxTable(['status', 'count', 'total'], statusRows.map(row => ({ status: row.status, count: avicxNumber(row.count), total: avicxWon(row.total) }))),
+      avicxTable(['pg', 'count', 'total', 'fee'], pgRows.map(row => ({ pg: row.pg, count: avicxNumber(row.count), total: avicxWon(row.total), fee: avicxWon(row.fee) }))),
+      avicxTable(['hour', 'count', 'total'], hourlyRows.map(row => ({ hour: `${row.hour}시`, count: avicxNumber(row.count), total: avicxWon(row.total) }))),
+      avicxTable(['franchise', 'count', 'total', 'fee'], topRows.map(row => ({ franchise: row.franchise, count: avicxNumber(row.count), total: avicxWon(row.total), fee: avicxWon(row.fee) })))
+    ]
+  };
+}
+
+function avicxDelta(current, previous, unit = '원') {
+  const now = Number(current || 0);
+  const before = Number(previous || 0);
+  const diff = now - before;
+  if (!before && !now) return '변동 없음';
+  if (!before) return `신규 +${unit === '건' ? avicxNumber(diff) + '건' : avicxWon(diff)}`;
+  const pct = (diff / before) * 100;
+  const sign = diff >= 0 ? '+' : '';
+  const diffText = unit === '건' ? `${sign}${avicxNumber(diff)}건` : `${sign}${avicxWon(diff)}`;
+  return `${diffText} (${sign}${pct.toFixed(1)}%)`;
+}
+
+async function avicxTodayBrief() {
+  const today = avicxKstYmd(0);
+  const yesterday = avicxKstYmd(-1);
+  const todayParams = [`${today} 00:00:00+09`, `${today} 00:00:00+09`];
+  const yesterdayParams = [`${yesterday} 00:00:00+09`, `${yesterday} 00:00:00+09`];
+  const [todaySales, yesterdaySales, pendingAccounts, pendingSettle, inquiryCounts, notiSummary, depositSummary, pgRows, recentFailures] = await Promise.all([
+    avicxRows(
+      `SELECT count(*)::int AS count,
+              COALESCE(sum(amount),0)::numeric AS amount,
+              COALESCE(sum(fee),0)::numeric AS fee,
+              COALESCE(sum(total_amount),0)::numeric AS total,
+              COALESCE(avg(total_amount),0)::numeric AS avg_total
+         FROM transactions
+        WHERE created_at >= $1::timestamptz
+          AND created_at < ($2::timestamptz + interval '1 day')`,
+      todayParams
+    ),
+    avicxRows(
+      `SELECT count(*)::int AS count,
+              COALESCE(sum(total_amount),0)::numeric AS total,
+              COALESCE(avg(total_amount),0)::numeric AS avg_total
+         FROM transactions
+        WHERE created_at >= $1::timestamptz
+          AND created_at < ($2::timestamptz + interval '1 day')`,
+      yesterdayParams
+    ),
+    avicxRows("SELECT count(*)::int AS count FROM account_requests WHERE status IN ('PENDING','검증전','승인 대기','대기')"),
+    avicxRows("SELECT count(*)::int AS count, COALESCE(sum(net_amt),0)::numeric AS net FROM pg_settlements WHERE status IN ('정산대기','PENDING','pending') OR settled_at IS NULL"),
+    avicxRows(
+      `SELECT
+         (SELECT count(*)::int FROM agency_inquiries WHERE status = '상담 대기') AS agency,
+         (SELECT count(*)::int FROM advance_inquiries WHERE status = '상담 대기') AS advance`
+    ),
+    avicxRows(
+      `SELECT count(*)::int AS count_24h,
+              count(*) FILTER (WHERE received_at > now() - interval '1 hour')::int AS count_1h,
+              count(*) FILTER (WHERE processed IS FALSE)::int AS unprocessed
+         FROM pg_notifications
+        WHERE received_at > now() - interval '24 hours'`
+    ),
+    avicxRows(
+      `SELECT count(*)::int AS count_24h,
+              count(*) FILTER (WHERE received_at > now() - interval '1 hour')::int AS count_1h,
+              count(*) FILTER (WHERE processed IS FALSE)::int AS unprocessed,
+              COALESCE(sum(amount),0)::numeric AS amount
+         FROM deposit_notifications
+        WHERE received_at > now() - interval '24 hours'`
+    ),
+    avicxRows(
+      `SELECT COALESCE(NULLIF(pg,''), '미지정') AS pg,
+              count(*)::int AS count,
+              COALESCE(sum(total_amount),0)::numeric AS total
+         FROM transactions
+        WHERE created_at >= $1::timestamptz
+          AND created_at < ($2::timestamptz + interval '1 day')
+        GROUP BY COALESCE(NULLIF(pg,''), '미지정')
+        ORDER BY total DESC, count DESC
+        LIMIT 8`,
+      todayParams
+    ),
+    avicxRows(
+      `SELECT transaction_id, pg, pg_tx_id, auth_code, status, total_amount, created_at
+         FROM transactions
+        WHERE created_at >= $1::timestamptz
+          AND created_at < ($2::timestamptz + interval '1 day')
+          AND status NOT IN ('SUCCESS','정상','승인','APPROVED')
+        ORDER BY created_at DESC
+        LIMIT 8`,
+      todayParams
+    )
+  ]);
+  const t = todaySales[0] || {};
+  const y = yesterdaySales[0] || {};
+  const acc = pendingAccounts[0]?.count || 0;
+  const settle = pendingSettle[0] || {};
+  const inquiries = inquiryCounts[0] || {};
+  const noti = notiSummary[0] || {};
+  const dep = depositSummary[0] || {};
+  const actionLines = [];
+  if (Number(acc) > 0) actionLines.push(`계좌 검증 대기 ${avicxNumber(acc)}건`);
+  if (Number(settle.count || 0) > 0) actionLines.push(`정산 대기 ${avicxNumber(settle.count)}건 / ${avicxWon(settle.net)}`);
+  if (Number(inquiries.agency || 0) + Number(inquiries.advance || 0) > 0) actionLines.push(`상담 대기 ${avicxNumber(Number(inquiries.agency || 0) + Number(inquiries.advance || 0))}건`);
+  if (Number(noti.unprocessed || 0) > 0) actionLines.push(`미처리 PG 노티 ${avicxNumber(noti.unprocessed)}건`);
+  if (Number(dep.unprocessed || 0) > 0) actionLines.push(`미처리 입금 노티 ${avicxNumber(dep.unprocessed)}건`);
+  if (!actionLines.length) actionLines.push('즉시 처리할 대기 항목 없음');
+  return {
+    type: 'group',
+    sections: [
+      avicxLines([
+        `오늘 브리핑: ${today} (한국시간)`,
+        `오늘 매출: ${avicxWon(t.total)} / ${avicxNumber(t.count)}건 / 객단가 ${avicxWon(t.avg_total)}`,
+        `어제 대비: 매출 ${avicxDelta(t.total, y.total)} / 건수 ${avicxDelta(t.count, y.count, '건')}`,
+        `수수료: ${avicxWon(t.fee)} / 원금 ${avicxWon(t.amount)}`,
+        `노티: PG 24h ${avicxNumber(noti.count_24h)}건(1h ${avicxNumber(noti.count_1h)}건) / 입금 24h ${avicxNumber(dep.count_24h)}건 ${avicxWon(dep.amount)}`
+      ], 'success'),
+      avicxLines(actionLines.map(line => `처리 필요: ${line}`), actionLines[0] === '즉시 처리할 대기 항목 없음' ? 'success' : 'warn'),
+      avicxTable(['pg', 'count', 'total'], pgRows.map(row => ({ pg: row.pg, count: avicxNumber(row.count), total: avicxWon(row.total) }))),
+      avicxTable(['type', 'count'], [
+        { type: '계좌 검증 대기', count: avicxNumber(acc) },
+        { type: '정산 대기', count: avicxNumber(settle.count || 0) },
+        { type: '선정/지사 문의 대기', count: avicxNumber(inquiries.agency || 0) },
+        { type: '가맹점/지점 문의 대기', count: avicxNumber(inquiries.advance || 0) },
+        { type: '미처리 PG 노티', count: avicxNumber(noti.unprocessed || 0) },
+        { type: '미처리 입금 노티', count: avicxNumber(dep.unprocessed || 0) }
+      ]),
+      avicxTable(['time', 'transactionId', 'pg', 'pgTx', 'auth', 'status', 'amount'], recentFailures.map(row => ({ time: row.created_at, transactionId: row.transaction_id || '-', pg: row.pg || '-', pgTx: row.pg_tx_id || '-', auth: row.auth_code || '-', status: row.status || '-', amount: avicxWon(row.total_amount) })))
+    ]
+  };
+}
+async function executeAvicxCommand(req, commandText) {
+  const raw = String(commandText || '').trim();
+  if (!raw) return avicxLines(['명령어를 입력하세요. help로 목록을 볼 수 있습니다.'], 'muted');
+  const tokens = raw.match(/"[^"]*"|'[^']*'|\S+/g)?.map(token => token.replace(/^['"]|['"]$/g, '')) || [];
+  const cmd = String(tokens[0] || '').toLowerCase();
+  const sub = String(tokens[1] || '').toLowerCase();
+
+  if (cmd === 'help' || cmd === '?') {
+    return avicxLines([
+      'AVICX commands',
+      'health | status | today brief | brief',
+      'pg list | pg gh | pg routeup | pg status',
+      'noti latest [limit] | noti provider <PG사> [limit]',
+      'deposit latest [limit] | settle pending [limit]',
+      'sales today | sales yesterday | sales YYYY-MM-DD',
+      'franchise search <검색어> | account pending [limit] | card list <가맹점명>',
+      'db tables | db describe <table> | db select <table> [limit N]',
+      'explain <TXN번호> | codex exec 질문 | codex apply 수정요청 | codex ask 질문 | history | session new | session restore | clear'
+    ]);
+  }
+  if (cmd === 'clear') return { type: 'clear', lines: ['cleared'] };
+  if (cmd === 'history') {
+    const rows = await avicxRows(
+      `SELECT command, status, created_at FROM admin_console_commands WHERE admin_user_id = $1 ORDER BY id DESC LIMIT 20`,
+      [req.user?.id || null]
+    );
+    return avicxTable(['time', 'status', 'command'], rows.map(row => ({ time: row.created_at, status: row.status, command: row.command })));
+  }
+  if (cmd === 'brief' || (cmd === 'today' && sub === 'brief')) {
+    return avicxTodayBrief();
+  }
+  if (cmd === 'health' || cmd === 'status') {
+    const now = await avicxRows('SELECT now() AS db_now');
+    const pgCount = await avicxRows('SELECT count(*)::int AS count FROM pg_providers');
+    const notiCount = await avicxRows("SELECT count(*)::int AS count FROM pg_notifications WHERE received_at > now() - interval '24 hours'");
+    return avicxLines([
+      `server: ok`,
+      `db: ok (${now[0]?.db_now || '-'})`,
+      `pg providers: ${pgCount[0]?.count ?? 0}`,
+      `pg noti 24h: ${notiCount[0]?.count ?? 0}`
+    ], 'success');
+  }
+  if (cmd === 'pg') {
+    if (sub === 'list' || sub === 'status' || !sub) {
+      const rows = await avicxRows('SELECT id, name, status, mid, callback_url, display_order FROM pg_providers ORDER BY display_order ASC, id ASC');
+      return avicxTable(['id', 'name', 'status', 'mid', 'callbackUrl', 'order'], rows.map(row => ({ id: row.id, name: row.name, status: row.status, mid: row.mid || '-', callbackUrl: row.callback_url || '-', order: row.display_order })));
+    }
+    const provider = avicxNormalizeProvider(tokens.slice(1).join(' '));
+    const rows = await avicxRows('SELECT id, provider, event_type, transaction_id, pg_transaction_id, result_code, received_at FROM pg_notifications WHERE provider = $1 ORDER BY received_at DESC, id DESC LIMIT 20', [provider]);
+    return avicxTable(['time', 'provider', 'event', 'transactionId', 'pgTx', 'code'], rows.map(row => ({ time: row.received_at, provider: row.provider, event: row.event_type || '-', transactionId: row.transaction_id || '-', pgTx: row.pg_transaction_id || '-', code: row.result_code || '-' })));
+  }
+  if (cmd === 'noti') {
+    const limit = avicxExtractLimit(tokens, 20, 100);
+    const provider = sub === 'provider' ? avicxNormalizeProvider(tokens.slice(2).filter(t => t.toLowerCase() !== 'limit' && !/^\d+$/.test(t)).join(' ')) : '';
+    const params = provider ? [provider, limit] : [limit];
+    const sql = provider
+      ? 'SELECT id, provider, event_type, transaction_id, pg_transaction_id, result_code, received_at FROM pg_notifications WHERE provider = $1 ORDER BY received_at DESC, id DESC LIMIT $2'
+      : 'SELECT id, provider, event_type, transaction_id, pg_transaction_id, result_code, received_at FROM pg_notifications ORDER BY received_at DESC, id DESC LIMIT $1';
+    const rows = await avicxRows(sql, params);
+    return avicxTable(['time', 'provider', 'event', 'transactionId', 'pgTx', 'code'], rows.map(row => ({ time: row.received_at, provider: row.provider, event: row.event_type || '-', transactionId: row.transaction_id || '-', pgTx: row.pg_transaction_id || '-', code: row.result_code || '-' })));
+  }
+  if (cmd === 'sales') {
+    return avicxSalesReport(tokens);
+  }
+  if (cmd === 'deposit') {
+    const limit = avicxExtractLimit(tokens, 20, 100);
+    const rows = await avicxRows('SELECT id, provider, event_type, txid, bank_name, depositor_name, amount, received_at FROM deposit_notifications ORDER BY received_at DESC, id DESC LIMIT $1', [limit]);
+    return avicxTable(['time', 'provider', 'event', 'txid', 'bank', 'depositor', 'amount'], rows.map(row => ({ time: row.received_at, provider: row.provider, event: row.event_type || '-', txid: row.txid || '-', bank: row.bank_name || '-', depositor: row.depositor_name || '-', amount: row.amount || '-' })));
+  }
+  if (cmd === 'settle' && sub === 'pending') {
+    const limit = avicxExtractLimit(tokens, 20, 100);
+    const rows = await avicxRows("SELECT id, franchise_name, delivery_agency, payment_amt, net_amt, status, approval_no, created_at FROM pg_settlements WHERE status IN ('정산대기','PENDING','pending') OR settled_at IS NULL ORDER BY created_at DESC LIMIT $1", [limit]);
+    return avicxTable(['time', 'id', 'franchise', 'delivery', 'payment', 'net', 'status', 'approval'], rows.map(row => ({ time: row.created_at, id: row.id, franchise: row.franchise_name || '-', delivery: row.delivery_agency || '-', payment: row.payment_amt || '-', net: row.net_amt || '-', status: row.status || '-', approval: row.approval_no || '-' })));
+  }
+  if (cmd === 'franchise' && sub === 'search') {
+    const q = tokens.slice(2).join(' ').trim();
+    if (!q) return avicxLines(['사용법: franchise search <검색어>'], 'warn');
+    const rows = await avicxRows("SELECT id, email, name, franchise_name, role, phone, agency_id, login_id FROM users WHERE role LIKE 'OWNER%' AND (franchise_name ILIKE $1 OR name ILIKE $1 OR email ILIKE $1 OR login_id ILIKE $1 OR phone ILIKE $1) ORDER BY id DESC LIMIT 20", [`%${q}%`]);
+    return avicxTable(['id', 'login', 'franchise', 'owner', 'role', 'phone', 'agency'], rows.map(row => ({ id: row.id, login: row.login_id || row.email, franchise: row.franchise_name || '-', owner: row.name || '-', role: row.role, phone: row.phone || '-', agency: row.agency_id || '-' })));
+  }
+  if (cmd === 'franchise' && sub === 'payments') {
+    const q = tokens.slice(2).filter(t => t.toLowerCase() !== 'limit' && !/^\d+$/.test(t)).join(' ').trim();
+    const limit = avicxExtractLimit(tokens, 20, 100);
+    if (!q) return avicxLines(['사용법: franchise payments <가맹점명> [limit]'], 'warn');
+    const rows = await avicxRows(
+      `SELECT t.created_at, COALESCE(u.franchise_name, '??? ' || t.franchise_id::text) AS franchise_name,
+              t.transaction_id, t.amount, t.fee, t.total_amount, t.pg, t.pg_tx_id, t.auth_code, t.status
+         FROM transactions t
+         LEFT JOIN users u ON u.franchise_id = t.franchise_id
+        WHERE u.franchise_name ILIKE $1 OR u.name ILIKE $1 OR u.login_id ILIKE $1 OR t.franchise_id::text = $2
+        ORDER BY t.created_at DESC
+        LIMIT $3`,
+      [`%${q}%`, q, limit]
+    );
+    return avicxTable(['time', 'franchise', 'transactionId', 'amount', 'fee', 'total', 'pg', 'pgTx', 'auth', 'status'], rows.map(row => ({ time: row.created_at, franchise: row.franchise_name || '-', transactionId: row.transaction_id || '-', amount: row.amount ?? '-', fee: row.fee ?? '-', total: row.total_amount ?? '-', pg: row.pg || '-', pgTx: row.pg_tx_id || '-', auth: row.auth_code || '-', status: row.status || '-' })));
+  }
+  if (cmd === 'account' && sub === 'pending') {
+    const limit = avicxExtractLimit(tokens, 20, 100);
+    const rows = await avicxRows("SELECT request_id, franchise_name, bank_name, account_no, representative_name, status, txid, submitted_at FROM account_requests WHERE status IN ('PENDING','검증전','승인 대기','대기') ORDER BY submitted_at DESC LIMIT $1", [limit]);
+    return avicxTable(['time', 'request', 'franchise', 'bank', 'account', 'holder', 'status', 'txid'], rows.map(row => ({ time: row.submitted_at, request: row.request_id, franchise: row.franchise_name, bank: row.bank_name || '-', account: row.account_no || '-', holder: row.representative_name || '-', status: row.status, txid: row.txid || '-' })));
+  }
+  if (cmd === 'card' && sub === 'list') {
+    const q = tokens.slice(2).join(' ').trim();
+    if (!q) return avicxLines(['사용법: card list <가맹점명>'], 'warn');
+    const rows = await avicxRows("SELECT c.id, u.franchise_name, c.masked_number, c.card_company, c.card_name, c.alias, c.active, c.hidden, c.created_at FROM cards c JOIN users u ON u.id = c.user_id WHERE u.franchise_name ILIKE $1 OR u.name ILIKE $1 OR u.login_id ILIKE $1 ORDER BY c.created_at DESC LIMIT 30", [`%${q}%`]);
+    return avicxTable(['time', 'franchise', 'cardId', 'masked', 'company', 'card', 'alias', 'active', 'hidden'], rows.map(row => ({ time: row.created_at, franchise: row.franchise_name || '-', cardId: row.id, masked: row.masked_number, company: row.card_company || '-', card: row.card_name || '-', alias: row.alias || '-', active: row.active, hidden: row.hidden })));
+  }
+  if (cmd === 'db') {
+    if (sub === 'tables') return avicxTable(['table', 'columns'], Array.from(AVICX_SAFE_TABLES.entries()).map(([name, cols]) => ({ table: name, columns: cols.join(', ') })));
+    const table = String(tokens[2] || '').trim();
+    if (!AVICX_SAFE_TABLES.has(table)) return avicxLines([`허용되지 않은 테이블입니다: ${table || '-'}`, `db tables 로 허용 목록을 확인하세요.`], 'warn');
+    const columns = AVICX_SAFE_TABLES.get(table);
+    if (sub === 'describe') return avicxTable(['table', 'column'], columns.map(column => ({ table, column })));
+    if (sub === 'select') {
+      const limit = avicxExtractLimit(tokens, 20, 50);
+      const sql = `SELECT ${columns.map(col => '"' + col + '"').join(', ')} FROM "${table}" ORDER BY 1 DESC LIMIT $1`;
+      const rows = await avicxRows(sql, [limit]);
+      return avicxTable(columns, rows);
+    }
+  }
+  if (cmd === 'explain') {
+    const tx = tokens.slice(1).join(' ').trim();
+    if (!tx) return avicxLines(['사용법: explain <TXN번호 또는 승인번호>'], 'warn');
+    const payments = await avicxRows("SELECT transaction_id, franchise_id, amount, fee, total_amount, pg, pg_tx_id, auth_code, status, created_at FROM transactions WHERE transaction_id = $1 OR pg_tx_id = $1 OR auth_code = $1 LIMIT 5", [tx]);
+    const settles = await avicxRows("SELECT id, franchise_name, approval_no, pg_tx_id, payment_amt, net_amt, status, created_at FROM pg_settlements WHERE approval_no = $1 OR pg_tx_id = $1 LIMIT 5", [tx]);
+    const notis = await avicxRows("SELECT id, provider, event_type, transaction_id, pg_transaction_id, result_code, result_message, received_at FROM pg_notifications WHERE transaction_id = $1 OR pg_transaction_id = $1 ORDER BY received_at DESC LIMIT 5", [tx]);
+    return { type: 'group', sections: [avicxTable(['transactionId','amount','pg','pgTx','auth','status','time'], payments.map(row => ({ transactionId: row.transaction_id, amount: row.amount, pg: row.pg || '-', pgTx: row.pg_tx_id || '-', auth: row.auth_code || '-', status: row.status || '-', time: row.created_at }))), avicxTable(['id','franchise','approval','pgTx','payment','net','status','time'], settles.map(row => ({ id: row.id, franchise: row.franchise_name || '-', approval: row.approval_no || '-', pgTx: row.pg_tx_id || '-', payment: row.payment_amt || '-', net: row.net_amt || '-', status: row.status || '-', time: row.created_at }))), avicxTable(['time','provider','event','transactionId','pgTx','code','message'], notis.map(row => ({ time: row.received_at, provider: row.provider, event: row.event_type || '-', transactionId: row.transaction_id || '-', pgTx: row.pg_transaction_id || '-', code: row.result_code || '-', message: row.result_message || '-' })))] };
+  }
+  if (cmd === 'codex' && sub === 'apply') {
+    const question = tokens.slice(2).join(' ').trim();
+    return avicxRunCodexApply(question);
+  }
+  if (cmd === 'codex' && ['exec', 'ask', 'adk'].includes(sub)) {
+    const question = tokens.slice(2).join(' ').trim();
+    return avicxRunCodexCli(question);
+  }
+  return avicxLines([`알 수 없는 명령어: ${raw}`, 'help 를 입력해 사용 가능한 명령을 확인하세요.'], 'warn');
+}
+
+function createFriendlyAgencyJoinCode(agencyId) {
+  const id = Number(agencyId);
+  return Number.isFinite(id) && id > 0 ? `agency-${id}` : '';
+}
+
+function htmlAttr(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function buildScopedCookie(req, name, value, maxAgeSeconds, pathValue) {
+  const secure = req?.secure || String(req?.headers?.['x-forwarded-proto'] || '').includes('https') ? '; Secure' : '';
+  return `${name}=${encodeURIComponent(value)}; Path=${pathValue}; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function issueChPaywayProxyToken(req, res, adminIdOverride = null) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  chPaywayProxyTokens.set(token, { adminId: adminIdOverride ?? req.user?.id ?? 0, expiresAt: Date.now() + CH_PAYWAY_PROXY_TTL_MS });
+  res.setHeader('Set-Cookie', buildScopedCookie(req, 'ch_payway_proxy_token', token, Math.floor(CH_PAYWAY_PROXY_TTL_MS / 1000), '/api/admin/ch-payway/proxy'));
+  return token;
+}
+
+function cleanupChPaywayProxyTokens() {
+  const now = Date.now();
+  for (const [token, entry] of chPaywayProxyTokens.entries()) {
+    if (!entry || Number(entry.expiresAt || 0) <= now) chPaywayProxyTokens.delete(token);
+  }
+  for (const [token, entry] of chPaywayStartTokens.entries()) {
+    if (!entry || Number(entry.expiresAt || 0) <= now) chPaywayStartTokens.delete(token);
+  }
+}
+
+function hasValidChPaywayProxyToken(req) {
+  cleanupChPaywayProxyTokens();
+  const token = getCookieValue(req, 'ch_payway_proxy_token');
+  const entry = token ? chPaywayProxyTokens.get(token) : null;
+  return Boolean(entry && Number(entry.expiresAt || 0) > Date.now());
+}
+
+function issueChPaywayStartToken(req) {
+  cleanupChPaywayProxyTokens();
+  const token = crypto.randomBytes(24).toString('base64url');
+  chPaywayStartTokens.set(token, { adminId: req.user?.id || 0, expiresAt: Date.now() + 60 * 1000 });
+  return token;
+}
+
+function consumeChPaywayStartToken(token) {
+  cleanupChPaywayProxyTokens();
+  const key = String(token || '');
+  const entry = key ? chPaywayStartTokens.get(key) : null;
+  if (!entry || Number(entry.expiresAt || 0) <= Date.now()) return null;
+  chPaywayStartTokens.delete(key);
+  return entry;
+}
+
+function issueRouteupProxyToken(req, res, adminIdOverride = null) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  routeupProxyTokens.set(token, { adminId: adminIdOverride ?? req.user?.id ?? 0, expiresAt: Date.now() + ROUTEUP_PROXY_TTL_MS });
+  res.setHeader('Set-Cookie', buildScopedCookie(req, 'routeup_proxy_token', token, Math.floor(ROUTEUP_PROXY_TTL_MS / 1000), '/api/admin/routeup'));
+  return token;
+}
+
+function cleanupRouteupProxyTokens() {
+  const now = Date.now();
+  for (const [token, entry] of routeupProxyTokens.entries()) {
+    if (!entry || Number(entry.expiresAt || 0) <= now) routeupProxyTokens.delete(token);
+  }
+  for (const [token, entry] of routeupStartTokens.entries()) {
+    if (!entry || Number(entry.expiresAt || 0) <= now) routeupStartTokens.delete(token);
+  }
+}
+
+function hasValidRouteupProxyToken(req) {
+  cleanupRouteupProxyTokens();
+  const token = getCookieValue(req, 'routeup_proxy_token');
+  const entry = token ? routeupProxyTokens.get(token) : null;
+  return Boolean(entry && Number(entry.expiresAt || 0) > Date.now());
+}
+
+function issueRouteupStartToken(req) {
+  cleanupRouteupProxyTokens();
+  const token = crypto.randomBytes(24).toString('base64url');
+  routeupStartTokens.set(token, { adminId: req.user?.id || 0, expiresAt: Date.now() + 60 * 1000 });
+  return token;
+}
+
+function consumeRouteupStartToken(token) {
+  cleanupRouteupProxyTokens();
+  const key = String(token || '');
+  const entry = key ? routeupStartTokens.get(key) : null;
+  if (!entry || Number(entry.expiresAt || 0) <= Date.now()) return null;
+  routeupStartTokens.delete(key);
+  return entry;
+}
+
+function verifyRouteupSignature({ mid, timestamp, signature }) {
+  const provided = String(signature || '').trim().toLowerCase();
+  if (!ROUTEUP_SIGN_KEY || !provided) return { checked: false, valid: true };
+  const message = `sign_key=${ROUTEUP_SIGN_KEY}&timestamp=${String(timestamp || '').trim()}&mid=${String(mid || '').trim()}`;
+  const expected = crypto.createHash('sha256').update(message, 'utf8').digest('hex').toLowerCase();
+  try {
+    const providedBuffer = Buffer.from(provided, 'hex');
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    return {
+      checked: true,
+      valid: providedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+    };
+  } catch (_) {
+    return { checked: true, valid: false };
+  }
+}
+
+function normalizeAgencyJoinCode(value) {
+  const code = String(value || '').trim().toLowerCase();
+  if (!code) return '';
+  if (!/^[a-z0-9-]{3,40}$/.test(code)) return '';
+  if (/^-|-$|--/.test(code)) return '';
+  return code;
+}
+
+async function createUniqueFriendlyAgencyJoinCode(agencyId) {
+  const base = createFriendlyAgencyJoinCode(agencyId);
+  if (!base) return '';
+  for (let index = 0; index < 20; index += 1) {
+    const code = index ? `${base}-${index + 1}` : base;
+    const duplicate = await repo.findAgencyByJoinCode(code);
+    if (!duplicate || Number(duplicate.id) === Number(agencyId)) return code;
+  }
+  return `${base}-${Date.now().toString(36).toLowerCase()}`.slice(0, 40);
+}
 const ALIGO_API_KEY = String(process.env.ALIGO_API_KEY || '').trim();
 const ALIGO_USER_ID = String(process.env.ALIGO_USER_ID || '').trim();
 const ALIGO_SENDER = String(process.env.ALIGO_SENDER || '').replace(/[^0-9]/g, '');
@@ -50,6 +777,8 @@ let cachedFcmAccessToken = null;
 let cachedFirebaseConfigError = '';
 const smsVerificationStore = new Map();
 const talkSellerCoordinateCache = new Map();
+const SYSTEM_ADMIN_LOGIN_ID = 'admin@eatspay.kr';
+const SYSTEM_ADMIN_ONLY_MENU_PERMISSIONS = new Set(['pg', 'push']);
 const ADMIN_LEVELS = {
   SUPER: { key: 'SUPER', name: '총괄 관리자', desc: '모든 기능 + 관리자 계정 생성/삭제', color: '#EF4444' },
   OPERATIONS: { key: 'OPERATIONS', name: '운영 관리자', desc: '가맹점 승인, 대리점 관리, 운영 메뉴', color: '#F59E0B' },
@@ -57,11 +786,26 @@ const ADMIN_LEVELS = {
   CUSTOMER: { key: 'CUSTOMER', name: '고객 관리자', desc: '공지사항, FAQ, 이용가이드 작성/수정', color: '#3D9B35' }
 };
 const ADMIN_ROLE_LIST = Object.values(ADMIN_LEVELS).map((role, index) => ({ ...role, displayOrder: index + 1 }));
+const AUDIT_NOTIFICATION_CATEGORIES = [
+  { key: 'all', label: '전체 변경' },
+  { key: 'banners', label: '배너 변경' },
+  { key: 'franchises', label: '가맹점 변경' },
+  { key: 'accounts', label: '출금계좌 변경' },
+  { key: 'agencies', label: '대리점 변경' },
+  { key: 'inquiries', label: '문의 변경' },
+  { key: 'talk', label: '이츠톡 변경' },
+  { key: 'boards', label: '게시판 변경' },
+  { key: 'installments', label: '무이자 할부 변경' },
+  { key: 'admins', label: '관리자 계정 변경' },
+  { key: 'pg', label: 'PG 변경' },
+  { key: 'system', label: '운영 설정 변경' }
+];
+const AUDIT_NOTIFICATION_CATEGORY_SET = new Set(AUDIT_NOTIFICATION_CATEGORIES.map(item => item.key));
 const ADMIN_MENU_PERMISSIONS = {
-  SUPER: ['dashboard', 'payments', 'pgsettle', 'settlements', 'franchises', 'franchiseDetail', 'accounts', 'agencies', 'agencyDetail', 'ag_detail', 'deliveryMgmt', 'inquiries', 'banners', 'legalDocs', 'faqs', 'installments', 'push', 'pg', 'admins', 'notices', 'guides'],
-  OPERATIONS: ['dashboard', 'franchises', 'franchiseDetail', 'accounts', 'agencies', 'agencyDetail', 'ag_detail', 'deliveryMgmt', 'inquiries', 'banners', 'legalDocs', 'faqs', 'installments', 'push', 'notices', 'guides'],
-  SETTLEMENT: ['dashboard', 'payments', 'pgsettle', 'settlements', 'pg'],
-  CUSTOMER: ['dashboard', 'legalDocs', 'faqs', 'notices', 'guides', 'push']
+  SUPER: ['dashboard', 'payments', 'pgsettle', 'settlements', 'franchises', 'franchiseDetail', 'accounts', 'agencies', 'agencyDetail', 'ag_detail', 'deliveryMgmt', 'inquiries', 'advanceInquiries', 'banners', 'legalDocs', 'faqs', 'installments', 'auditLogs', 'admins', 'notices', 'guides', 'talk'],
+  OPERATIONS: ['dashboard', 'franchises', 'franchiseDetail', 'accounts', 'agencies', 'agencyDetail', 'ag_detail', 'deliveryMgmt', 'inquiries', 'advanceInquiries', 'banners', 'legalDocs', 'faqs', 'installments', 'notices', 'guides', 'talk'],
+  SETTLEMENT: ['dashboard', 'payments', 'pgsettle', 'settlements'],
+  CUSTOMER: ['dashboard', 'legalDocs', 'faqs', 'notices', 'guides', 'talk']
 };
 const ADMIN_MENU_PERMISSION_SET = new Set(ADMIN_MENU_PERMISSIONS.SUPER);
 const DEFAULT_DELIVERY_AGENCIES = [
@@ -215,7 +959,43 @@ const DEFAULT_FINANCIAL_INSTITUTIONS = [
   { code: '039', name: '경남은행' },
   { code: '045', name: '새마을금고중앙회' },
   { code: '048', name: '신협중앙회' },
-  { code: '050', name: '저축은행' },
+  { code: '050', name: '상호저축은행중앙회', iconUrl: '/assets/banks/federation-savings.svg' },
+  { code: '050', name: 'SBI저축은행', iconUrl: '/assets/banks/sbi-savings.svg' },
+  { code: '050', name: 'OK저축은행', iconUrl: '/assets/banks/ok-savings.svg' },
+  { code: '050', name: '웰컴저축은행', iconUrl: '/assets/banks/welcome-savings.svg' },
+  { code: '050', name: '애큐온저축은행', iconUrl: '/assets/banks/acuon-savings.svg' },
+  { code: '050', name: '한국투자저축은행', iconUrl: '/assets/banks/koreainvest-savings.svg' },
+  { code: '050', name: '페퍼저축은행', iconUrl: '/assets/banks/pepper-savings.svg' },
+  { code: '050', name: '다올저축은행', iconUrl: '/assets/banks/daol-savings.svg' },
+  { code: '050', name: '상상인저축은행', iconUrl: '/assets/banks/sangsangin-savings.svg' },
+  { code: '050', name: '상상인플러스저축은행', iconUrl: '/assets/banks/sangsanginplus-savings.svg' },
+  { code: '050', name: '모아저축은행', iconUrl: '/assets/banks/moa-savings.svg' },
+  { code: '050', name: '스마트저축은행', iconUrl: '/assets/banks/smart-savings.svg' },
+  { code: '050', name: 'DB저축은행', iconUrl: '/assets/banks/db-savings.svg' },
+  { code: '050', name: '대신저축은행', iconUrl: '/assets/banks/daishin-savings.svg' },
+  { code: '050', name: '키움저축은행', iconUrl: '/assets/banks/kiwoom-savings.svg' },
+  { code: '050', name: '키움YES저축은행', iconUrl: '/assets/banks/kiwoomyes-savings.svg' },
+  { code: '050', name: '하나저축은행', iconUrl: '/assets/banks/hana-savings.svg' },
+  { code: '050', name: '신한저축은행', iconUrl: '/assets/banks/shinhan-savings.svg' },
+  { code: '050', name: '우리금융저축은행', iconUrl: '/assets/banks/woori-savings.svg' },
+  { code: '050', name: 'NH저축은행', iconUrl: '/assets/banks/nh-savings.svg' },
+  { code: '050', name: 'KB저축은행', iconUrl: '/assets/banks/kb-savings.svg' },
+  { code: '050', name: 'BNK저축은행', iconUrl: '/assets/banks/bnk-savings.svg' },
+  { code: '050', name: 'IBK저축은행', iconUrl: '/assets/banks/ibk-savings.svg' },
+  { code: '050', name: 'JT저축은행', iconUrl: '/assets/banks/jt-savings.svg' },
+  { code: '050', name: 'JT친애저축은행', iconUrl: '/assets/banks/jtchinae-savings.svg' },
+  { code: '050', name: 'OSB저축은행', iconUrl: '/assets/banks/osb-savings.svg' },
+  { code: '050', name: '푸른저축은행', iconUrl: '/assets/banks/pureun-savings.svg' },
+  { code: '050', name: '예가람저축은행', iconUrl: '/assets/banks/yegaram-savings.svg' },
+  { code: '050', name: '바로저축은행', iconUrl: '/assets/banks/baro-savings.svg' },
+  { code: '050', name: '참저축은행', iconUrl: '/assets/banks/charm-savings.svg' },
+  { code: '050', name: '고려저축은행', iconUrl: '/assets/banks/koryo-savings.svg' },
+  { code: '050', name: '동원제일저축은행', iconUrl: '/assets/banks/dongwon-savings.svg' },
+  { code: '050', name: '흥국저축은행', iconUrl: '/assets/banks/heungkuk-savings.svg' },
+  { code: '050', name: '유안타저축은행', iconUrl: '/assets/banks/yuanta-savings.svg' },
+  { code: '050', name: 'CK저축은행', iconUrl: '/assets/banks/ck-savings.svg' },
+  { code: '050', name: '오투저축은행', iconUrl: '/assets/banks/o2-savings.svg' },
+  { code: '050', name: '대한저축은행', iconUrl: '/assets/banks/daehan-savings.svg' },
   { code: '054', name: 'HSBC은행' },
   { code: '055', name: '도이치은행' },
   { code: '057', name: '제이피모간체이스은행' },
@@ -249,6 +1029,56 @@ const DEFAULT_FINANCIAL_INSTITUTIONS = [
   { code: '247', name: 'NH투자증권' },
   { code: '266', name: 'SK증권' }
 ];
+const ROUTEUP_FINANCIAL_INSTITUTIONS = [
+  { code: '001', name: '한국은행' },
+  { code: '005', name: '외환은행' },
+  { code: '008', name: '수출입은행' },
+  { code: '007', name: '수협은행' },
+  { code: '012', name: '농협회원조합' },
+  { code: '023', name: 'SC제일은행' },
+  { code: '026', name: '서울은행' },
+  { code: '045', name: '새마을금고연합회' },
+  { code: '050', name: '상호저축은행' },
+  { code: '051', name: '기타 외국계은행' },
+  { code: '052', name: '모건스탠리은행' },
+  { code: '056', name: '알비에스피엘씨은행' },
+  { code: '058', name: '미즈호코퍼레이트은행' },
+  { code: '059', name: '미쓰비시도쿄UFJ은행' },
+  { code: '060', name: 'BOA' },
+  { code: '062', name: '중국공상은행' },
+  { code: '063', name: '중국은행' },
+  { code: '065', name: '대화은행' },
+  { code: '076', name: '신용보증기금' },
+  { code: '077', name: '기술신용보증기금' },
+  { code: '094', name: '서울보증보험' },
+  { code: '101', name: '한국신용정보원' },
+  { code: '103', name: 'SBI저축은행' },
+  { code: '105', name: '웰컴저축은행' },
+  { code: '190', name: '융창저축은행' },
+  { code: '191', name: '청주저축은행' },
+  { code: '192', name: '금화저축은행' },
+  { code: '193', name: '저축은행' },
+  { code: '221', name: '상상인증권' },
+  { code: '222', name: '한양증권' },
+  { code: '223', name: '리딩투자증권' },
+  { code: '224', name: 'BNK투자증권' },
+  { code: '225', name: 'IBK투자증권' },
+  { code: '227', name: '다올투자증권' },
+  { code: '262', name: '하이투자증권' },
+  { code: '265', name: '이베스트투자증권' },
+  { code: '270', name: '하나증권' },
+  { code: '272', name: 'NH선물' },
+  { code: '273', name: '코리아에셋투자증권' },
+  { code: '274', name: 'DS투자증권' },
+  { code: '275', name: '흥국증권' },
+  { code: '278', name: '신한투자증권' },
+  { code: '290', name: '부국증권' },
+  { code: '291', name: '신영증권' },
+  { code: '292', name: '케이프투자증권' },
+  { code: '293', name: '한국증권금융' },
+  { code: '294', name: '한국포스증권' },
+  { code: '295', name: '우리종합금융' }
+];
 const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ALTER COLUMN franchise_id DROP NOT NULL');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id TEXT UNIQUE');
@@ -259,6 +1089,7 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source TEXT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_agency_id BIGINT');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_join_code TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pg_provider_id BIGINT');
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_level TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_permissions JSONB");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_active BOOLEAN NOT NULL DEFAULT true");
@@ -275,6 +1106,7 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE cards ADD COLUMN IF NOT EXISTS payer_email TEXT');
   await pool.query('ALTER TABLE cards ADD COLUMN IF NOT EXISTS payer_tel TEXT');
   await pool.query('ALTER TABLE cards ADD COLUMN IF NOT EXISTS card_identity TEXT');
+  await pool.query('ALTER TABLE cards ADD COLUMN IF NOT EXISTS pg_provider_id BIGINT');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS bank_name TEXT');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS delivery_agency_name TEXT');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS account_no TEXT');
@@ -285,6 +1117,10 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS export_row_no INTEGER');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS txid TEXT');
+  await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS manual_tid TEXT');
+  await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS manual_key TEXT');
+  await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS recurring_tid TEXT');
+  await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS recurring_key TEXT');
   await pool.query('ALTER TABLE account_requests ADD COLUMN IF NOT EXISTS txid_uploaded_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true');
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT false');
@@ -294,8 +1130,40 @@ const dbBootstrapPromise = (async () => {
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS export_row_no INTEGER');
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS exported_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS txid TEXT');
+  await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS manual_tid TEXT');
+  await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS manual_key TEXT');
+  await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS recurring_tid TEXT');
+  await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS recurring_key TEXT');
   await pool.query('ALTER TABLE delivery_accounts ADD COLUMN IF NOT EXISTS txid_uploaded_at TIMESTAMPTZ');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_source TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_id TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_bank_name TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_no TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_holder TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_delivery_agency TEXT');
+  await pool.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_txid TEXT');
+  await pool.query('ALTER TABLE pg_settlements ADD COLUMN IF NOT EXISTS account_holder TEXT');
   await pool.query("UPDATE delivery_accounts SET approved_at = COALESCE(approved_at, updated_at, req_date) WHERE account_status = 'APPROVED'");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account_rejection_reasons (
+      id BIGSERIAL PRIMARY KEY,
+      reason TEXT NOT NULL UNIQUE,
+      active BOOLEAN NOT NULL DEFAULT true,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    INSERT INTO account_rejection_reasons (reason, display_order)
+    VALUES
+      ('계좌번호 확인 불가', 10),
+      ('예금주 불일치', 20),
+      ('증빙 사진 식별 불가', 30),
+      ('배달대행사 정보 불일치', 40),
+      ('기타', 50)
+    ON CONFLICT (reason) DO NOTHING
+  `);
   await pool.query('ALTER TABLE agencies ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 3');
   await pool.query('ALTER TABLE agencies ADD COLUMN IF NOT EXISTS delivery_note TEXT');
   await pool.query(`
@@ -357,6 +1225,18 @@ const dbBootstrapPromise = (async () => {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action, created_at DESC)');
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_audit_notification_preferences (
+      id BIGSERIAL PRIMARY KEY,
+      admin_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (admin_user_id, category)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_admin_audit_notification_preferences_user
+    ON admin_audit_notification_preferences(admin_user_id, category)`);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS benefit_cards (
       id BIGSERIAL PRIMARY KEY,
       source TEXT NOT NULL DEFAULT 'manual',
@@ -404,6 +1284,52 @@ const dbBootstrapPromise = (async () => {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_providers_status ON pg_providers(status, display_order)');
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS pg_assignment_rules (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      pg_provider_id BIGINT NOT NULL REFERENCES pg_providers(id) ON DELETE CASCADE,
+      agency_id BIGINT REFERENCES agencies(id) ON DELETE SET NULL,
+      join_code TEXT,
+      start_date DATE,
+      end_date DATE,
+      weekdays INTEGER[] NOT NULL DEFAULT '{}',
+      priority INTEGER NOT NULL DEFAULT 100,
+      active BOOLEAN NOT NULL DEFAULT true,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_assignment_rules_active_priority ON pg_assignment_rules(active, priority, id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_assignment_rules_agency ON pg_assignment_rules(agency_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_assignment_rules_join_code ON pg_assignment_rules(lower(join_code))');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS account_pg_contracts (
+      id BIGSERIAL PRIMARY KEY,
+      account_source TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      franchise_id BIGINT NOT NULL,
+      pg_provider_id BIGINT REFERENCES pg_providers(id) ON DELETE SET NULL,
+      pg_provider_name TEXT NOT NULL,
+      credential_type TEXT NOT NULL DEFAULT 'recurring',
+      mid TEXT,
+      tid TEXT NOT NULL,
+      payment_key TEXT,
+      signature_key TEXT,
+      contract_start_date DATE,
+      contract_end_date DATE,
+      device_type TEXT,
+      is_default BOOLEAN NOT NULL DEFAULT true,
+      active BOOLEAN NOT NULL DEFAULT true,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (account_source, account_id, pg_provider_name, credential_type, tid)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_account_pg_contracts_account ON account_pg_contracts(account_source, account_id, active)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_account_pg_contracts_franchise ON account_pg_contracts(franchise_id, pg_provider_name, active)');
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS pg_notifications (
       id BIGSERIAL PRIMARY KEY,
       provider TEXT NOT NULL DEFAULT 'GH Payments',
@@ -422,6 +1348,70 @@ const dbBootstrapPromise = (async () => {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_notifications_received_at ON pg_notifications(received_at DESC)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_notifications_transaction_id ON pg_notifications(transaction_id)');
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS deposit_notifications (
+      id BIGSERIAL PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'DEPOSIT',
+      event_type TEXT,
+      txid TEXT,
+      account_no TEXT,
+      bank_name TEXT,
+      depositor_name TEXT,
+      amount NUMERIC(14, 0),
+      result_code TEXT,
+      result_message TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      query JSONB NOT NULL DEFAULT '{}'::jsonb,
+      headers JSONB NOT NULL DEFAULT '{}'::jsonb,
+      processed BOOLEAN NOT NULL DEFAULT false,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_notifications_received_at ON deposit_notifications(received_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_notifications_txid ON deposit_notifications(txid)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_deposit_notifications_account_no ON deposit_notifications(account_no)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_console_sessions (
+      id TEXT PRIMARY KEY,
+      admin_user_id BIGINT,
+      admin_email TEXT,
+      title TEXT NOT NULL DEFAULT 'AVICX Session',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_console_sessions_admin ON admin_console_sessions(admin_user_id, updated_at DESC)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_console_commands (
+      id BIGSERIAL PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES admin_console_sessions(id) ON DELETE CASCADE,
+      admin_user_id BIGINT,
+      command TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ok',
+      output JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_console_commands_session ON admin_console_commands(session_id, id DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_admin_console_commands_admin ON admin_console_commands(admin_user_id, created_at DESC)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pg_settlement_ch_checks (
+      settlement_id BIGINT PRIMARY KEY,
+      approval_no TEXT NOT NULL,
+      pg_tx_id TEXT NOT NULL,
+      last_checked_at TIMESTAMPTZ,
+      next_check_at TIMESTAMPTZ,
+      check_count INTEGER NOT NULL DEFAULT 0,
+      last_result TEXT,
+      last_error TEXT,
+      confirmed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_pg_settlement_ch_checks_next ON pg_settlement_ch_checks(next_check_at, confirmed_at)');
+  await pool.query(`
     UPDATE pg_providers
     SET name = 'GH Payments',
         mid = '빌링 TMN026063 / 수기 TMN026062',
@@ -434,22 +1424,23 @@ const dbBootstrapPromise = (async () => {
     WHERE name IN ('GH Payments', '건흥페이먼츠')
   `);
   await pool.query(`
-    UPDATE pg_providers
-    SET name = '넥스트페이',
-        mid = 'NP260518001',
-        api_key = 'np_live_****',
-        callback_url = 'https://eatspay.kr/callback/nextpay',
-        status = '활성',
-        note = '2차 카드결제 PG사',
-        display_order = 2,
-        updated_at = now()
-    WHERE name IN ('넥스트페이 (NextPay)', '넥스트페이')
-  `);
-  await pool.query(`
     DELETE FROM pg_providers a
     USING pg_providers b
     WHERE a.id > b.id
       AND a.name = b.name
+  `);
+  await pool.query(`
+    DELETE FROM pg_providers
+    WHERE name IN ('넥스트페이', '넥스트페이 (NextPay)', '이츠페이 예비 PG')
+  `);
+  await pool.query(`
+    UPDATE pg_providers
+    SET mid = 'M233207',
+        callback_url = 'https://eatspay.kr/api/routeup/notify',
+        status = CASE WHEN status = '준비중' THEN '활성' ELSE status END,
+        updated_at = now()
+    WHERE name = '루트업'
+      AND (mid IS NULL OR btrim(mid) = '' OR mid = '운영팀 전달 예정')
   `);
   await pool.query(`
     UPDATE pg_settlements
@@ -465,14 +1456,14 @@ const dbBootstrapPromise = (async () => {
     SELECT seed.name, seed.mid, seed.api_key, seed.callback_url, seed.status, seed.note, seed.display_order
     FROM (VALUES
       ('GH Payments', '빌링 TMN026063 / 수기 TMN026062', '빌링 pk_123b-3b5ea2-d6d-e21a9 / 수기 pk_c375-b5b9e6-f5f-a0b4f', 'https://eatspay.kr/api/ghpayments/notify', '활성', '메인 PG · 빌링 TMN026063 · 수기 TMN026062', 1),
-      ('넥스트페이', 'NP260518001', 'np_live_****', 'https://eatspay.kr/callback/nextpay', '활성', '2차 카드결제 PG사', 2),
-      ('이츠페이 예비 PG', 'EPBACKUP001', 'ep_backup_****', 'https://eatspay.kr/callback/backup', '비활성', '장애 대응 예비 PG사', 4)
+      ('루트업', 'M233207', 'Authorization Pay Key 운영팀 전달 예정', 'https://eatspay.kr/api/routeup/notify', '활성', 'Routeup API · Host https://api.routeup.kr · 결제통지 Noti URL · Webhook IP 221.168.33.227 허용 · 성공응답 {} · 입금노티 Postman 전문 대기', 2)
     ) AS seed(name, mid, api_key, callback_url, status, note, display_order)
     WHERE NOT EXISTS (SELECT 1 FROM pg_providers p WHERE p.name = seed.name)
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agency_inquiries (
       id BIGSERIAL PRIMARY KEY,
+      inquiry_type TEXT NOT NULL DEFAULT '지점/지사 개설',
       name TEXT NOT NULL,
       phone TEXT,
       delivery_agency TEXT,
@@ -483,22 +1474,26 @@ const dbBootstrapPromise = (async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query("ALTER TABLE agency_inquiries ADD COLUMN IF NOT EXISTS inquiry_type TEXT NOT NULL DEFAULT '지점/지사 개설'");
   await pool.query('CREATE INDEX IF NOT EXISTS idx_agency_inquiries_status ON agency_inquiries(status, created_at DESC)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_agency_inquiries_type_status ON agency_inquiries(inquiry_type, status, created_at DESC)');
   await pool.query(`
-    INSERT INTO agency_inquiries (name, phone, delivery_agency, region, handler, status, created_at, updated_at)
-    SELECT seed.name, seed.phone, seed.delivery_agency, seed.region, seed.handler, seed.status, seed.created_at::timestamptz, seed.created_at::timestamptz
-    FROM (VALUES
-      ('정민우', '010-2634-1450', '유', '경주시 안강읍', '이서연', '상담 완료', '2026-02-25T09:00:00+09:00'),
-      ('이재원', '010-5719-3651', '유', '춘천시', '미배정', '상담 대기', '2026-02-13T09:00:00+09:00'),
-      ('박현수', '010-8823-4412', '무', '대전 유성구', '박지훈', '상담 대기', '2026-05-10T09:00:00+09:00')
-    ) AS seed(name, phone, delivery_agency, region, handler, status, created_at)
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM agency_inquiries ai
-      WHERE ai.name = seed.name
-        AND ai.phone = seed.phone
+    CREATE TABLE IF NOT EXISTS advance_inquiries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      franchise_id BIGINT,
+      franchise_name TEXT,
+      phone TEXT NOT NULL,
+      email TEXT,
+      delivery_sales_manwon INTEGER NOT NULL DEFAULT 0,
+      delivery_apps TEXT,
+      store_sales_manwon INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT '상담 대기',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_advance_inquiries_status ON advance_inquiries(status, created_at DESC)');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS board_posts (
       id BIGSERIAL PRIMARY KEY,
@@ -511,15 +1506,27 @@ const dbBootstrapPromise = (async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
-  await pool.query('CREATE INDEX IF NOT EXISTS idx_board_posts_type_active ON board_posts(board_type, active, created_at DESC)');
+  await pool.query('ALTER TABLE board_posts ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0');
   await pool.query(`
-    INSERT INTO board_posts (board_type, title, author, content, active)
-    SELECT 'notices', '2026년 6월 시스템 점검 안내', '운영팀', '보다 안정적인 서비스 제공을 위해 시스템 점검이 진행됩니다.', true
+    WITH ranked AS (
+      SELECT id, row_number() OVER (PARTITION BY board_type ORDER BY created_at DESC, id DESC) AS row_no
+      FROM board_posts
+      WHERE display_order = 0
+    )
+    UPDATE board_posts bp
+    SET display_order = ranked.row_no
+    FROM ranked
+    WHERE bp.id = ranked.id
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_board_posts_type_active ON board_posts(board_type, active, display_order ASC, created_at DESC)');
+  await pool.query(`
+    INSERT INTO board_posts (board_type, title, author, content, active, display_order)
+    SELECT 'notices', '2026년 6월 시스템 점검 안내', '운영팀', '보다 안정적인 서비스 제공을 위해 시스템 점검이 진행됩니다.', true, 1
     WHERE NOT EXISTS (SELECT 1 FROM board_posts WHERE board_type = 'notices')
   `);
   await pool.query(`
-    INSERT INTO board_posts (board_type, title, author, content, active)
-    SELECT 'guides', '이츠페이 가입 방법 안내', 'CS팀', '가입 URL 접속 후 사업자 정보와 배달대행사 가상계좌 정보를 등록해 주세요.', true
+    INSERT INTO board_posts (board_type, title, author, content, active, display_order)
+    SELECT 'guides', '이츠페이 가입 방법 안내', 'CS팀', '가입 URL 접속 후 사업자 정보와 배달대행사 가상계좌 정보를 등록해 주세요.', true, 1
     WHERE NOT EXISTS (SELECT 1 FROM board_posts WHERE board_type = 'guides')
   `);
   await pool.query(`
@@ -628,6 +1635,9 @@ const dbBootstrapPromise = (async () => {
   await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS image_urls JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS trade_status TEXT NOT NULL DEFAULT 'SALE'");
   await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS admin_deleted_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query('ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS admin_deleted_at TIMESTAMPTZ');
+  await pool.query('ALTER TABLE talk_posts ADD COLUMN IF NOT EXISTS admin_deleted_by BIGINT');
   await pool.query("UPDATE talk_posts SET trade_status = 'SALE' WHERE trade_status IS NULL OR trade_status = ''");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS talk_chats (
@@ -678,6 +1688,14 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS talk_comment_likes (
+      comment_id BIGINT NOT NULL REFERENCES talk_comments(id) ON DELETE CASCADE,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (comment_id, user_id)
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS talk_reports (
       id BIGSERIAL PRIMARY KEY,
       reporter_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -693,26 +1711,31 @@ const dbBootstrapPromise = (async () => {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_talk_reports_status_created ON talk_reports(status, created_at DESC)');
   await pool.query(`
-    INSERT INTO talk_posts (franchise_name, title, body, price, image_urls, status)
-    SELECT '이츠페이', '이츠페이 톡 안내', '가맹점끼리 필요한 정보를 나누는 공간입니다. 승인된 가맹점은 글 등록과 채팅을 이용할 수 있습니다.', 0, '[]'::jsonb, 'ACTIVE'
-    WHERE NOT EXISTS (SELECT 1 FROM talk_posts WHERE status = 'ACTIVE')
-  `);
-  await pool.query(`
     CREATE TABLE IF NOT EXISTS interest_free_installments (
-      policy_month DATE NOT NULL DEFAULT date_trunc('month', now())::date,
+      policy_month DATE NOT NULL DEFAULT date_trunc('month', now() AT TIME ZONE 'Asia/Seoul')::date,
       card_company TEXT PRIMARY KEY,
       months INTEGER[] NOT NULL DEFAULT '{}',
+      partial_plans JSONB NOT NULL DEFAULT '[]'::jsonb,
       active BOOLEAN NOT NULL DEFAULT true,
       display_order INTEGER NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
   await pool.query('ALTER TABLE interest_free_installments ADD COLUMN IF NOT EXISTS policy_month DATE');
-  await pool.query("UPDATE interest_free_installments SET policy_month = date_trunc('month', now())::date WHERE policy_month IS NULL");
-  await pool.query("ALTER TABLE interest_free_installments ALTER COLUMN policy_month SET DEFAULT date_trunc('month', now())::date");
+  await pool.query("ALTER TABLE interest_free_installments ADD COLUMN IF NOT EXISTS partial_plans JSONB NOT NULL DEFAULT '[]'::jsonb");
+  await pool.query("UPDATE interest_free_installments SET policy_month = date_trunc('month', now() AT TIME ZONE 'Asia/Seoul')::date WHERE policy_month IS NULL");
+  await pool.query("ALTER TABLE interest_free_installments ALTER COLUMN policy_month SET DEFAULT date_trunc('month', now() AT TIME ZONE 'Asia/Seoul')::date");
   await pool.query('ALTER TABLE interest_free_installments ALTER COLUMN policy_month SET NOT NULL');
   await pool.query('ALTER TABLE interest_free_installments DROP CONSTRAINT IF EXISTS interest_free_installments_pkey');
   await pool.query('ALTER TABLE interest_free_installments ADD PRIMARY KEY (policy_month, card_company)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS installment_policy_meta (
+      policy_month DATE PRIMARY KEY,
+      general_note TEXT NOT NULL DEFAULT '',
+      exclusion_notes TEXT[] NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id BIGSERIAL PRIMARY KEY,
@@ -749,6 +1772,7 @@ const dbBootstrapPromise = (async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  await pool.query("ALTER TABLE financial_institutions ADD COLUMN IF NOT EXISTS icon_url TEXT NOT NULL DEFAULT ''");
   await repo.ensureDefaultAgency();
   await seedDeliveryAgencies();
   await seedFinancialInstitutions();
@@ -829,6 +1853,10 @@ app.get('/', (req, res) => {
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '이츠페이_관리자_시스템_10.html'));
+});
+
+app.get('/tv-dashboard', (req, res) => {
+  res.sendFile(path.join(__dirname, 'tv-dashboard', 'index.html'));
 });
 
 app.get('/join/:joinCode', (req, res) => {
@@ -938,12 +1966,12 @@ app.get('/api/talk/posts/:id', asyncHandler(async (req, res) => {
   });
 }));
 
-app.get('/api/talk/posts/:id/comments', asyncHandler(async (req, res) => {
+app.get('/api/talk/posts/:id/comments', optionalAuthenticate, asyncHandler(async (req, res) => {
   const post = await repo.findTalkPostById(Number(req.params.id));
   if (!post) {
     return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
   }
-  const comments = await repo.listTalkComments(post.id);
+  const comments = await repo.listTalkComments(post.id, req.user?.id || null);
   return res.status(200).json({ success: true, data: comments });
 }));
 
@@ -995,6 +2023,28 @@ app.delete('/api/talk/posts/:postId/comments/:commentId', authenticate, asyncHan
   }
   await repo.deleteTalkComment(comment.id);
   return res.status(200).json({ success: true, message: '댓글이 삭제되었습니다.' });
+}));
+
+app.post('/api/talk/posts/:postId/comments/:commentId/like', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role === 'AGENCY') {
+    return sendError(res, 403, 'ACCESS_DENIED', '대리점 계정은 댓글 관심을 이용할 수 없습니다.');
+  }
+  if (req.user.role !== 'OWNER') {
+    return sendError(res, 403, 'ACCESS_DENIED', '승인된 가맹점 계정만 댓글 관심을 이용할 수 있습니다.');
+  }
+  const post = await repo.findTalkPostById(Number(req.params.postId));
+  if (!post) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', 'Talk 글을 찾을 수 없습니다.');
+  }
+  const comment = await repo.findTalkCommentById(Number(req.params.commentId));
+  if (!comment || String(comment.postId) !== String(post.id)) {
+    return sendError(res, 404, 'TALK_COMMENT_NOT_FOUND', '댓글을 찾을 수 없습니다.');
+  }
+  const state = await repo.toggleTalkCommentLike({
+    commentId: comment.id,
+    userId: req.user.id
+  });
+  return res.status(200).json({ success: true, data: state });
 }));
 
 app.post('/api/talk/posts/:id/view', asyncHandler(async (req, res) => {
@@ -1049,11 +2099,30 @@ app.post('/api/talk/posts', authenticate, multiUpload('images', 10), asyncHandle
     imageUrls
   });
 
+  await recordAuditLog(req, {
+    action: 'TALK_POST_CREATE',
+    entityType: 'talk_post',
+    entityId: post.id,
+    entityName: post.title || title,
+    beforeData: {},
+    afterData: {
+      id: post.id,
+      title: post.title,
+      franchiseName: post.franchiseName,
+      authorLoginId: req.user.loginId || req.user.email || '',
+      price: post.price,
+      tradeStatus: post.tradeStatus,
+      status: post.status
+    },
+    changedFields: ['title', 'franchiseName', 'price', 'tradeStatus']
+  });
+
   return res.status(201).json({
     success: true,
     message: 'Talk 글이 등록되었습니다.',
     data: {
       ...post,
+      authorLoginId: req.user.loginId || req.user.email || '',
       createdAtLabel: formatKstDateTime(post.createdAt)
     }
   });
@@ -1068,6 +2137,7 @@ app.patch('/api/talk/posts/:id/trade-status', authenticate, asyncHandler(async (
   if (!allowedStatuses.has(nextStatus)) {
     return sendError(res, 400, 'INVALID_TRADE_STATUS', '거래 상태가 올바르지 않습니다.');
   }
+  const beforePost = await repo.findTalkPostById(Number(req.params.id));
   const post = await repo.updateTalkPostTradeStatus({
     id: Number(req.params.id),
     userId: req.user.id,
@@ -1076,6 +2146,25 @@ app.patch('/api/talk/posts/:id/trade-status', authenticate, asyncHandler(async (
   if (!post) {
     return sendError(res, 404, 'TALK_POST_NOT_FOUND', '내가 등록한 Talk 글을 찾을 수 없습니다.');
   }
+  await recordAuditLog(req, {
+    action: 'TALK_POST_TRADE_STATUS',
+    entityType: 'talk_post',
+    entityId: post.id,
+    entityName: post.title || '',
+    beforeData: {
+      id: beforePost?.id || post.id,
+      title: beforePost?.title || post.title,
+      franchiseName: beforePost?.franchiseName || post.franchiseName,
+      tradeStatus: beforePost?.tradeStatus || ''
+    },
+    afterData: {
+      id: post.id,
+      title: post.title,
+      franchiseName: post.franchiseName,
+      tradeStatus: post.tradeStatus
+    },
+    changedFields: ['tradeStatus']
+  });
   return res.status(200).json({
     success: true,
     data: {
@@ -1517,6 +2606,10 @@ app.post('/api/auth/register', upload.fields([
     agency,
     defaultAgency
   });
+  const assignedPg = await resolveSignupPgProvider({
+    agencyId: signupAttribution.agencyId,
+    joinCode: signupAttribution.signupJoinCode || agencyJoinCode
+  });
   if (isAligoConfigured() && !isSmsVerified(phone)) {
     return sendError(res, 400, 'PHONE_NOT_VERIFIED', '휴대번호 인증을 완료해 주세요.');
   }
@@ -1540,6 +2633,7 @@ app.post('/api/auth/register', upload.fields([
     signupSource: signupAttribution.signupSource,
     signupAgencyId: signupAttribution.signupAgencyId,
     signupJoinCode: signupAttribution.signupJoinCode,
+    pgProviderId: assignedPg.provider?.id || null,
     bizDocFileKey: bizDoc?.fileKey || null,
     franchiseFeeRate: 0
   });
@@ -1562,7 +2656,10 @@ app.post('/api/auth/register', upload.fields([
       loginId: user.loginId,
       contactEmail: user.contactEmail || '',
       storeName: user.franchiseName,
-      role: user.role
+      role: user.role,
+      pgProviderId: assignedPg.provider?.id || null,
+      pgProviderName: assignedPg.provider?.name || '',
+      pgAssignmentRuleId: assignedPg.rule?.id || null
     }
   });
 }));
@@ -1578,7 +2675,9 @@ app.post('/api/auth/social', asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/auth/me', authenticate, asyncHandler(async (req, res) => {
-  const user = await repo.findUserById(req.user.id);
+  const user = req.user.role === 'AGENCY'
+    ? await repo.findAgencyAuthById(req.user.id)
+    : await repo.findUserById(req.user.id);
   if (!user) {
     return sendError(res, 404, 'USER_NOT_FOUND', 'User was not found.');
   }
@@ -1768,8 +2867,11 @@ app.post('/api/franchise/accounts', authenticate, (req, res) => {
 });
 
 app.get('/api/installments/current', asyncHandler(async (req, res) => {
-  const items = await repo.listInterestFreeInstallments({ onlyActive: true });
-  return res.status(200).json({ success: true, data: items });
+  const [items, meta] = await Promise.all([
+    repo.listInterestFreeInstallments({ onlyActive: true }),
+    repo.getInstallmentPolicyMeta()
+  ]);
+  return res.status(200).json({ success: true, data: items, meta });
 }));
 
 function safeWorksheetValue(value) {
@@ -1777,11 +2879,38 @@ function safeWorksheetValue(value) {
   return String(value);
 }
 
+function stripLeadingPostalCode(value) {
+  return safeWorksheetValue(value).replace(/^\s*[\[(]?\d{5}[\])]?\s*/, '').trim();
+}
+
+function normalizeAccountNo(value) {
+  return String(value || '').replace(/[^0-9A-Za-z]/g, '');
+}
+
 function safeWorksheetPercentValue(value) {
   if (value == null || value === '') return '0%';
   const num = Number(value);
   if (!Number.isFinite(num)) return safeWorksheetValue(value);
   return `${String(Number(num.toFixed(2))).replace(/\.0$/, '')}%`;
+}
+
+function forceWorksheetTextColumns(worksheet, columnNumbers, startRow = 3, endRow = 300) {
+  columnNumbers.forEach(colNumber => {
+    const column = worksheet.getColumn(colNumber);
+    column.numFmt = '@';
+    for (let rowNumber = startRow; rowNumber <= Math.max(endRow, worksheet.rowCount); rowNumber += 1) {
+      const cell = worksheet.getRow(rowNumber).getCell(colNumber);
+      cell.numFmt = '@';
+      cell.alignment = { ...(cell.alignment || {}), horizontal: 'left' };
+    }
+  });
+}
+
+function setWorksheetTextCell(row, colNumber, value) {
+  const cell = row.getCell(colNumber);
+  cell.value = safeWorksheetValue(value);
+  cell.numFmt = '@';
+  cell.alignment = { ...(cell.alignment || {}), horizontal: 'left' };
 }
 
 function copyRowStyle(sourceRow, targetRow) {
@@ -1796,38 +2925,265 @@ function copyRowStyle(sourceRow, targetRow) {
   targetRow.height = sourceRow.height;
 }
 
-async function createAccountApprovalExportWorkbook(rows) {
+function normalizeRouteupBankKey(value) {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
+function routeupBankCodeByNameMap() {
+  const map = new Map();
+  [...DEFAULT_FINANCIAL_INSTITUTIONS, ...ROUTEUP_FINANCIAL_INSTITUTIONS].forEach(item => {
+    const name = normalizeRouteupBankKey(item.name);
+    if (!name || !item.code) return;
+    if (!map.has(name)) map.set(name, item.code);
+    const withoutBankSuffix = name.replace(/은행$/, '');
+    if (withoutBankSuffix && !map.has(withoutBankSuffix)) map.set(withoutBankSuffix, item.code);
+  });
+  return map;
+}
+
+function resolveRouteupBankInfo(item = {}) {
+  const rawCode = String(item.bank_code || item.bankCode || item.acct_bank_code || '').replace(/[^0-9]/g, '');
+  const institutions = [...DEFAULT_FINANCIAL_INSTITUTIONS, ...ROUTEUP_FINANCIAL_INSTITUTIONS];
+  const bankName = safeWorksheetValue(item.bank_name || item.bankName || item.acct_bank_name);
+  if (rawCode) {
+    const code = rawCode.padStart(3, '0');
+    const matched = institutions.find(institution => institution.code === code);
+    return { code, name: matched?.name || bankName };
+  }
+  const nameMap = routeupBankCodeByNameMap();
+  const code = nameMap.get(normalizeRouteupBankKey(bankName)) || '';
+  const matched = institutions.find(institution => institution.code === code);
+  return { code, name: matched?.name || bankName };
+}
+
+function routeupMerchantLoginId(item = {}, index = 0) {
+  return safeWorksheetValue(
+    item.login_id
+    || item.loginId
+    || item.customer_id
+    || item.customerId
+    || item.email
+    || item.franchise_id
+    || item.id
+    || `merchant${index + 1}`
+  ).trim();
+}
+
+function routeupMerchantPassword(item = {}, index = 0) {
+  if (ROUTEUP_MERCHANT_DEFAULT_PW) return ROUTEUP_MERCHANT_DEFAULT_PW;
+  const digits = `${item.owner_phone || ''}${item.account_no || ''}${item.business_number || ''}`.replace(/[^0-9]/g, '');
+  if (digits.length >= 4) return `Ep${digits.slice(-4)}!`;
+  const seed = String(item.id || item.franchise_id || index + 1).replace(/[^0-9A-Za-z]/g, '').slice(-6) || String(index + 1);
+  return `Ep${seed}!`;
+}
+
+function routeupAccountSuffix(item = {}, index = 0) {
+  const agency = safeWorksheetValue(item.delivery_agency_name || item.agency_name || '').replace(/\s+/g, '');
+  const accountTail = normalizeAccountNo(item.account_no || item.acct_num).slice(-4);
+  return agency || accountTail || String(index + 1);
+}
+
+const ROUTEUP_MERCHANT_UPLOAD_COLUMNS = [
+  { header: '본사 상호(X)', key: 'head_office_name', width: 16 },
+  { header: '본사 수수료(X)', key: 'head_office_fee', width: 16 },
+  { header: '에이전시 상호(X)', key: 'agency_company_name', width: 18 },
+  { header: '에이전시 수수료(X)', key: 'agency_fee', width: 18 },
+  { header: '지사 상호(X)', key: 'branch_company_name', width: 16 },
+  { header: '지사 수수료(X)', key: 'branch_fee', width: 16 },
+  { header: '총판 상호(X)', key: 'distributor_company_name', width: 16 },
+  { header: '총판 수수료(X)', key: 'distributor_fee', width: 16 },
+  { header: '대리점 상호(X)', key: 'dealer_company_name', width: 16 },
+  { header: '대리점 수수료(X)', key: 'dealer_fee', width: 16 },
+  { header: '영업자 상호(X)', key: 'salesperson_company_name', width: 16 },
+  { header: '영업자 수수료(X)', key: 'salesperson_fee', width: 16 },
+  { header: '가맹점 ID(O)', key: 'user_name', width: 18 },
+  { header: '가맹점 패스워드(O)', key: 'user_pw', width: 18 },
+  { header: '가맹점 수수료(X)', key: 'trx_fee', width: 16 },
+  { header: '유보금 수수료(X)', key: 'hold_fee', width: 16 },
+  { header: '상호(O)', key: 'mcht_name', width: 22 },
+  { header: '가맹점 명(X)', key: 'mcht_sub_name', width: 22 },
+  { header: '대표자명(X)', key: 'nick_name', width: 14 },
+  { header: '이메일(X)', key: 'email', width: 24 },
+  { header: '주소(X)', key: 'addr', width: 34 },
+  { header: '휴대폰번호(X)', key: 'phone_num', width: 16 },
+  { header: '주민등록번호(X)', key: 'resident_num', width: 18 },
+  { header: '사업자등록번호(X)', key: 'business_num', width: 18 },
+  { header: '법인등록번호(X)', key: 'corp_registration_num', width: 18 },
+  { header: '가맹점 연락처(X)', key: 'mcht_tel', width: 16 },
+  { header: 'GMID(X)', key: 'gmid', width: 16 },
+  { header: '메모사항(X)', key: 'memo', width: 22 },
+  { header: '업종(X)', key: 'sector', width: 14 },
+  { header: '구분(X)', key: 'business_type', width: 12 },
+  { header: '계좌번호(X)', key: 'acct_num', width: 22 },
+  { header: '예금주(X)', key: 'acct_name', width: 14 },
+  { header: '은행코드(O)', key: 'acct_bank_code', width: 12 },
+  { header: '사업자 유형(X)', key: 'tax_category_type', width: 16 },
+  { header: '커스텀 필터(X)', key: 'custom_id', width: 16 },
+  { header: '입금자 타입(X)', key: 'deposit_name_type', width: 16 },
+  { header: '출금 수수료(X)', key: 'withdraw_fee', width: 14 }
+];
+
+const ROUTEUP_MERCHANT_TEXT_KEYS = new Set([
+  'user_name',
+  'user_pw',
+  'phone_num',
+  'resident_num',
+  'business_num',
+  'corp_registration_num',
+  'mcht_tel',
+  'gmid',
+  'acct_num',
+  'acct_name',
+  'acct_bank_code',
+  'memo'
+]);
+
+function buildRouteupMerchantPayloadRows(rows = []) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const loginCounts = new Map();
+  const merchantCounts = new Map();
+  sourceRows.forEach((item, index) => {
+    const loginId = routeupMerchantLoginId(item, index);
+    const franchiseName = safeWorksheetValue(item.franchise_name || item.mcht_name).trim();
+    loginCounts.set(loginId, (loginCounts.get(loginId) || 0) + 1);
+    merchantCounts.set(franchiseName, (merchantCounts.get(franchiseName) || 0) + 1);
+  });
+  return sourceRows.map((item, index) => {
+    const bank = resolveRouteupBankInfo(item);
+    const businessNumber = String(item.business_number || item.businessNumber || '').replace(/[^0-9]/g, '');
+    const phoneNumber = String(item.owner_phone || item.phone_num || item.phone || '').replace(/[^0-9]/g, '');
+    const baseFranchiseName = safeWorksheetValue(item.franchise_name || item.mcht_name).trim();
+    const baseLoginId = routeupMerchantLoginId(item, index);
+    const suffix = routeupAccountSuffix(item, index);
+    const franchiseName = merchantCounts.get(baseFranchiseName) > 1 ? `${baseFranchiseName}_${suffix}`.slice(0, 80) : baseFranchiseName;
+    const userName = loginCounts.get(baseLoginId) > 1 ? `${baseLoginId}_${normalizeAccountNo(suffix) || index + 1}`.slice(0, 80) : baseLoginId;
+    const accountHolder = safeWorksheetValue(item.account_holder || item.acct_name || item.owner_name).trim();
+    return {
+      head_office_name: '',
+      head_office_fee: '',
+      agency_company_name: '',
+      agency_fee: '',
+      branch_company_name: '',
+      branch_fee: '',
+      distributor_company_name: '',
+      distributor_fee: '',
+      dealer_company_name: '',
+      dealer_fee: '',
+      salesperson_company_name: '',
+      salesperson_fee: '',
+      user_name: userName,
+      user_pw: routeupMerchantPassword(item, index),
+      trx_fee: 4.4,
+      hold_fee: 0,
+      mcht_name: franchiseName,
+      mcht_sub_name: franchiseName,
+      nick_name: safeWorksheetValue(item.owner_name || accountHolder),
+      email: safeWorksheetValue(item.email),
+      addr: stripLeadingPostalCode(item.franchise_address || item.address),
+      phone_num: phoneNumber,
+      resident_num: '',
+      business_num: businessNumber,
+      corp_registration_num: '',
+      mcht_tel: phoneNumber,
+      gmid: '',
+      memo: '',
+      sector: '',
+      business_type: '',
+      acct_num: normalizeAccountNo(item.account_no || item.acct_num),
+      acct_name: accountHolder,
+      acct_bank_code: bank.code,
+      acct_bank_name: bank.name,
+      tax_category_type: '',
+      custom_id: '',
+      deposit_name_type: '',
+      withdraw_fee: 0,
+    };
+  });
+}
+
+function validateRouteupMerchantPayload(rows = []) {
+  const errors = [];
+  const seenUserNames = new Set();
+  const seenMerchantNames = new Set();
+  rows.forEach((row, index) => {
+    const rowNo = index + 1;
+    const userName = String(row.user_name || '').trim();
+    const merchantName = String(row.mcht_name || '').trim();
+    if (!userName) errors.push(`${rowNo}번째 행: 가맹점 ID가 없습니다.`);
+    if (!merchantName) errors.push(`${rowNo}번째 행: 상호가 없습니다.`);
+    if (!String(row.user_pw || '').trim()) errors.push(`${rowNo}번째 행: 가맹점 패스워드가 없습니다.`);
+    if (!String(row.acct_bank_code || '').trim()) errors.push(`${rowNo}번째 행: 은행코드를 찾지 못했습니다.`);
+    if (userName) {
+      if (seenUserNames.has(userName)) errors.push(`${rowNo}번째 행: 가맹점 ID가 중복됩니다. (${userName})`);
+      seenUserNames.add(userName);
+    }
+    if (merchantName) {
+      if (seenMerchantNames.has(merchantName)) errors.push(`${rowNo}번째 행: 상호가 중복됩니다. (${merchantName})`);
+      seenMerchantNames.add(merchantName);
+    }
+  });
+  return errors;
+}
+
+function createRouteupAccountApprovalExportWorkbook(rows) {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('가맹점 대량등록 포멧');
+  worksheet.columns = ROUTEUP_MERCHANT_UPLOAD_COLUMNS;
+  const header = worksheet.getRow(1);
+  header.font = { bold: true, color: { argb: 'FF12351F' } };
+  header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF8EF' } };
+  header.alignment = { horizontal: 'center', vertical: 'middle' };
+  header.eachCell(cell => {
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFD1E8D1' } } };
+  });
+  buildRouteupMerchantPayloadRows(rows).forEach((item, index) => {
+    const row = worksheet.addRow(item);
+    ROUTEUP_MERCHANT_UPLOAD_COLUMNS.forEach((column, columnIndex) => {
+      if (!ROUTEUP_MERCHANT_TEXT_KEYS.has(column.key)) return;
+      const cell = row.getCell(columnIndex + 1);
+      cell.numFmt = '@';
+      cell.value = String(cell.value || '');
+    });
+  });
+  return workbook.xlsx.writeBuffer();
+}
+
+async function createAccountApprovalExportWorkbook(rows, options = {}) {
+  if (String(options.format || '').toLowerCase() === 'routeup') {
+    return createRouteupAccountApprovalExportWorkbook(rows);
+  }
   const workbook = new ExcelJS.Workbook();
   let loadedTemplate = false;
   if (fs.existsSync(ACCOUNT_EXPORT_TEMPLATE_PATH)) {
     await workbook.xlsx.readFile(ACCOUNT_EXPORT_TEMPLATE_PATH);
     loadedTemplate = true;
   } else {
-    const fallback = workbook.addWorksheet('등록 양식');
-    fallback.getRow(4).values = ['No', '상호명', '사업자번호', '대표자명', '대표자 연락처', '가맹점 주소', '은행명', '계좌번호', '예금주명', '가맹점 수수료(vat포함)', '상위대리점', 'TXID'];
+    const fallback = workbook.addWorksheet('에이빅스');
+    fallback.getRow(2).values = ['No', '등록일자', '상호명', '대표자명', '사업자번호', '가맹점 주소', '대표자 연락처', '은행명', '계좌번호', '예금주명', '가맹점 수수료(vat포함)', '상세 취급품목', '이메일 주소'];
   }
-  const worksheet = workbook.getWorksheet('등록 양식') || workbook.worksheets[0];
-  const headerRow = worksheet.getRow(4);
-  headerRow.getCell(11).value = '상위대리점';
-  if (!String(headerRow.getCell(12).value || '').trim()) {
-    headerRow.getCell(12).value = 'TXID';
-  }
-  const styleRow = worksheet.getRow(5);
+  const worksheet = workbook.getWorksheet('에이빅스') || workbook.getWorksheet('등록 양식') || workbook.worksheets[0];
+  worksheet.name = '에이빅스';
+  const headerRow = worksheet.getRow(2);
+  headerRow.values = ['No', '등록일자', '상호명', '대표자명', '사업자번호', '가맹점 주소', '대표자 연락처', '은행명', '계좌번호', '예금주명', '가맹점 수수료(vat포함)', '상세 취급품목', '이메일 주소'];
+  forceWorksheetTextColumns(worksheet, [5, 7, 9], 3, Math.max(300, rows.length + 20));
+  const styleRow = worksheet.getRow(3);
   rows.forEach((item, index) => {
-    const row = worksheet.getRow(5 + index);
+    const row = worksheet.getRow(3 + index);
     copyRowStyle(styleRow, row);
     row.getCell(1).value = index + 1;
-    row.getCell(2).value = safeWorksheetValue(item.franchise_name);
-    row.getCell(3).value = safeWorksheetValue(item.business_number);
+    row.getCell(2).value = item.approved_at ? new Date(item.approved_at) : null;
+    row.getCell(3).value = safeWorksheetValue(item.franchise_name);
     row.getCell(4).value = safeWorksheetValue(item.owner_name || item.account_holder);
-    row.getCell(5).value = safeWorksheetValue(item.owner_phone);
-    row.getCell(6).value = safeWorksheetValue(item.franchise_address);
-    row.getCell(7).value = safeWorksheetValue(item.bank_name);
-    row.getCell(8).value = safeWorksheetValue(item.account_no);
-    row.getCell(9).value = safeWorksheetValue(item.account_holder);
-    row.getCell(10).value = safeWorksheetPercentValue(item.fee_rate);
-    row.getCell(11).value = safeWorksheetValue(item.sales_name);
-    row.getCell(12).value = safeWorksheetValue(item.txid);
+    setWorksheetTextCell(row, 5, item.business_number);
+    row.getCell(6).value = stripLeadingPostalCode(item.franchise_address);
+    setWorksheetTextCell(row, 7, item.owner_phone);
+    row.getCell(8).value = safeWorksheetValue(item.bank_name);
+    setWorksheetTextCell(row, 9, item.account_no);
+    row.getCell(10).value = safeWorksheetValue(item.account_holder);
+    row.getCell(11).value = 0.044;
+    row.getCell(11).numFmt = '0.0%';
+    row.getCell(12).value = '';
+    row.getCell(13).value = '';
     row.commit();
   });
   if (!loadedTemplate) {
@@ -1930,9 +3286,9 @@ function normalizeExcelHeader(value) {
 async function parseAccountApprovalTxidWorkbook(buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
-  const worksheet = workbook.getWorksheet('등록 양식') || workbook.worksheets[0];
+  const worksheet = workbook.getWorksheet('에이빅스') || workbook.getWorksheet('등록 양식') || workbook.worksheets[0];
   if (!worksheet) return [];
-  const headerRow = worksheet.getRow(4);
+  const headerRow = worksheet.getRow(2);
   const headerMap = new Map();
   headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
     headerMap.set(normalizeExcelHeader(cell.value), colNumber);
@@ -1944,19 +3300,65 @@ async function parseAccountApprovalTxidWorkbook(buffer) {
     }
     return 0;
   };
-  const txidCol = col('TXID', 'txid', '거래ID');
+  const manualTidCol = col('수기 TID', '수기TID', 'manual TID', 'manualTid');
+  const manualKeyCol = col('수기 Key', '수기Key', 'manual Key', 'manualKey');
+  const recurringTidCol = col('정기 TID', '정기TID', 'recurring TID', 'recurringTid');
+  const recurringKeyCol = col('정기 Key', '정기Key', 'recurring Key', 'recurringKey');
+  const routeupMidCol = col('MID', '루트업 MID', 'routeup MID');
+  const routeupTidCol = col('TID', '루트업 TID', 'routeup TID');
+  const routeupPaymentKeyCol = col('결제 KEY', '결제KEY', '결제키', 'payment KEY', 'paymentKey', 'payKey');
+  const routeupSignatureKeyCol = col('서명 KEY', '서명KEY', '서명키', 'signature KEY', 'signatureKey', 'signKey');
+  const routeupStartCol = col('계약 시작일', '계약시작일', 'contractStartDate', 'startDate');
+  const routeupEndCol = col('계약 종료일', '계약종료일', 'contractEndDate', 'endDate');
+  const routeupDeviceCol = col('장비타입', '장비 타입', '모듈타입', '모듈 타입', 'deviceType', 'terminalType', 'moduleType');
+  const routeupSerialCol = col('시리얼번호', '시리얼 번호', 'serialNo', 'serialNumber');
+  const routeupMerchantIdCol = col('가맹점 ID', '가맹점ID', 'merchantId', 'userName', 'loginId');
   const accountCol = col('계좌번호');
-  const businessCol = col('사업자번호');
-  const franchiseCol = col('상호명');
-  if (!txidCol || !accountCol) return [];
+  const businessCol = col('사업자번호', '사업자등록번호', '사업자 등록번호');
+  const franchiseCol = col('상호명', '상호', '가맹점명', '상점명');
+  const hasGhColumns = recurringTidCol || manualTidCol;
+  const hasRouteupColumns = routeupTidCol || routeupPaymentKeyCol || routeupSignatureKeyCol;
+  if (!hasGhColumns && !hasRouteupColumns) return [];
   const items = [];
-  for (let rowNo = 5; rowNo <= worksheet.rowCount; rowNo += 1) {
+  for (let rowNo = 3; rowNo <= worksheet.rowCount; rowNo += 1) {
     const row = worksheet.getRow(rowNo);
-    const txid = String(row.getCell(txidCol).text || row.getCell(txidCol).value || '').trim();
-    const accountNo = String(row.getCell(accountCol).text || row.getCell(accountCol).value || '').trim();
-    if (!txid && !accountNo) continue;
+    const manualTid = manualTidCol ? String(row.getCell(manualTidCol).text || row.getCell(manualTidCol).value || '').trim() : '';
+    const manualKey = manualKeyCol ? String(row.getCell(manualKeyCol).text || row.getCell(manualKeyCol).value || '').trim() : '';
+    const recurringTid = recurringTidCol ? String(row.getCell(recurringTidCol).text || row.getCell(recurringTidCol).value || '').trim() : '';
+    const recurringKey = recurringKeyCol ? String(row.getCell(recurringKeyCol).text || row.getCell(recurringKeyCol).value || '').trim() : '';
+    const routeupMid = routeupMidCol ? String(row.getCell(routeupMidCol).text || row.getCell(routeupMidCol).value || '').trim() : '';
+    const routeupTid = routeupTidCol ? String(row.getCell(routeupTidCol).text || row.getCell(routeupTidCol).value || '').trim() : '';
+    const routeupPaymentKey = routeupPaymentKeyCol ? String(row.getCell(routeupPaymentKeyCol).text || row.getCell(routeupPaymentKeyCol).value || '').trim() : '';
+    const routeupSignatureKey = routeupSignatureKeyCol ? String(row.getCell(routeupSignatureKeyCol).text || row.getCell(routeupSignatureKeyCol).value || '').trim() : '';
+    const routeupStartDate = routeupStartCol ? String(row.getCell(routeupStartCol).text || row.getCell(routeupStartCol).value || '').trim() : '';
+    const routeupEndDate = routeupEndCol ? String(row.getCell(routeupEndCol).text || row.getCell(routeupEndCol).value || '').trim() : '';
+    const routeupDeviceType = routeupDeviceCol ? String(row.getCell(routeupDeviceCol).text || row.getCell(routeupDeviceCol).value || '').trim() : '';
+    const routeupSerialNo = routeupSerialCol ? String(row.getCell(routeupSerialCol).text || row.getCell(routeupSerialCol).value || '').trim() : '';
+    const routeupMerchantId = routeupMerchantIdCol ? String(row.getCell(routeupMerchantIdCol).text || row.getCell(routeupMerchantIdCol).value || '').trim() : '';
+    const accountNo = accountCol ? String(row.getCell(accountCol).text || row.getCell(accountCol).value || '').trim() : '';
+    if (!manualTid && !manualKey && !recurringTid && !recurringKey && !routeupTid && !routeupPaymentKey && !routeupSignatureKey && !accountNo) continue;
+    const routeupContract = (routeupTid || routeupPaymentKey || routeupSignatureKey)
+      ? buildRouteupPaymentContract({
+        mid: routeupMid,
+        tid: routeupTid,
+        paymentKey: routeupPaymentKey,
+        signatureKey: routeupSignatureKey,
+        contractStartDate: routeupStartDate,
+        contractEndDate: routeupEndDate,
+        deviceType: routeupDeviceType,
+        metadata: {
+          routeupSerialNo,
+          routeupMerchantId
+        }
+      })
+      : null;
     items.push({
-      txid,
+      txid: recurringTid || manualTid || routeupTid,
+      manualTid,
+      manualKey,
+      recurringTid,
+      recurringKey,
+      routeupContract,
       accountNo,
       businessNumber: businessCol ? String(row.getCell(businessCol).text || row.getCell(businessCol).value || '').trim() : '',
       franchiseName: franchiseCol ? String(row.getCell(franchiseCol).text || row.getCell(franchiseCol).value || '').trim() : '',
@@ -1971,12 +3373,18 @@ function parseAccountApprovalExportFilters(query = {}) {
     ? String(query.exportStatus)
     : 'pending';
   const cleanDate = value => (/^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : '');
+  const format = ['routeup', 'gh', 'default'].includes(String(query.format || '').toLowerCase())
+    ? String(query.format).toLowerCase()
+    : '';
+  const pgProvider = avicxNormalizeProvider(query.pgProvider || query.provider || (format === 'routeup' ? '루트업' : format === 'gh' ? 'GH Payments' : ''));
   return {
     exportStatus,
     startDate: cleanDate(query.startDate),
     endDate: cleanDate(query.endDate),
     q: String(query.q || '').trim().slice(0, 80),
-    agency: String(query.agency || '').trim().slice(0, 80)
+    agency: String(query.agency || '').trim().slice(0, 80),
+    format,
+    pgProvider
   };
 }
 
@@ -1986,42 +3394,297 @@ app.get('/api/admin/account-approvals/export-count', authenticateAdmin, asyncHan
   return res.status(200).json({ success: true, data: { count, filters } });
 }));
 
-app.get('/api/admin/account-approvals/export.xlsx', authenticateAdmin, asyncHandler(async (req, res) => {
+async function createAccountApprovalExportBuffer(req) {
   const filters = parseAccountApprovalExportFilters(req.query || {});
   const rows = await repo.listAccountApprovalExportRows(filters);
   if (!rows.length) {
-    return sendError(res, 404, 'NO_EXPORT_ROWS', '내보낼 승인 계좌가 없습니다.');
+    const err = new Error('내보낼 승인 계좌가 없습니다.');
+    err.statusCode = 404;
+    err.code = 'NO_EXPORT_ROWS';
+    throw err;
   }
   const batchId = generateId('ACCEXP', 6);
-  const buffer = await createAccountApprovalExportWorkbook(rows);
+  const buffer = await createAccountApprovalExportWorkbook(rows, { format: filters.format });
   await repo.markAccountApprovalsExported(rows, batchId);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="eatsPay_${batchId}.xlsx"`);
-  res.setHeader('X-Export-Count', String(rows.length));
-  res.setHeader('X-Export-Batch-Id', batchId);
-  return res.status(200).send(Buffer.from(buffer));
-}));
+  return { buffer: Buffer.from(buffer), batchId, count: rows.length };
+}
 
-app.post('/api/admin/exports/settlement.xlsx', authenticateAdmin, asyncHandler(async (req, res) => {
-  const sheets = Array.isArray(req.body?.sheets) ? req.body.sheets : [];
-  if (!sheets.length) {
-    return sendError(res, 400, 'EXPORT_SHEETS_REQUIRED', '내보낼 엑셀 데이터가 없습니다.');
+async function verifyRouteupBankAccounts(payloadRows = []) {
+  const verifiableRows = payloadRows.filter(row => (
+    String(row.acct_num || '').trim()
+    && String(row.acct_name || '').trim()
+    && String(row.acct_bank_code || '').trim()
+  ));
+  for (let start = 0; start < verifiableRows.length; start += 5) {
+    const chunk = verifiableRows.slice(start, start + 5).map(row => ({
+      acct_num: row.acct_num,
+      acct_name: row.acct_name,
+      acct_bank_code: row.acct_bank_code,
+      acct_bank_name: row.acct_bank_name
+    }));
+    await routeupManagerRequest('bank-accounts/batch-updaters/register', {
+      method: 'POST',
+      body: chunk
+    });
   }
-  const rawFileName = String(req.body?.fileName || 'eatsPay_settlement.xlsx').trim();
-  const fileName = rawFileName.replace(/[\\/:*?"<>|]/g, '_').replace(/\.xlsx$/i, '') || 'eatsPay_settlement';
-  const buffer = await createGenericExportWorkbook(sheets);
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${fileName}.xlsx`)}`);
-  return res.status(200).send(Buffer.from(buffer));
-}));
+}
 
-app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUpload('file'), asyncHandler(async (req, res) => {
+async function handleRouteupAccountApprovalUpload(req, res) {
+  try {
+    const filters = parseAccountApprovalExportFilters({
+      ...(req.query || {}),
+      exportStatus: 'pending',
+      format: 'routeup',
+      pgProvider: '루트업'
+    });
+    const rows = await repo.listAccountApprovalExportRows(filters);
+    if (!rows.length) {
+      return sendError(res, 404, 'NO_ROUTEUP_UPLOAD_ROWS', '루트업에 업로드할 승인 계좌가 없습니다.');
+    }
+    if (rows.length > 1000) {
+      return sendError(res, 400, 'ROUTEUP_UPLOAD_LIMIT_EXCEEDED', '루트업 대량등록은 한 번에 1000건 이하만 처리할 수 있습니다.');
+    }
+    const payloadRows = buildRouteupMerchantPayloadRows(rows);
+    const validationErrors = validateRouteupMerchantPayload(payloadRows);
+    if (validationErrors.length) {
+      return sendError(
+        res,
+        400,
+        'ROUTEUP_UPLOAD_VALIDATION_FAILED',
+        '루트업 업로드에 필요한 정보가 부족합니다.',
+        validationErrors.slice(0, 30)
+      );
+    }
+    const verifyBankAccount = req.body?.verifyBankAccount !== false;
+    if (verifyBankAccount) await verifyRouteupBankAccounts(payloadRows);
+    const upstream = await routeupManagerRequest('merchandises/batch-updaters/register', {
+      method: 'POST',
+      body: payloadRows
+    });
+    const batchId = generateId('RTUP', 6);
+    await repo.markAccountApprovalsExported(rows, batchId);
+    await recordAuditLog(req, {
+      action: 'ROUTEUP_ACCOUNT_APPROVAL_UPLOAD',
+      entityType: 'account_approval_batch',
+      entityId: batchId,
+      entityName: '루트업 계좌검증 업로드',
+      beforeData: {},
+      afterData: {
+        batchId,
+        count: rows.length,
+        verifyBankAccount,
+        franchises: rows.map(row => ({
+          source: row.source,
+          id: row.id,
+          franchiseName: row.franchise_name,
+          accountNo: row.account_no,
+          bankName: row.bank_name,
+          loginId: row.login_id
+        }))
+      },
+      force: true
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        batchId,
+        count: rows.length,
+        verifyBankAccount,
+        routeup: upstream.data || upstream.text || null
+      }
+    });
+  } catch (err) {
+    if (String(err?.code || '').startsWith('ROUTEUP_')) {
+      return sendError(res, err.statusCode || 502, err.code, err.message || '루트업 업로드에 실패했습니다.', err.details || []);
+    }
+    throw err;
+  }
+}
+
+async function sendAccountApprovalExportWorkbook(req, res) {
+  try {
+    const result = await createAccountApprovalExportBuffer(req);
+    const filters = parseAccountApprovalExportFilters(req.query || {});
+    const prefix = filters.format === 'routeup' ? 'routeup' : 'eatsPay';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${prefix}_${result.batchId}.xlsx"`);
+    res.setHeader('X-Export-Count', String(result.count));
+    res.setHeader('X-Export-Batch-Id', result.batchId);
+    return res.status(200).send(result.buffer);
+  } catch (err) {
+    if (err?.code === 'NO_EXPORT_ROWS') return sendError(res, 404, 'NO_EXPORT_ROWS', err.message);
+    throw err;
+  }
+}
+
+const KAKAO_TID_LATEST_UPLOAD_TOKEN_PATH = path.join(uploadDir, 'kakao-tid-latest-upload-token.json');
+
+function saveLatestKakaoTidUploadToken(batchId, token) {
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.writeFileSync(KAKAO_TID_LATEST_UPLOAD_TOKEN_PATH, JSON.stringify({
+      batchId: String(batchId || ''),
+      token: String(token || ''),
+      issuedAt: new Date().toISOString()
+    }, null, 2));
+  } catch (err) {
+    console.error('[KAKAO_TID_UPLOAD_TOKEN_SAVE_FAILED]', err?.message || err);
+  }
+}
+
+function isLatestKakaoTidUploadToken(batchId, token) {
+  try {
+    if (!fs.existsSync(KAKAO_TID_LATEST_UPLOAD_TOKEN_PATH)) return false;
+    const latest = JSON.parse(fs.readFileSync(KAKAO_TID_LATEST_UPLOAD_TOKEN_PATH, 'utf8'));
+    return String(latest?.batchId || '') === String(batchId || '') && String(latest?.token || '') === String(token || '');
+  } catch (err) {
+    console.error('[KAKAO_TID_UPLOAD_TOKEN_READ_FAILED]', err?.message || err);
+    return false;
+  }
+}
+
+function createKakaoTxidUploadToken(batchId) {
+  const secret = String(process.env.KAKAO_TXID_TOKEN || process.env.JWT_SECRET || '').trim();
+  const payload = {
+    batchId: String(batchId || ''),
+    exp: Date.now() + (14 * 24 * 60 * 60 * 1000)
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  return body + '.' + sig;
+}
+
+function verifyKakaoTxidUploadToken(token) {
+  const secret = String(process.env.KAKAO_TXID_TOKEN || process.env.JWT_SECRET || '').trim();
+  const rawToken = String(token || '');
+  const [body, sig] = rawToken.split('.');
+  if (!secret || !body || !sig) return null;
+  const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  const expectedBuffer = Buffer.from(expected);
+  const sigBuffer = Buffer.from(sig);
+  if (expectedBuffer.length !== sigBuffer.length || !crypto.timingSafeEqual(expectedBuffer, sigBuffer)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (!payload?.batchId || Number(payload.exp || 0) < Date.now()) return null;
+    if (!isLatestKakaoTidUploadToken(payload.batchId, rawToken)) return null;
+    return payload;
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderKakaoTxidUploadPage(token, message = '') {
+  const safeToken = htmlAttr(token);
+  const note = message ? '<div class="note" id="result-note">' + htmlAttr(message) + '</div>' : '<div class="note hidden" id="result-note"></div>';
+  return [
+    '<!doctype html><html lang="ko"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>이츠페이 TID 업로드</title>',
+    '<style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f5f7f5;color:#172217;margin:0;padding:28px}.box{max-width:520px;margin:0 auto;background:#fff;border:1px solid #d8e5d8;border-radius:10px;padding:22px;box-shadow:0 8px 28px rgba(20,50,20,.08)}.brand{display:flex;align-items:center;gap:12px;margin-bottom:12px}.brand-logo{width:auto;height:42px;display:block}h1{font-size:20px;margin:0}.sub{color:#516151;font-size:14px;line-height:1.5;margin-bottom:18px}.file{display:block;width:100%;box-sizing:border-box;border:1px solid #cbd8cb;border-radius:8px;padding:12px;background:#fbfdfb}.btn{width:100%;margin-top:14px;border:0;border-radius:8px;background:#2f8f3b;color:white;font-weight:700;font-size:16px;padding:13px}.btn:disabled{background:#8ab98f;cursor:wait}.note{margin:12px 0;padding:10px;border-radius:8px;background:#eef8ee;color:#1d5d29;font-size:14px}.note.err{background:#fff1f1;color:#9d1c1c}.hidden{display:none}.progress-wrap{margin:14px 0 2px}.progress-meta{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-size:13px;color:#516151}.track{height:12px;background:#e6eee6;border-radius:999px;overflow:hidden;border:1px solid #d1dfd1}.bar{width:0%;height:100%;background:#2f8f3b;transition:width .18s ease}.status{font-weight:700;color:#244d29}</style>',
+    '</head><body><main class="box"><div class="brand"><img class="brand-logo" src="/logo.png" alt="이츠페이"><h1>이츠페이 TID 엑셀 업로드</h1></div>',
+    '<p class="sub">수정한 엑셀 파일(.xlsx/.xls)을 선택한 뒤 업로드하세요. 완료되면 서버에 바로 반영됩니다.</p>',
+    note,
+    '<form id="upload-form" method="post" action="/tid-upload/' + safeToken + '" enctype="multipart/form-data">',
+    '<input class="file" type="file" name="file" accept=".xlsx,.xls" required>',
+    '<div class="progress-wrap hidden" id="progress-wrap"><div class="progress-meta"><span class="status" id="progress-status">업로드 준비</span><span id="progress-percent">0%</span></div><div class="track"><div class="bar" id="progress-bar"></div></div></div>',
+    '<button class="btn" id="submit-btn" type="submit">서버에 반영</button></form>',
+    '<script>(function(){var form=document.getElementById("upload-form"),bar=document.getElementById("progress-bar"),pct=document.getElementById("progress-percent"),status=document.getElementById("progress-status"),wrap=document.getElementById("progress-wrap"),btn=document.getElementById("submit-btn"),note=document.getElementById("result-note");function setProgress(n,t){wrap.classList.remove("hidden");bar.style.width=n+"%";pct.textContent=n+"%";if(t)status.textContent=t}form.addEventListener("submit",function(e){e.preventDefault();if(!form.file.files.length)return;note.className="note hidden";note.textContent="";btn.disabled=true;btn.textContent="업로드 중";setProgress(0,"업로드 시작");var xhr=new XMLHttpRequest();xhr.open("POST",form.action,true);xhr.upload.onprogress=function(ev){if(ev.lengthComputable){var n=Math.max(1,Math.min(95,Math.round(ev.loaded/ev.total*100)));setProgress(n,"파일 전송 중")}};xhr.onload=function(){setProgress(100,xhr.status>=200&&xhr.status<300?"반영 완료":"처리 실패");btn.disabled=false;btn.textContent="서버에 반영";if(xhr.status>=200&&xhr.status<300){document.open();document.write(xhr.responseText);document.close()}else{note.className="note err";note.textContent="업로드 실패: 서버 응답 " + xhr.status}};xhr.onerror=function(){btn.disabled=false;btn.textContent="서버에 반영";note.className="note err";note.textContent="업로드 실패: 네트워크 연결을 확인하세요";setProgress(0,"전송 실패")};xhr.upload.onload=function(){setProgress(98,"서버 반영 처리 중")};xhr.send(new FormData(form))})})();</script>',
+    '</main></body></html>'
+  ].join('');
+}
+
+async function createKakaoAccountApprovalExportLink(req, res) {
+  try {
+    const result = await createAccountApprovalExportBuffer(req);
+    const dir = path.join(uploadDir, 'kakao-tid-exports');
+    fs.mkdirSync(dir, { recursive: true });
+    const fileName = 'eatsPay_' + result.batchId + '.xlsx';
+    fs.writeFileSync(path.join(dir, fileName), result.buffer);
+    const publicPath = '/uploads/kakao-tid-exports/' + encodeURIComponent(fileName);
+    const baseUrl = String(process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://eatspay.kr').replace(/\/$/, '');
+    const uploadToken = createKakaoTxidUploadToken(result.batchId);
+    saveLatestKakaoTidUploadToken(result.batchId, uploadToken);
+    const uploadPath = '/tid-upload/' + encodeURIComponent(uploadToken);
+    return res.status(200).json({
+      success: true,
+      data: {
+        fileName,
+        batchId: result.batchId,
+        count: result.count,
+        path: publicPath,
+        url: baseUrl + publicPath,
+        uploadPath,
+        uploadUrl: baseUrl + uploadPath
+      }
+    });
+  } catch (err) {
+    if (err?.code === 'NO_EXPORT_ROWS') return sendError(res, 404, 'NO_EXPORT_ROWS', err.message);
+    throw err;
+  }
+}
+
+app.get('/api/admin/account-approvals/export.xlsx', authenticateAdmin, asyncHandler(sendAccountApprovalExportWorkbook));
+app.post('/api/admin/account-approvals/routeup-upload', authenticateAdmin, requireSuperAdmin, asyncHandler(handleRouteupAccountApprovalUpload));
+
+app.post('/api/internal/kakao/account-approvals/export-link', authenticateKakaoTxid, asyncHandler(createKakaoAccountApprovalExportLink));
+
+
+const KAKAO_TID_UPLOAD_EVENTS_PATH = path.join(uploadDir, 'kakao-tid-upload-events.json');
+
+function readKakaoTidUploadEvents() {
+  try {
+    if (!fs.existsSync(KAKAO_TID_UPLOAD_EVENTS_PATH)) return [];
+    const parsed = JSON.parse(fs.readFileSync(KAKAO_TID_UPLOAD_EVENTS_PATH, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('[KAKAO_TID_EVENTS_READ_FAILED]', err?.message || err);
+    return [];
+  }
+}
+
+function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {} } = {}) {
+  const data = resultBody?.data || {};
+  const results = Array.isArray(data.results) ? data.results : [];
+  const targets = results.slice(0, 30).map(item => ({
+    status: item.status || '',
+    franchiseName: item.franchiseName || '',
+    accountNo: item.accountNo || '',
+    manualTid: item.manualTid || '',
+    recurringTid: item.recurringTid || '',
+    affected: item.affected || []
+  }));
+  const event = {
+    id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    createdAt: new Date().toISOString(),
+    batchId,
+    fileName,
+    total: Number(data.total || 0),
+    updated: Number(data.updated || 0),
+    skipped: Number(data.skipped || 0),
+    invalidTid: Number(data.invalidTxid || 0),
+    notFound: Number(data.notFound || 0),
+    ambiguous: Number(data.ambiguous || 0),
+    targets
+  };
+  try {
+    const events = readKakaoTidUploadEvents();
+    events.push(event);
+    fs.mkdirSync(path.dirname(KAKAO_TID_UPLOAD_EVENTS_PATH), { recursive: true });
+    fs.writeFileSync(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON.stringify(events.slice(-200), null, 2));
+    return event;
+  } catch (err) {
+    console.warn('[KAKAO_TID_EVENT_WRITE_FAILED]', err?.message || err);
+    return null;
+  }
+}
+
+async function handleAccountApprovalTxidUpload(req, res) {
   if (!req.file) {
-    return sendError(res, 400, 'FILE_REQUIRED', 'TXID 엑셀 파일을 업로드해주세요.');
+    return sendError(res, 400, 'FILE_REQUIRED', 'TID/Key 엑셀 파일을 업로드해주세요.');
   }
   const items = await parseAccountApprovalTxidWorkbook(req.file.buffer);
   if (!items.length) {
-    return sendError(res, 400, 'NO_TXID_ROWS', 'TXID를 반영할 행을 찾지 못했습니다.');
+    return sendError(res, 400, 'NO_TID_ROWS', 'TID/Key를 반영할 행을 찾지 못했습니다.');
   }
   const batchIdMatch = String(req.file.originalname || '').match(/(?:eatsPay_|account-approvals-|계좌검증_내보내기_)?(ACCEXP-[A-Za-z0-9]+)/i);
   const results = await repo.applyAccountApprovalTxids(items, {
@@ -2043,7 +3706,8 @@ app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUp
       updatedTargets: results
         .filter(item => item.status === 'UPDATED')
         .map(item => ({
-          txid: item.txid,
+          manualTid: item.manualTid,
+          recurringTid: item.recurringTid,
           accountNo: item.accountNo,
           franchiseName: item.franchiseName,
           affected: item.affected || []
@@ -2058,22 +3722,202 @@ app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUp
       updated,
       skipped: results.filter(item => item.status === 'SKIPPED').length,
       invalidTxid: results.filter(item => item.status === 'INVALID_TXID').length,
+      invalidRouteupContract: results.filter(item => item.status === 'INVALID_ROUTEUP_CONTRACT').length,
       notFound: results.filter(item => item.status === 'NOT_FOUND').length,
       ambiguous: results.filter(item => item.status === 'AMBIGUOUS').length,
       results
     }
   });
+}
+
+app.post('/api/admin/exports/settlement.xlsx', authenticateAdmin, asyncHandler(async (req, res) => {
+  const sheets = Array.isArray(req.body?.sheets) ? req.body.sheets : [];
+  if (!sheets.length) {
+    return sendError(res, 400, 'EXPORT_SHEETS_REQUIRED', '내보낼 엑셀 데이터가 없습니다.');
+  }
+  const rawFileName = String(req.body?.fileName || 'eatsPay_settlement.xlsx').trim();
+  const fileName = rawFileName.replace(/[\\/:*?"<>|]/g, '_').replace(/\.xlsx$/i, '') || 'eatsPay_settlement';
+  const buffer = await createGenericExportWorkbook(sheets);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${fileName}.xlsx`)}`);
+  return res.status(200).send(Buffer.from(buffer));
 }));
 
-app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) => {
-  const [requests, deliveryAccounts] = await Promise.all([
-    repo.listAccountRequestsByFranchise(req.user.franchiseId),
-    repo.listDeliveryAccountsByFranchise(req.user.franchiseId)
-  ]);
+app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUpload('file'), asyncHandler(async (req, res) => {
+  return handleAccountApprovalTxidUpload(req, res);
+}));
 
-  const statusLabel = (status, txid = '') => {
-    if (status === 'APPROVED') return txid ? '\uC2B9\uC778\uC644\uB8CC' : '\uC2B9\uC778\uB300\uAE30';
+app.post('/api/internal/kakao/account-approvals/txid-upload', authenticateKakaoTxid, singleUpload('file'), asyncHandler(async (req, res) => {
+  return handleAccountApprovalTxidUpload(req, res);
+}));
+
+
+app.get('/api/internal/kakao/account-approvals/tid-upload-events', authenticateKakaoTxid, (req, res) => {
+  const since = String(req.query?.since || '').trim();
+  const events = readKakaoTidUploadEvents();
+  const start = since ? events.findIndex(event => event.id === since) : -1;
+  const items = start >= 0 ? events.slice(start + 1) : events.slice(-20);
+  return res.status(200).json({ success: true, data: { events: items } });
+});
+
+app.get('/tid-upload/:token', (req, res) => {
+  const payload = verifyKakaoTxidUploadToken(req.params.token);
+  if (!payload) return res.status(401).send(renderKakaoTxidUploadPage('', '업로드 링크가 만료되었거나 올바르지 않습니다.'));
+  return res.status(200).send(renderKakaoTxidUploadPage(req.params.token));
+});
+
+app.post('/tid-upload/:token', singleUpload('file'), asyncHandler(async (req, res) => {
+  const payload = verifyKakaoTxidUploadToken(req.params.token);
+  if (!payload) return res.status(401).send(renderKakaoTxidUploadPage('', '업로드 링크가 만료되었거나 올바르지 않습니다.'));
+  req.user = {
+    id: null,
+    role: 'admin',
+    adminLevel: 'SYSTEM',
+    loginId: 'kakao-tid-upload-link',
+    name: 'Kakao TID Upload Link'
+  };
+  if (req.file && !String(req.file.originalname || '').includes(payload.batchId)) {
+    req.file.originalname = payload.batchId + '_' + (req.file.originalname || 'tid-upload.xlsx');
+  }
+  res.json = body => {
+    appendKakaoTidUploadEvent({
+      batchId: payload.batchId,
+      fileName: req.file?.originalname || '',
+      resultBody: body
+    });
+    const skipped = Number(body?.data?.skipped || 0);
+    const message = '업로드 완료: 전체 ' + (body?.data?.total || 0) + '건 중 ' + (body?.data?.updated || 0) + '건 반영' + (skipped ? ', ' + skipped + '건 스킵' : '');
+    return res.status(200).send(renderKakaoTxidUploadPage(req.params.token, message));
+  };
+  return handleAccountApprovalTxidUpload(req, res);
+}));
+
+
+app.get('/txid-upload/:token', (req, res) => {
+  return res.redirect(301, '/tid-upload/' + encodeURIComponent(req.params.token));
+});
+
+app.post('/txid-upload/:token', singleUpload('file'), asyncHandler(async (req, res) => {
+  req.url = '/tid-upload/' + encodeURIComponent(req.params.token);
+  return res.redirect(307, '/tid-upload/' + encodeURIComponent(req.params.token));
+}));
+
+function maskProviderKey(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length <= 10) return raw.replace(/.(?=.{4})/g, '*');
+  return `${raw.slice(0, 7)}...${raw.slice(-4)}`;
+}
+
+function accountTidKeyDisplayFields(account = {}, includeRaw = false) {
+  const manualTid = String(account.manualTid || account.manual_tid || '').trim();
+  const manualKey = String(account.manualKey || account.manual_key || '').trim();
+  const recurringTid = String(account.recurringTid || account.recurring_tid || account.txid || '').trim();
+  const recurringKey = String(account.recurringKey || account.recurring_key || '').trim();
+  const pgContracts = Array.isArray(account.pgContracts || account.pg_contracts)
+    ? (account.pgContracts || account.pg_contracts).map(contract => includeRaw ? contract : maskPgContract(contract))
+    : [];
+  const fields = {
+    manualTid,
+    manualKeyMasked: maskProviderKey(manualKey),
+    recurringTid,
+    recurringKeyMasked: maskProviderKey(recurringKey),
+    hasManualKey: Boolean(manualKey),
+    hasRecurringKey: Boolean(recurringKey),
+    pgContracts
+  };
+  if (includeRaw) {
+    fields.manualKey = manualKey;
+    fields.recurringKey = recurringKey;
+  }
+  return fields;
+}
+
+function hasAccountTidKey(account = {}) {
+  return hasBillablePgContract(account);
+}
+
+function hasAccountApprovalCredentials(account = {}) {
+  const providerName = normalizeProviderName(account.pgProviderName || account.providerName || account.pg_provider_name || '');
+  if (providerName === '루트업') return hasRouteupExternalIntegrationKeys(account);
+  return hasAccountTidKey(account) || hasRouteupExternalIntegrationKeys(account);
+}
+
+function cardMatchesCurrentPg(card = {}, selectedPgProvider = null) {
+  if (!selectedPgProvider?.id) return true;
+  return String(card.pgProviderId || card.pg_provider_id || '') === String(selectedPgProvider.id);
+}
+
+function accountApprovalStatusIsApproved(account = {}) {
+  const status = String(account.status || account.accountStatus || account.account_status || '').trim().toUpperCase();
+  const label = String(account.statusLabel || account.accountStatusLabel || '').trim();
+  return status === 'APPROVED' || label === '승인완료' || label === '정상승인';
+}
+
+function contractMatchesProvider(contract = {}, selectedPgProvider = null) {
+  if (!selectedPgProvider) return true;
+  const selectedName = String(selectedPgProvider.name || selectedPgProvider.providerName || '').trim();
+  const selectedId = String(selectedPgProvider.id || selectedPgProvider.providerId || '').trim();
+  const contractProviderId = String(contract.providerId || contract.pgProviderId || contract.pg_provider_id || '').trim();
+  if (selectedId && contractProviderId && selectedId === contractProviderId) return true;
+  if (!selectedName) return false;
+  const contractName = String(contract.providerName || contract.pgProviderName || contract.pg_provider_name || '').trim();
+  return normalizeProviderName(contractName) === normalizeProviderName(selectedName)
+    || avicxNormalizeProvider(contractName) === avicxNormalizeProvider(selectedName);
+}
+
+function accountHasCurrentPgApprovalCredentials(account = {}, selectedPgProvider = null) {
+  if (!selectedPgProvider?.name) return hasAccountApprovalCredentials(account);
+  const contracts = Array.isArray(account.pgContracts || account.pg_contracts)
+    ? (account.pgContracts || account.pg_contracts).filter(contract => contractMatchesProvider(contract, selectedPgProvider))
+    : [];
+  const providerName = selectedPgProvider.name || '';
+  const providerScopedAccount = {
+    ...account,
+    pgContracts: contracts,
+    pg_contracts: contracts,
+    pgProviderName: providerName,
+    providerName
+  };
+
+  if (isRouteupProviderName(providerName)) {
+    return hasRouteupExternalIntegrationKeys(providerScopedAccount);
+  }
+  if (isGhPaymentsProviderName(providerName)) {
+    if (hasBillablePgContract(providerScopedAccount)) return true;
+    const recurringTid = String(account.recurringTid || account.recurring_tid || account.txid || '').trim();
+    const recurringKey = String(account.recurringKey || account.recurring_key || '').trim();
+    return Boolean(recurringTid && recurringKey);
+  }
+  return contracts.some(contract => contract.active !== false && contract.tid && contract.paymentKey);
+}
+
+function accountMatchesCurrentPgApproval(account = {}, selectedPgProvider = null) {
+  if (account.active === false || account.hidden === true) return false;
+  return accountApprovalStatusIsApproved(account)
+    && accountHasCurrentPgApprovalCredentials(account, selectedPgProvider);
+}
+
+app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) => {
+  const [requests, deliveryAccounts, deliveryAgencies, selectedPgProvider] = await Promise.all([
+    repo.listAccountRequestsByFranchise(req.user.franchiseId),
+    repo.listDeliveryAccountsByFranchise(req.user.franchiseId),
+    repo.listDeliveryAgencies(),
+    getUserPgProvider(req.user).catch(() => null)
+  ]);
+  const selectedPgProviderName = selectedPgProvider?.name || '';
+
+  const deliveryAgencyLogoByName = new Map(
+    deliveryAgencies
+      .map(agency => [String(agency.name || '').trim().toLowerCase(), agency.logoUrl || ''])
+      .filter(([name, logoUrl]) => name && logoUrl)
+  );
+  const deliveryAgencyLogoUrl = name => deliveryAgencyLogoByName.get(String(name || '').trim().toLowerCase()) || '';
+
+  const statusLabel = (status, account = {}) => {
     if (status === 'REJECTED') return '\uBC18\uB824';
+    if (hasAccountApprovalCredentials(account)) return '\uC2B9\uC778\uC644\uB8CC';
+    if (status === 'APPROVED') return '\uC2B9\uC778\uB300\uAE30';
     return '\uC2B9\uC778\uB300\uAE30';
   };
 
@@ -2083,19 +3927,22 @@ app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) =
     franchiseId: request.franchiseId,
     franchiseName: request.franchiseName,
     agencyName: request.deliveryAgencyName || '',
+    deliveryAgencyLogoUrl: deliveryAgencyLogoUrl(request.deliveryAgencyName),
     bankName: request.bankName || '',
     accountNo: request.accountNo || request.assignedVirtualAccount?.accountNumber || '',
     accountHolder: request.representativeName,
     fileName: request.documentOriginalName ? normalizeUploadOriginalName(request.documentOriginalName) : (request.documentUrl ? path.basename(request.documentUrl) : ''),
     status: request.status,
-    statusLabel: statusLabel(request.status, request.txid),
+    statusLabel: statusLabel(request.status, { ...request, pgProviderName: selectedPgProviderName }),
     active: request.active !== false,
     hidden: request.hidden === true,
     requestedAt: request.submittedAt,
     txid: request.txid || '',
+    ...accountTidKeyDisplayFields(request),
     exportedAt: request.exportedAt || '',
     exportReadyAt: request.exportReadyAt || '',
-    rejectionReason: request.rejectionReason || ''
+    rejectionReason: request.rejectionReason || '',
+    currentPgApproved: accountMatchesCurrentPgApproval(request, selectedPgProvider)
   }));
 
   const deliveryItems = deliveryAccounts.map(account => ({
@@ -2103,18 +3950,21 @@ app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) =
     source: 'delivery_account',
     franchiseId: account.franchiseId,
     agencyName: account.agencyName,
+    deliveryAgencyLogoUrl: deliveryAgencyLogoUrl(account.agencyName),
     bankName: account.bankName,
     accountNo: account.accountNo,
     accountHolder: account.accountHolder,
     fileName: deliveryAccountDisplayFileName(account),
     status: account.accountStatus,
-    statusLabel: statusLabel(account.accountStatus, account.txid),
+    statusLabel: statusLabel(account.accountStatus, { ...account, pgProviderName: selectedPgProviderName }),
     active: account.active !== false,
     hidden: account.hidden === true,
     requestedAt: account.reqDate,
     txid: account.txid || '',
+    ...accountTidKeyDisplayFields(account),
     exportedAt: account.exportedAt || '',
-    rejectionReason: account.rejectionReason || ''
+    rejectionReason: account.rejectionReason || '',
+    currentPgApproved: accountMatchesCurrentPgApproval(account, selectedPgProvider)
   }));
 
   const accountPriority = item => {
@@ -2142,9 +3992,14 @@ app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) =
     }
   }
 
+  const currentPgApprovedAccounts = [...mergedAccounts.values()]
+    .filter(item => item.currentPgApproved)
+    .map(({ currentPgApproved, ...item }) => item)
+    .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0));
+
   return res.status(200).json({
     success: true,
-    data: [...mergedAccounts.values()].sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0))
+    data: currentPgApprovedAccounts
   });
 }));
 
@@ -2306,6 +4161,134 @@ app.all('/api/ghpayments/notify', asyncHandler(async (req, res) => {
   return res.status(200).type('text/plain').send('OK');
 }));
 
+app.all('/api/routeup/notify', asyncHandler(async (req, res) => {
+  const payload = req.method === 'GET'
+    ? { ...req.query }
+    : (req.body && typeof req.body === 'object' ? req.body : {});
+  const source = {
+    ...payload,
+    ...(req.query && Object.keys(req.query).length ? { query: req.query } : {})
+  };
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = source[key] ?? source.data?.[key] ?? source.result?.[key] ?? source.transaction?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+    }
+    return '';
+  };
+  const mid = pick('mid');
+  const tid = pick('tid');
+  const timestamp = pick('timestamp');
+  const signature = pick('signature');
+  const signResult = verifyRouteupSignature({ mid, timestamp, signature });
+  if (signResult.checked && !signResult.valid) {
+    return res.status(403).json({ message: '루트업 결제통지 signature 검증에 실패했습니다.' });
+  }
+  const transactionId = pick('ord_num', 'ordNum', 'orderNo', 'order_id', 'transactionId', 'transaction_id');
+  const pgTransactionId = pick('trx_id', 'trxId', 'pgTransactionId', 'pg_transaction_id') || tid;
+  const approvalNo = pick('appr_num', 'apprNum', 'approvalNo', 'approval_no', 'authCd', 'auth_code');
+  const amount = Number(String(pick('amount') || '').replace(/[^0-9.-]/g, ''));
+  const resultCode = pick('result_cd', 'resultCd', 'resultCode', 'code') || (pick('is_cancel') === '1' ? 'CANCEL' : '0000');
+  const resultMessage = pick('result_msg', 'resultMsg', 'resultMessage', 'message', 'msg');
+  const isCancel = pick('is_cancel', 'isCancel') === '1';
+  const cxlSeq = pick('cxl_seq', 'cxlSeq');
+  const eventType = pick('eventType', 'event_type', 'type', 'status') || (isCancel ? `CANCEL${cxlSeq ? `_${cxlSeq}` : ''}` : 'APPROVED');
+  const normalizedPayload = {
+    ...payload,
+    routeupParsed: {
+      mid,
+      tid,
+      trx_id: pgTransactionId,
+      ord_num: transactionId,
+      appr_num: approvalNo,
+      amount: Number.isFinite(amount) ? amount : null,
+      item_name: pick('item_name', 'itemName'),
+      buyer_name: pick('buyer_name', 'buyerName'),
+      buyer_phone: pick('buyer_phone', 'buyerPhone'),
+      issuer: pick('issuer'),
+      acquirer: pick('acquirer'),
+      issuer_code: pick('issuer_code', 'issuerCode'),
+      acquirer_code: pick('acquirer_code', 'acquirerCode'),
+      card_num: pick('card_num', 'cardNum'),
+      installment: pick('installment'),
+      trx_dttm: pick('trx_dttm', 'trxDttm'),
+      cxl_dttm: pick('cxl_dttm', 'cxlDttm'),
+      is_cancel: isCancel ? '1' : '0',
+      cxl_seq: cxlSeq,
+      ori_trx_id: pick('ori_trx_id', 'oriTrxId'),
+      module_type: pick('module_type', 'moduleType'),
+      temp: pick('temp'),
+      timestamp,
+      signature_checked: signResult.checked
+    }
+  };
+  const saved = await repo.recordPgNotification({
+    provider: '루트업',
+    eventType,
+    transactionId,
+    pgTransactionId,
+    resultCode,
+    resultMessage,
+    approvalNo,
+    payload: normalizedPayload,
+    query: req.query || {},
+    headers: {
+      'content-type': req.get('content-type') || '',
+      'user-agent': req.get('user-agent') || '',
+      'x-forwarded-for': req.get('x-forwarded-for') || req.ip || '',
+      'routeup-signature': signature,
+      'routeup-signature-checked': signResult.checked ? 'true' : 'false',
+      'routeup-timestamp': timestamp,
+      'routeup-mid': mid,
+      'routeup-tid': tid,
+      'routeup-approval-no': approvalNo
+    }
+  });
+  console.log(`[ROUTEUP_NOTIFY] saved=${saved.id} tx=${transactionId || '-'} pgTx=${pgTransactionId || '-'} code=${resultCode || '-'} event=${eventType || '-'}`);
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({});
+}));
+
+app.all('/api/deposits/notify', asyncHandler(async (req, res) => {
+  const payload = req.method === 'GET'
+    ? { ...req.query }
+    : (req.body && typeof req.body === 'object' ? req.body : {});
+  const source = {
+    ...payload,
+    ...(req.query && Object.keys(req.query).length ? { query: req.query } : {})
+  };
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = source[key] ?? source.deposit?.[key] ?? source.account?.[key] ?? source.virtualAccount?.[key] ?? source.result?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+    }
+    return '';
+  };
+  const amountText = pick('amount', 'depositAmount', 'amt', '입금금액');
+  const saved = await repo.recordDepositNotification({
+    provider: pick('provider', 'pg', 'bank', 'bankName') || 'DEPOSIT',
+    eventType: pick('eventType', 'event_type', 'type', 'status') || req.method,
+    txid: pick('txid', 'TXID', 'depositCode', 'deposit_code', '입금코드'),
+    accountNo: pick('accountNo', 'account_no', 'accountNumber', 'virtualAccountNo', '계좌번호'),
+    bankName: pick('bankName', 'bank_name', 'bankCode', '은행명'),
+    depositorName: pick('depositorName', 'depositor_name', 'senderName', 'remitter', '입금자명'),
+    amount: amountText ? Number(String(amountText).replace(/[^0-9.-]/g, '')) : null,
+    resultCode: pick('resultCode', 'resultCd', 'result_code', 'code'),
+    resultMessage: pick('resultMessage', 'resultMsg', 'message', 'msg'),
+    payload,
+    query: req.query || {},
+    headers: {
+      'content-type': req.get('content-type') || '',
+      'user-agent': req.get('user-agent') || '',
+      'x-forwarded-for': req.get('x-forwarded-for') || req.ip || ''
+    }
+  });
+
+  console.log(`[DEPOSIT_NOTIFY] saved=${saved.id} txid=${saved.txid || '-'} account=${saved.accountNo || '-'} amount=${saved.amount ?? '-'}`);
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).type('text/plain').send('OK');
+}));
+
 app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
   const { amount, calculatedFee, totalAmount, cardId, installment = 0, accountId, accountSource } = req.body;
   if (!amount || !calculatedFee || !totalAmount || !cardId) {
@@ -2324,10 +4307,21 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
   if (Number(amount) > 10000000) {
     return sendError(res, 402, 'CARD_LIMIT_EXCEEDED', 'Card limit exceeded.');
   }
+  const installmentMonths = Number(installment) || 0;
+  if (installmentMonths < 0 || installmentMonths > MAX_INSTALLMENT_MONTH) {
+    return sendError(res, 400, 'INVALID_INSTALLMENT_MONTH', '할부는 최대 6개월까지만 선택할 수 있습니다.');
+  }
 
   const card = await repo.findCardByUserId(String(cardId), req.user.id);
   if (!card || card.active === false || card.hidden === true) {
     return sendError(res, 404, 'CARD_NOT_FOUND', '결제 가능한 등록 카드가 없습니다.');
+  }
+  const selectedPgProvider = await getUserPgProvider(req.user);
+  if (selectedPgProvider && String(card.pgProviderId || '') !== String(selectedPgProvider.id)) {
+    return sendError(res, 409, 'CARD_PG_RE_REGISTRATION_REQUIRED', 'PG사가 변경되어 기존 등록 카드를 사용할 수 없습니다. 카드를 다시 등록해 주세요.', {
+      pgProviderId: selectedPgProvider.id,
+      pgProviderName: selectedPgProvider.name
+    });
   }
 
   const depositAccount = await repo.findChargeDepositAccount({
@@ -2338,8 +4332,104 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
   if (!depositAccount) {
     return sendError(res, 404, 'DEPOSIT_ACCOUNT_NOT_FOUND', '승인된 입금 계좌를 찾지 못했습니다.');
   }
-  if (!depositAccount.txid) {
-    return sendError(res, 409, 'DEPOSIT_ACCOUNT_TXID_REQUIRED', '해당 계좌는 TXID가 등록된 후 결제할 수 있습니다.');
+  if (selectedPgProvider && !accountMatchesCurrentPgApproval(depositAccount, selectedPgProvider)) {
+    return sendError(res, 409, 'DEPOSIT_ACCOUNT_PG_RE_REGISTRATION_REQUIRED', '현재 PG에서 승인된 입금 계좌가 아닙니다. 계좌를 다시 승인해 주세요.', {
+      pgProviderId: selectedPgProvider.id,
+      pgProviderName: selectedPgProvider.name
+    });
+  }
+
+  if (isRouteupProviderName(selectedPgProvider?.name)) {
+    const routeupContract = pickRouteupBillingContract(depositAccount, selectedPgProvider);
+    if (!routeupContract) {
+      return sendError(res, 409, 'ROUTEUP_ACCOUNT_CONTRACT_REQUIRED', '루트업 결제는 승인된 계좌의 MID, TID, 결제 KEY가 등록된 후 이용할 수 있습니다.');
+    }
+    if (String(card.id || '').startsWith('card_ref_')) {
+      return sendError(res, 409, 'CARD_PROVIDER_NOT_READY', '루트업 결제가 가능한 카드가 아닙니다. 카드를 다시 등록해 주세요.');
+    }
+
+    const transactionId = generateId('TXN', 7);
+    const routeupBody = buildRouteupBillPayPayload({
+      contract: routeupContract,
+      orderNo: transactionId,
+      buyerName: card.payerName || req.user.name || req.user.franchiseName || '',
+      buyerPhone: card.payerTel || req.user.phone || req.user.tel || '',
+      itemName: 'eats PAY 충전',
+      billKey: card.id,
+      amount: Number(totalAmount),
+      installment: installmentMonths
+    });
+    console.log(`[ROUTEUP_BILLING_PAY_REQUEST] billKey=${String(card.id).slice(0, 10)}... ordNum=${transactionId} amount=${Number(totalAmount)} installment=${installmentMonths} accountTid=${routeupContract.tid}`);
+    const providerResponse = await routeupRequest('/api/v2/pay/bill-key/hand', {
+      method: 'POST',
+      payKey: routeupContract.paymentKey,
+      body: routeupBody
+    });
+    const payload = await providerResponse.json().catch(() => ({}));
+    if (!providerResponse.ok || !isRouteupSuccess(payload)) {
+      const providerMessage = routeupMessage(payload) || 'Routeup billing payment failed.';
+      console.log(`[ROUTEUP_BILLING_PAY_FAILED] ordNum=${transactionId} code=${payload?.result_cd || providerResponse.status} message=${providerMessage}`);
+      return sendError(res, providerResponse.status || 502, 'ROUTEUP_BILLING_PAY_FAILED', providerMessage, payload);
+    }
+
+    const providerTid = String(payload.tid || payload.TID || '').trim();
+    if (providerTid && providerTid !== routeupContract.tid) {
+      console.log(`[ROUTEUP_TID_MISMATCH] billKey=${String(card.id).slice(0, 10)}... ordNum=${transactionId} expectedTid=${routeupContract.tid} providerTid=${providerTid} accountId=${depositAccount.id}`);
+      return sendError(res, 502, 'ROUTEUP_TID_MISMATCH', '루트업이 선택한 입금 계좌와 요청 계좌가 일치하지 않습니다. 결제를 중단했습니다.', {
+        expectedTid: routeupContract.tid,
+        providerTid
+      });
+    }
+
+    const cardIssuer = payload.issuer || card.cardCompany || card.cardName || 'CARD';
+    const cardLast4 = String(payload.card_num || card.maskedNumber || card.masked_number || '').replace(/[^0-9]/g, '').slice(-4) || String(card.id).slice(-4);
+    const cardDetails = `${cardIssuer} ****-****-****-${cardLast4}`;
+    console.log(`[ROUTEUP_BILLING_PAY_SUCCESS] ordNum=${transactionId} trxId=${payload.trx_id || '-'} apprNum=${payload.appr_num || '-'} amount=${payload.amount || totalAmount} accountTid=${routeupContract.tid}${providerTid ? ` providerTid=${providerTid}` : ''}`);
+    const result = await repo.recordCharge({
+      userId: req.user.id,
+      franchiseId: req.user.franchiseId,
+      transactionId,
+      amount: Number(amount),
+      fee: expectedFee,
+      totalAmount: Number(totalAmount),
+      method: 'CARD',
+      cardDetails,
+      pg: '루트업',
+      pgTxId: payload.trx_id || '',
+      authCode: payload.appr_num || '',
+      depositAccountSource: depositAccount.source || accountSource || '',
+      depositAccountId: String(depositAccount.id || accountId || ''),
+      depositBankName: depositAccount.bank_name || '',
+      depositAccountNo: depositAccount.account_no || '',
+      depositAccountHolder: depositAccount.account_holder || '',
+      depositDeliveryAgency: depositAccount.agency_name || '',
+      depositTxid: routeupContract.tid
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        transactionId,
+        status: 'PAID',
+        amount: Number(amount),
+        fee: expectedFee,
+        totalAmount: Number(totalAmount),
+        approvedAt: new Date().toISOString(),
+        updatedBalance: result.updatedBalance,
+        provider: 'ROUTEUP',
+        providerResult: payload
+      }
+    });
+  }
+
+  if (selectedPgProvider && !isGhPaymentsProviderName(selectedPgProvider.name)) {
+    return sendError(res, 409, 'PG_PROVIDER_NOT_READY', `${selectedPgProvider.name} PG 결제 연동은 아직 준비 중입니다. PG사를 GH Payments 또는 루트업으로 변경하거나 연동 완료 후 이용해 주세요.`);
+  }
+
+  const depositAccountRecurringTid = String(depositAccount.recurring_tid || depositAccount.txid || '').trim();
+  const depositAccountRecurringKey = String(depositAccount.recurring_key || '').trim();
+  if (!depositAccountRecurringTid || !depositAccountRecurringKey) {
+    return sendError(res, 409, 'DEPOSIT_ACCOUNT_TID_KEY_REQUIRED', '해당 계좌는 정기 TID와 Key가 등록된 후 결제할 수 있습니다.');
   }
 
   const isProviderCard = !String(card.id).startsWith('card_ref_');
@@ -2350,16 +4440,18 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
 
   if (useProvider) {
     const transactionId = generateId('TXN', 7);
-    console.log(`[GH_PAYMENTS_BILLING_PAY_REQUEST] rebillId=${cardId} trackId=${transactionId} amount=${Number(totalAmount)} installment=${Number(installment) || 0}`);
+    console.log(`[GH_PAYMENTS_BILLING_PAY_REQUEST] rebillId=${cardId} trackId=${transactionId} amount=${Number(totalAmount)} installment=${installmentMonths} accountTid=${depositAccountRecurringTid}`);
     const providerResponse = await ghPaymentsRequest('/api/billing/pay', {
       method: 'POST',
+      payKey: depositAccountRecurringKey,
       body: {
         billing: {
           rebillId: cardId,
           trackId: transactionId,
           amount: Number(totalAmount),
-          installment: Number(installment) || 0,
-          txid: depositAccount.txid
+          installment: installmentMonths,
+          txid: depositAccountRecurringTid,
+          key: depositAccountRecurringKey
         }
       }
     });
@@ -2371,8 +4463,17 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
       return sendError(res, providerResponse.status || 502, 'GH_PAYMENTS_BILLING_PAY_FAILED', providerMessage, payload);
     }
 
+    const providerTid = String(payload?.pay?.tmnId || payload?.pay?.tid || payload?.tmnId || '').trim();
+    if (providerTid && providerTid !== depositAccountRecurringTid) {
+      console.log(`[GH_PAYMENTS_TID_MISMATCH] rebillId=${cardId} trackId=${transactionId} expectedTid=${depositAccountRecurringTid} providerTid=${providerTid} accountId=${depositAccount.id}`);
+      return sendError(res, 502, 'GH_PAYMENTS_TID_MISMATCH', 'PG가 선택한 입금 계좌와 요청 계좌가 일치하지 않습니다. 결제를 중단했습니다.', {
+        expectedTid: depositAccountRecurringTid,
+        providerTid
+      });
+    }
+
     const providerCard = payload.pay?.card || {};
-    console.log(`[GH_PAYMENTS_BILLING_PAY_SUCCESS] rebillId=${cardId} trackId=${transactionId} trxId=${payload.pay?.trxId || '-'} authCd=${payload.pay?.authCd || '-'} amount=${payload.pay?.amount || totalAmount}`);
+    console.log(`[GH_PAYMENTS_BILLING_PAY_SUCCESS] rebillId=${cardId} trackId=${transactionId} trxId=${payload.pay?.trxId || '-'} authCd=${payload.pay?.authCd || '-'} amount=${payload.pay?.amount || totalAmount} accountTid=${depositAccountRecurringTid}${providerTid ? ` providerTid=${providerTid}` : ''}`);
     const cardIssuer = providerCard.issuer || card.cardCompany || card.cardName || providerCard.cardType || 'CARD';
     const cardLast4 = providerCard.last4 || String(card.maskedNumber || card.masked_number || '').replace(/[^0-9]/g, '').slice(-4) || String(cardId).slice(-4);
     const cardDetails = `${cardIssuer} ****-****-****-${cardLast4}`;
@@ -2387,7 +4488,14 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
       cardDetails,
       pg: 'GH Payments',
       pgTxId: payload.pay?.trxId || '',
-      authCode: payload.pay?.authCd || ''
+      authCode: payload.pay?.authCd || '',
+      depositAccountSource: depositAccount.source || accountSource || '',
+      depositAccountId: String(depositAccount.id || accountId || ''),
+      depositBankName: depositAccount.bank_name || '',
+      depositAccountNo: depositAccount.account_no || '',
+      depositAccountHolder: depositAccount.account_holder || '',
+      depositDeliveryAgency: depositAccount.agency_name || '',
+      depositTxid: depositAccountRecurringTid
     });
 
     return res.status(200).json({
@@ -2446,7 +4554,9 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/card/list', authenticate, asyncHandler(async (req, res) => {
-  const cards = await repo.listCardsByUserId(req.user.id);
+  const selectedPgProvider = await getUserPgProvider(req.user).catch(() => null);
+  const cards = (await repo.listCardsByUserId(req.user.id))
+    .filter(card => cardMatchesCurrentPg(card, selectedPgProvider));
   return res.status(200).json({
     success: true,
     data: cards
@@ -2675,6 +4785,84 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 400, 'BAD_REQUEST', 'payerTel is invalid.');
   }
 
+  const selectedPgProvider = await getUserPgProvider(req.user);
+  if (isRouteupProviderName(selectedPgProvider?.name)) {
+    const routeupCardContractSource = await repo.findDefaultRouteupCardRegistrationContract({
+      franchiseId: req.user.franchiseId,
+      providerName: '루트업'
+    });
+    const routeupContract = pickRouteupCardRegistrationContract(routeupCardContractSource || {}, selectedPgProvider);
+    if (!routeupContract) {
+      return sendError(res, 409, 'ROUTEUP_CARD_CONTRACT_REQUIRED', '루트업 카드등록용 결제 KEY가 등록되지 않았습니다. 관리자에서 루트업 계약 정보를 먼저 저장해 주세요.');
+    }
+    const routeupRegistrationContract = { ...routeupContract, tid: '' };
+
+    const registrationTrackId = generateId('CARD', 6);
+    const response = await routeupRequest('/api/v2/pay/bill-key', {
+      method: 'POST',
+      payKey: routeupContract.paymentKey,
+      body: buildRouteupBillKeyPayload({
+        contract: routeupRegistrationContract,
+        orderNo: registrationTrackId,
+        buyerName: resolvedPayerName,
+        buyerPhone: resolvedPayerTel,
+        cardNumber: digits,
+        expiryMonth,
+        expiryYear,
+        identity,
+        cardPw
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    const billKey = extractRouteupBillKey(payload);
+    if (!response.ok || !isRouteupSuccess(payload) || !billKey) {
+      return sendError(res, response.status || 502, 'ROUTEUP_CARD_REGISTRATION_FAILED', routeupMessage(payload) || 'Routeup card registration failed.', payload);
+    }
+
+    const cardName = normalizeProviderCardCompany(payload.issuer || payload.acquirer, resolvedCompany, digits);
+    const maskedNumber = maskCardNumberForStorage(payload.card_num, digits, cardName);
+    console.log(`[ROUTEUP_CARD_REGISTRATION_SUCCESS] ordNum=${registrationTrackId} billKey=${billKey.slice(0, 10)}... trxId=${payload.trx_id || '-'} issuer=${cardName} tid=`);
+    const card = await repo.registerCard(req.user.id, {
+      id: billKey,
+      maskedNumber,
+      cardName,
+      cardCompany: cardName,
+      alias: resolvedAlias,
+      expiryMonth: String(expiryMonth || '').padStart(2, '0'),
+      expiryYear: String(expiryYear || ''),
+      payerName: resolvedPayerName,
+      payerEmail: resolvedPayerEmail,
+      payerTel: resolvedPayerTel,
+      cardIdentity: resolvedCardIdentity,
+      pgProviderId: selectedPgProvider?.id || null
+    });
+    await recordAuditLog(req, {
+      action: 'CARD_CREATE',
+      entityType: 'card',
+      entityId: card.id,
+      entityName: card.alias || card.cardName || '',
+      beforeData: {},
+      afterData: pickCardAuditData(card),
+      force: true
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Card registered through Routeup.',
+      data: {
+        ...card,
+        provider: 'ROUTEUP',
+        billKey,
+        providerResult: payload
+      }
+    });
+  }
+
+  if (selectedPgProvider && !isGhPaymentsProviderName(selectedPgProvider.name)) {
+    return sendError(res, 409, 'PG_PROVIDER_NOT_READY', `${selectedPgProvider.name} PG 카드등록 연동은 아직 준비 중입니다. PG사를 GH Payments 또는 루트업으로 변경하거나 연동 완료 후 이용해 주세요.`);
+  }
+
   if (hasGhPaymentsPayKey()) {
     const registrationTrackId = generateId('CARD', 6);
     const response = await ghPaymentsRequest('/api/billing/reg', {
@@ -2706,14 +4894,14 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
 
     const providerCardId = rebill.rebillId || `card_ref_${crypto.randomUUID()}`;
     const cardName = normalizeProviderCardCompany(rebill.issueCompanyName || rebill.buyCompanyName, resolvedCompany, digits);
-    const maskedNumber = rebill.cardNumber || `${cardName} (****-****-${digits.slice(-4)})`;
+    const maskedNumber = maskCardNumberForStorage(rebill.cardNumber, digits, cardName);
     console.log(`[GH_PAYMENTS_CARD_REGISTRATION_SUCCESS] trackId=${registrationTrackId} rebillId=${providerCardId} trxId=${rebill.trxId || '-'} status=${rebill.status || '-'} tmnId=${rebill.tmnId || '-'} mchtId=${rebill.mchtId || '-'} issuer=${cardName} last4=${digits.slice(-4)} raw=${JSON.stringify({
       result: payload.result || null,
       rebill: {
         rebillId: rebill.rebillId || '',
         trxId: rebill.trxId || '',
         cardType: rebill.cardType || '',
-        cardNumber: rebill.cardNumber || '',
+        cardNumber: maskCardNumberForStorage(rebill.cardNumber, digits, cardName),
         issueCompanyName: rebill.issueCompanyName || '',
         buyCompanyName: rebill.buyCompanyName || '',
         status: rebill.status || '',
@@ -2732,7 +4920,8 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
       payerName: resolvedPayerName,
       payerEmail: resolvedPayerEmail,
       payerTel: resolvedPayerTel,
-      cardIdentity: resolvedCardIdentity
+      cardIdentity: resolvedCardIdentity,
+      pgProviderId: selectedPgProvider?.id || null
     });
     await recordAuditLog(req, {
       action: 'CARD_CREATE',
@@ -2769,7 +4958,8 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     payerName: resolvedPayerName,
     payerEmail: resolvedPayerEmail,
     payerTel: resolvedPayerTel,
-    cardIdentity: resolvedCardIdentity
+    cardIdentity: resolvedCardIdentity,
+    pgProviderId: selectedPgProvider?.id || null
   });
   await recordAuditLog(req, {
     action: 'CARD_CREATE',
@@ -2788,8 +4978,75 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
   });
 }));
 
+app.post('/api/admin/accounts/reset-verification', authenticateAdmin, asyncHandler(async (req, res) => {
+  const { requestId, accountId, source } = req.body || {};
+  const isDeliveryAccount = !requestId && (source === 'delivery_account' || accountId);
+
+  if (isDeliveryAccount) {
+    const numericAccountId = Number(accountId);
+    if (!Number.isFinite(numericAccountId)) {
+      return sendError(res, 400, 'INVALID_ACCOUNT_ID', 'delivery account id is required.');
+    }
+    const account = await repo.findDeliveryAccountById(numericAccountId);
+    if (!account) {
+      return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+    }
+    if (account.accountStatus === 'PENDING') {
+      return res.status(200).json({
+        success: true,
+        message: '이미 검증전 상태입니다.',
+        data: { accountId: account.id, status: account.accountStatus, alreadyPending: true }
+      });
+    }
+    const updatedAccount = await repo.resetDeliveryAccountVerification(numericAccountId);
+    await recordAuditLog(req, {
+      action: 'DELIVERY_ACCOUNT_REVERIFY',
+      entityType: 'delivery_account',
+      entityId: numericAccountId,
+      entityName: account.agencyName || '',
+      beforeData: pickDeliveryAccountAuditData(account),
+      afterData: pickDeliveryAccountAuditData(updatedAccount)
+    });
+    return res.status(200).json({
+      success: true,
+      message: '계좌가 검증전 상태로 변경되었습니다.',
+      data: { accountId: updatedAccount.id, status: updatedAccount.accountStatus }
+    });
+  }
+
+  if (!requestId) {
+    return sendError(res, 400, 'INVALID_REQUEST_ID', 'requestId is required.');
+  }
+  const request = await repo.findAccountRequest(requestId);
+  if (!request) {
+    return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Account request was not found.');
+  }
+  if (request.status === 'PENDING') {
+    return res.status(200).json({
+      success: true,
+      message: '이미 검증전 상태입니다.',
+      data: { requestId: request.requestId, status: request.status, alreadyPending: true }
+    });
+  }
+  const updated = await repo.resetAccountRequestVerification(requestId);
+  await recordAuditLog(req, {
+    action: 'ACCOUNT_REQUEST_REVERIFY',
+    entityType: 'account_request',
+    entityId: requestId,
+    entityName: request.franchiseName || '',
+    beforeData: pickAccountRequestAuditData(request),
+    afterData: pickAccountRequestAuditData(updated)
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: '계좌 요청이 검증전 상태로 변경되었습니다.',
+    data: { requestId: updated.requestId, status: updated.status }
+  });
+}));
 app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (req, res) => {
-  const { requestId, accountId, source, action, assignedVirtualAccount, rejectionReason } = req.body;
+  const { requestId, accountId, source, action, assignedVirtualAccount } = req.body;
+  const rejectionReason = String(req.body?.rejectionReason || '').trim().slice(0, 100);
   const isDeliveryAccount = !requestId && (source === 'delivery_account' || accountId);
   if (isDeliveryAccount) {
     const numericAccountId = Number(accountId);
@@ -2800,14 +5057,29 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
     if (!account) {
       return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
     }
+    const accountOwner = account.franchiseId ? await repo.findUserByFranchiseId(account.franchiseId) : null;
+    const accountForApproval = { ...account, pgProviderName: accountOwner?.pgProviderName || '' };
     if (account.accountStatus !== 'PENDING') {
       const sameAction = (account.accountStatus === 'APPROVED' && action === 'APPROVED')
         || (account.accountStatus === 'REJECTED' && action === 'REJECTED');
       if (sameAction) {
+        if (action === 'APPROVED' && !hasAccountApprovalCredentials(accountForApproval)) {
+          const requeuedAccount = await repo.updateDeliveryAccountApprovalStatus(numericAccountId, { status: 'APPROVED' });
+          return res.status(200).json({
+            success: true,
+            message: '계좌를 내보내기 대기 상태로 다시 반영했습니다.',
+            data: {
+              accountId: requeuedAccount.id,
+              status: requeuedAccount.accountStatus,
+              requeuedForExport: true,
+              txid: requeuedAccount.txid || ''
+            }
+          });
+        }
         return res.status(200).json({
           success: true,
           message: account.accountStatus === 'APPROVED'
-            ? '이미 검증 처리된 계좌입니다. TXID 업로드 후 승인완료로 표시됩니다.'
+            ? '이미 검증 처리된 계좌입니다. PG 계약정보 등록 후 승인완료로 표시됩니다.'
             : '이미 반려 처리된 계좌입니다.',
           data: {
             accountId: account.id,
@@ -2854,13 +5126,36 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
   if (!request) {
     return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Account request was not found.');
   }
+  const requestOwner = request.franchiseId ? await repo.findUserByFranchiseId(request.franchiseId) : null;
+  const requestForApproval = { ...request, pgProviderName: requestOwner?.pgProviderName || '' };
   if (request.status !== 'PENDING') {
     const sameAction = request.status === action;
     if (sameAction) {
+      if (action === 'APPROVED' && !hasAccountApprovalCredentials(requestForApproval)) {
+        const requeued = await repo.updateAccountRequest(requestId, {
+          status: 'APPROVED',
+          assignedVirtualAccount: request.assignedVirtualAccount || assignedVirtualAccount || {
+            bankCode: request.bankCode || '',
+            bankName: request.bankName || '',
+            accountNumber: request.accountNo || '',
+            accountHolder: request.representativeName || request.franchiseName || ''
+          }
+        });
+        return res.status(200).json({
+          success: true,
+          message: '계좌를 내보내기 대기 상태로 다시 반영했습니다.',
+          data: {
+            requestId: requeued.requestId,
+            status: requeued.status,
+            requeuedForExport: true,
+            txid: requeued.txid || ''
+          }
+        });
+      }
       return res.status(200).json({
         success: true,
         message: request.status === 'APPROVED'
-          ? '이미 승인 처리된 계좌입니다. TXID 업로드 후 승인완료로 표시됩니다.'
+          ? '이미 승인 처리된 계좌입니다. PG 계약정보 등록 후 승인완료로 표시됩니다.'
           : '이미 반려 처리된 계좌입니다.',
         data: {
           requestId: request.requestId,
@@ -3233,30 +5528,74 @@ app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
   }
+  const scopedAgencyIds = agencyScopeIds(agencies, req.user.agencyId);
+  const agencyIds = Array.from(scopedAgencyIds).map(Number).filter(Number.isFinite);
+  const agencyById = new Map(agencies.map(item => [String(item.id), item]));
 
-  const [pageResult, allResult] = await Promise.all([
+  const [pageResult, allResult, franchiseUsers] = await Promise.all([
     repo.listPgSettlements({
       startDate,
       endDate,
-      agencyId: Number(req.user.agencyId),
+      agencyIds,
+      currentAgencyScope: true,
       limit: lNum,
       offset: (pNum - 1) * lNum
     }),
     repo.listPgSettlements({
       startDate,
       endDate,
-      agencyId: Number(req.user.agencyId),
+      agencyIds,
+      currentAgencyScope: true,
       limit: 5000,
       offset: 0
-    })
+    }),
+    repo.listFranchiseUsers()
   ]);
 
-  const feeRate = Number(agency.feeRate || 0);
+  const allPaymentsForSettlement = allResult.items.map(item => ({
+    id: item.id,
+    date: item.settledAt,
+    approvalNo: item.approvalNo,
+    franchiseId: item.franchiseId,
+    franchise: item.franchiseName,
+    amount: Number(item.paymentAmt || 0),
+    agencyId: item.agencyId
+  }));
+  const settlementRows = calculateAgencySettlementRows({
+    agencies,
+    franchises: franchiseUsers.map(user => ({
+      id: user.franchiseId,
+      name: user.franchiseName || user.name || '',
+      agencyId: user.agencyId
+    })),
+    payments: allPaymentsForSettlement,
+    defaultFeeRate: 4.4,
+    hqTransactionFee: 330,
+    getEffRate: item => item.feeRate || 0,
+    rowAgencyIds: [String(agency.id)],
+    sortKey: item => String(item.id).padStart(5, '0')
+  });
+  const settlementRow = settlementRows[0] || null;
+  const agencyFeeByPaymentId = new Map();
+  const agencyNetByPaymentId = new Map();
+  const shareRateByPaymentId = new Map();
+  (settlementRow?.payments || []).forEach(payment => {
+    const key = String(payment.id || '');
+    agencyFeeByPaymentId.set(key, Number(payment.agencyFee || 0));
+    agencyNetByPaymentId.set(key, Number(payment.agencyNet || 0));
+    shareRateByPaymentId.set(key, Number(payment.shareRate || 0));
+  });
+
   const mapSettlement = item => {
     const paymentAmount = Number(item.paymentAmt || 0);
     const serviceFee = Number(item.svcFee || 0);
     const netAmount = Number(item.netAmt || 0);
-    const agencyFee = Math.floor(netAmount * feeRate / 100);
+    const key = String(item.id || '');
+    const agencyFee = agencyFeeByPaymentId.get(key) || 0;
+    const agencyNet = agencyNetByPaymentId.get(key) || 0;
+    const shareRate = shareRateByPaymentId.get(key) || 0;
+    const parentAgency = agencyById.get(String(item.agencyId || '')) || agency;
+    const parentAgencyName = displayAgencyName(item.agencyName || parentAgency.name || agency.name);
     return {
       id: item.id,
       date: formatKstDateTime(item.settledAt),
@@ -3267,7 +5606,12 @@ app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res
       serviceFee,
       netAmount,
       agencyFee,
-      agencyNet: netAmount - agencyFee,
+      agencyNet,
+      shareRate,
+      agencyName: parentAgencyName,
+      parentAgencyName,
+      parentAgencyType: agencyTypeKeyForApi(parentAgency),
+      parentAgencyTypeLabel: agencyTypeLabelForApi(parentAgency),
       pg: item.pg,
       status: item.status === 'ROLLED_BACK' ? '취소' : '정상승인'
     };
@@ -3278,10 +5622,14 @@ app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res
     acc.count += 1;
     acc.paymentAmount += item.paymentAmount;
     acc.serviceFee += item.serviceFee;
-    acc.agencyFee += item.agencyFee;
-    acc.agencyNet += item.agencyNet;
     return acc;
-  }, { count: 0, paymentAmount: 0, serviceFee: 0, agencyFee: 0, agencyNet: 0 });
+  }, {
+    count: 0,
+    paymentAmount: 0,
+    serviceFee: 0,
+    agencyFee: settlementRow?.agencyFee || 0,
+    agencyNet: settlementRow?.agencyNet || 0
+  });
 
   return res.status(200).json({
     success: true,
@@ -3294,6 +5642,94 @@ app.get('/api/agency/me/settlements', authenticate, asyncHandler(async (req, res
         totalPages: Math.ceil(pageResult.totalItems / lNum) || 1,
         totalItems: pageResult.totalItems,
         limit: lNum
+      }
+    }
+  });
+}));
+
+app.get('/api/agency/me/franchises', authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role !== 'AGENCY' || !req.user.agencyId) {
+    return sendError(res, 403, 'ACCESS_DENIED', 'Agency account is required.');
+  }
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const offset = (page - 1) * limit;
+  const agencies = await repo.listAgencies();
+  const agency = agencies.find(item => Number(item.id) === Number(req.user.agencyId));
+  if (!agency) {
+    return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
+  }
+  const scopedAgencyIds = agencyScopeIds(agencies, req.user.agencyId);
+  const agencyIds = Array.from(scopedAgencyIds).map(Number).filter(Number.isFinite);
+  const agencyById = new Map(agencies.map(item => [String(item.id), item]));
+  const [users, settlements] = await Promise.all([
+    repo.listFranchiseUsers(),
+    repo.listPgSettlements({
+      startDate: '2000-01-01',
+      endDate: '2100-12-31',
+      agencyIds,
+      currentAgencyScope: true,
+      limit: 5000,
+      offset: 0
+    })
+  ]);
+
+  const latestPaymentByFranchise = new Map();
+  const totalPaymentByFranchise = new Map();
+  for (const item of settlements.items || []) {
+    const franchiseId = String(item.franchiseId || '');
+    if (!franchiseId) continue;
+    if (!latestPaymentByFranchise.has(franchiseId)) {
+      latestPaymentByFranchise.set(franchiseId, item.settledAt || '');
+    }
+    totalPaymentByFranchise.set(franchiseId, (totalPaymentByFranchise.get(franchiseId) || 0) + Number(item.paymentAmt || 0));
+  }
+
+  const scopedUsers = users
+    .filter(user => scopedAgencyIds.has(String(user.agencyId || '')))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  const statusLabel = user => (
+    user.role === 'OWNER' ? '승인완료' :
+    user.role === 'OWNER_REJECTED' ? '반려' :
+    '승인대기'
+  );
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      agency: {
+        id: agency.id,
+        name: displayAgencyName(agency.name)
+      },
+      summary: {
+        total: scopedUsers.length,
+        approved: scopedUsers.filter(user => user.role === 'OWNER').length,
+        pending: scopedUsers.filter(user => user.role === 'OWNER_PENDING').length,
+        rejected: scopedUsers.filter(user => user.role === 'OWNER_REJECTED').length
+      },
+      items: scopedUsers.slice(offset, offset + limit).map(user => {
+        const parentAgency = agencyById.get(String(user.agencyId || ''));
+        const lastPayment = latestPaymentByFranchise.get(String(user.franchiseId || ''));
+        return {
+          id: user.id,
+          franchiseId: user.franchiseId,
+          franchiseName: user.franchiseName || user.name || '',
+          ownerName: user.name || '',
+          phone: user.phone || user.tel || '',
+          parentAgencyName: displayAgencyName(user.agencyName || parentAgency?.name || agency.name),
+          statusLabel: statusLabel(user),
+          joinedAt: user.createdAt ? formatKstDate(user.createdAt) : '',
+          lastPaymentDate: lastPayment ? formatKstDate(lastPayment) : '',
+          totalPaymentAmount: totalPaymentByFranchise.get(String(user.franchiseId || '')) || 0
+        };
+      }),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(scopedUsers.length / limit) || 1,
+        totalItems: scopedUsers.length,
+        limit
       }
     }
   });
@@ -3395,10 +5831,19 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
   const userIds = users.map(user => user.id).filter(Boolean);
   const cardResult = userIds.length
     ? await pool.query(
-      `SELECT id, user_id, masked_number, card_name, card_company, alias, active, hidden, created_at
+      `SELECT cards.id, cards.user_id, cards.masked_number, cards.card_name, cards.card_company, cards.alias,
+              cards.active, cards.hidden, cards.pg_provider_id, pg_providers.name AS pg_provider_name, cards.created_at
        FROM cards
-       WHERE user_id = ANY($1::bigint[])
-       ORDER BY created_at DESC`,
+       JOIN users AS card_users ON card_users.id = cards.user_id
+       LEFT JOIN pg_providers ON pg_providers.id = cards.pg_provider_id
+       WHERE cards.user_id = ANY($1::bigint[])
+         AND COALESCE(cards.hidden, false) = false
+         AND COALESCE(cards.active, true) = true
+         AND (
+           card_users.pg_provider_id IS NULL
+           OR cards.pg_provider_id = card_users.pg_provider_id
+         )
+       ORDER BY cards.created_at DESC`,
       [userIds]
     )
     : { rows: [] };
@@ -3415,6 +5860,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
     id: tx.transactionId,
     date: formatKstDateTime(tx.createdAt),
     approvalNo: tx.transactionId,
+    paymentCode: tx.transactionId,
+    authCode: tx.authCode || '',
     franchise: '',
     franchiseId: tx.franchiseId,
     cardCompany: tx.cardDetails ? String(tx.cardDetails).split('(')[0].trim() : '',
@@ -3440,6 +5887,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       tel: user.tel || '',
       bizNo: user.businessNumber || '',
       feeRate: user.franchiseFeeRate,
+      pgProviderId: user.pgProviderId || null,
+      pgProviderName: user.pgProviderName || '',
       customerId: user.customerId || '',
       bizDocFile: user.bizDocFileKey || '',
       bizDocFileName: user.bizDocFileKey
@@ -3464,6 +5913,8 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
         alias: item.alias || '',
         active: item.active !== false,
         hidden: item.hidden === true,
+        pgProviderId: item.pg_provider_id || null,
+        pgProviderName: item.pg_provider_name || '',
         maskedNumber: item.masked_number || '',
         cardLast4: item.masked_number ? String(item.masked_number).replace(/[^0-9]/g, '').slice(-4) : '',
         createdAt: item.created_at,
@@ -3487,7 +5938,14 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   const tel = String(req.body?.tel || '').trim();
   const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
   const agencyId = req.body?.agencyId ? Number(req.body.agencyId) : null;
-  const franchiseFeeRate = req.body?.feeRate === '' || req.body?.feeRate == null ? 0 : Number(req.body.feeRate);
+  let selectedPgProvider;
+  try {
+    selectedPgProvider = await resolveAdminPgProvider(req.body?.pgProviderId);
+  } catch (err) {
+    return sendError(res, err.statusCode || 400, err.code || 'INVALID_PG_PROVIDER', err.message);
+  }
+  const hasFranchiseFeeRate = Object.prototype.hasOwnProperty.call(req.body || {}, 'feeRate');
+  const requestedFranchiseFeeRate = hasFranchiseFeeRate && req.body?.feeRate !== '' && req.body?.feeRate != null ? Number(req.body.feeRate) : null;
   const deliveryAccounts = Array.isArray(req.body?.deliveryAccounts) ? req.body.deliveryAccounts : [];
 
   if (!loginId || !password || !franchiseName || !ownerName || !businessNumber) {
@@ -3502,7 +5960,7 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
   if (businessNumber.length !== 10) {
     return sendError(res, 400, 'INVALID_BUSINESS_NUMBER', 'businessNumber must contain 10 digits.');
   }
-  if (franchiseFeeRate !== null && (!Number.isFinite(franchiseFeeRate) || franchiseFeeRate < 0 || franchiseFeeRate >= 100)) {
+  if (requestedFranchiseFeeRate !== null && (!Number.isFinite(requestedFranchiseFeeRate) || requestedFranchiseFeeRate < 0 || requestedFranchiseFeeRate >= 100)) {
     return sendError(res, 400, 'INVALID_FEE_RATE', '수수료율은 0 이상 100 미만으로 입력해 주세요.');
   }
   if (await repo.findUserByLoginId(loginId)) {
@@ -3519,6 +5977,14 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     agency: selectedAgency,
     defaultAgency
   });
+  const autoPg = selectedPgProvider ? null : await resolveSignupPgProvider({
+    agencyId: signupAttribution.agencyId,
+    joinCode: signupAttribution.signupJoinCode
+  });
+  const resolvedPgProvider = selectedPgProvider || autoPg?.provider || null;
+  const franchiseFeeRate = requestedFranchiseFeeRate === null
+    ? defaultFranchiseFeeRateForPg(resolvedPgProvider)
+    : requestedFranchiseFeeRate;
   const user = await repo.createUser({
     email: loginId,
     loginId,
@@ -3534,7 +6000,8 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     signupSource: signupAttribution.signupSource,
     signupAgencyId: signupAttribution.signupAgencyId,
     signupJoinCode: signupAttribution.signupJoinCode,
-    franchiseFeeRate
+    franchiseFeeRate,
+    pgProviderId: resolvedPgProvider?.id || null
   });
   await recordAuditLog(req, {
     action: 'FRANCHISE_CREATE',
@@ -3551,6 +6018,14 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
     const agencyName = String(account.agencyName || account.deliveryAgencyName || '').trim();
     const accountNo = String(account.accountNo || '').trim();
     if (!agencyName || !accountNo) continue;
+    const accountPg = normalizeAdminPgContractPayload({
+      providerName: resolvedPgProvider?.name || '',
+      manualTid: account.manualTid,
+      manualKey: account.manualKey,
+      recurringTid: account.recurringTid || account.txid,
+      recurringKey: account.recurringKey,
+      contracts: account.pgContracts
+    });
     const savedAccount = await repo.addDeliveryAccount({
       franchiseId: user.franchiseId,
       agencyId: null,
@@ -3560,7 +6035,20 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
       accountNo,
       fileKey: normalizeStoredFileKey(account.fileKey)
     });
-    savedDeliveryAccounts.push(savedAccount);
+    if (accountPg.legacy.manualTid || accountPg.legacy.manualKey || accountPg.legacy.recurringTid || accountPg.legacy.recurringKey || accountPg.contracts.length) {
+      const savedContracts = await repo.updateAccountApprovalPgContracts({
+        source: 'delivery_account',
+        id: savedAccount.id,
+        franchiseId: user.franchiseId,
+        legacy: accountPg.legacy,
+        contracts: accountPg.contracts
+      });
+      const refreshed = await repo.findDeliveryAccountById(savedAccount.id);
+      if (refreshed) refreshed.pgContracts = savedContracts;
+      savedDeliveryAccounts.push(refreshed || savedAccount);
+    } else {
+      savedDeliveryAccounts.push(savedAccount);
+    }
   }
 
   return res.status(201).json({
@@ -3580,6 +6068,9 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
         ? normalizedBusinessDocDisplayName(user.franchiseName, user.bizDocFileName || user.bizDocFileKey)
         : '',
       feeRate: user.franchiseFeeRate,
+      pgProviderId: user.pgProviderId || null,
+      pgProviderName: resolvedPgProvider?.name || '',
+      pgAssignmentRuleId: autoPg?.rule?.id || null,
       role: user.role,
       deliveryAgencies: savedDeliveryAccounts.map(account => ({
         id: account.id,
@@ -3593,9 +6084,10 @@ app.post('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, re
         fileName: deliveryAccountDisplayFileName(account),
         documentUrl: account.fileKey ? `/uploads/${encodeURIComponent(account.fileKey)}` : '',
         status: account.accountStatus || account.status,
-        accountStatus: deliveryAccountStatusLabel(account.accountStatus, account.txid),
+        accountStatus: deliveryAccountStatusLabel(account.accountStatus, { ...account, pgProviderName: resolvedPgProvider?.name || '' }),
         approvalStatus: account.accountStatus,
         txid: account.txid || '',
+        ...accountTidKeyDisplayFields(account),
         exportReadyAt: account.exportReadyAt || '',
         exportedAt: account.exportedAt || '',
         active: account.active !== false,
@@ -3708,7 +6200,14 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   const businessNumber = String(req.body?.bizNo || req.body?.businessNumber || '').replace(/[^0-9]/g, '');
   const tel = String(req.body?.tel || '').trim();
   const agencyId = req.body?.agencyId ? Number(req.body.agencyId) : null;
-  const franchiseFeeRate = req.body?.feeRate === '' || req.body?.feeRate == null ? 0 : Number(req.body.feeRate);
+  let selectedPgProvider;
+  try {
+    selectedPgProvider = await resolveAdminPgProvider(req.body?.pgProviderId);
+  } catch (err) {
+    return sendError(res, err.statusCode || 400, err.code || 'INVALID_PG_PROVIDER', err.message);
+  }
+  const hasFranchiseFeeRate = Object.prototype.hasOwnProperty.call(req.body || {}, 'feeRate');
+  const requestedFranchiseFeeRate = hasFranchiseFeeRate && req.body?.feeRate !== '' && req.body?.feeRate != null ? Number(req.body.feeRate) : null;
   const deliveryAccounts = Array.isArray(req.body?.deliveryAccounts) ? req.body.deliveryAccounts : [];
 
   if (!franchiseName) {
@@ -3732,7 +6231,7 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   if (agencyId && !Number.isFinite(agencyId)) {
     return sendError(res, 400, 'INVALID_AGENCY_ID', 'agencyId is invalid.');
   }
-  if (franchiseFeeRate !== null && (!Number.isFinite(franchiseFeeRate) || franchiseFeeRate < 0 || franchiseFeeRate >= 100)) {
+  if (requestedFranchiseFeeRate !== null && (!Number.isFinite(requestedFranchiseFeeRate) || requestedFranchiseFeeRate < 0 || requestedFranchiseFeeRate >= 100)) {
     return sendError(res, 400, 'INVALID_FEE_RATE', '수수료율은 0 이상 100 미만으로 입력해 주세요.');
   }
   const existingLogin = await repo.findUserByLoginId(loginId);
@@ -3766,13 +6265,21 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     loginId,
     contactEmail,
     agencyId: agencyId || null,
-    franchiseFeeRate
+    franchiseFeeRate: requestedFranchiseFeeRate === null
+      ? Number(beforeUser?.franchiseFeeRate || defaultFranchiseFeeRateForPg(selectedPgProvider))
+      : requestedFranchiseFeeRate,
+    pgProviderId: selectedPgProvider?.id || null
   });
   if (!updated) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
   }
   if (password) {
     await repo.updateUserPasswordByFranchiseId(franchiseId, await hashPassword(password));
+  }
+  const pgChanged = String(beforeUser?.pgProviderId || '') !== String(updated.pgProviderId || '');
+  let deactivatedCardCount = 0;
+  if (pgChanged) {
+    deactivatedCardCount = await repo.deactivateCardsByFranchiseId(franchiseId);
   }
   let normalizedBizDocFileName = updated.bizDocFileName || '';
   if (updated.bizDocFileKey) {
@@ -3783,19 +6290,35 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     }
   }
   const normalizedDeliveryAccounts = deliveryAccounts
-    .map(account => ({
-      id: account.id || account.accountId || null,
-      agencyName: String(account.agencyName || account.deliveryAgencyName || '').trim(),
-      bankName: String(account.bankName || '').trim(),
-      accountHolder: String(account.agencyName || account.deliveryAgencyName || '').trim(),
-      accountNo: String(account.accountNo || '').trim(),
-      fileKey: normalizeStoredFileKey(account.fileKey),
-      displayName: normalizedAccountProofDisplayName(franchiseName, account.displayName),
-      accountStatus: normalizeDeliveryAccountStatusForDb(account.accountStatus || account.status),
-      txid: String(account.txid || '').trim(),
-      hidden: account.hidden === true,
-      active: account.active !== false
-    }))
+    .map(account => {
+      const accountPg = normalizeAdminPgContractPayload({
+        providerName: selectedPgProvider?.name || '',
+        manualTid: account.manualTid,
+        manualKey: account.manualKey,
+        recurringTid: account.recurringTid || account.txid,
+        recurringKey: account.recurringKey,
+        contracts: account.pgContracts
+      });
+      const routeupExternalKeysComplete = hasRouteupExternalIntegrationKeys({ pgContracts: accountPg.contracts });
+      return {
+        id: account.id || account.accountId || null,
+        agencyName: String(account.agencyName || account.deliveryAgencyName || '').trim(),
+        bankName: String(account.bankName || '').trim(),
+        accountHolder: String(account.agencyName || account.deliveryAgencyName || '').trim(),
+        accountNo: String(account.accountNo || '').trim(),
+        fileKey: normalizeStoredFileKey(account.fileKey),
+        displayName: normalizedAccountProofDisplayName(franchiseName, account.displayName),
+        accountStatus: routeupExternalKeysComplete ? 'APPROVED' : normalizeDeliveryAccountStatusForDb(account.accountStatus || account.status),
+        txid: String(accountPg.legacy.txid || account.txid || '').trim(),
+        manualTid: accountPg.legacy.manualTid,
+        manualKey: accountPg.legacy.manualKey,
+        recurringTid: accountPg.legacy.recurringTid,
+        recurringKey: accountPg.legacy.recurringKey,
+        pgContracts: accountPg.contracts,
+        hidden: account.hidden === true,
+        active: account.active !== false
+      };
+    })
     .filter(account => account.agencyName && account.accountNo);
   for (const account of normalizedDeliveryAccounts) {
     if (account.fileKey && account.displayName) {
@@ -3814,6 +6337,13 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
   }
   if (agency) {
     afterAudit.agencyName = displayAgencyName(agency.name);
+  }
+  if (selectedPgProvider) {
+    afterAudit.pgProviderName = selectedPgProvider.name;
+  }
+  if (pgChanged) {
+    afterAudit.cardReRegistrationRequired = true;
+    afterAudit.deactivatedCardCount = deactivatedCardCount;
   }
   await recordAuditLog(req, {
     action: 'FRANCHISE_UPDATE',
@@ -3853,6 +6383,10 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
       bizDocFile: updated.bizDocFileKey || '',
       bizDocFileName: normalizedBizDocFileName,
       feeRate: updated.franchiseFeeRate,
+      pgProviderId: updated.pgProviderId || null,
+      pgProviderName: selectedPgProvider?.name || '',
+      cardReRegistrationRequired: pgChanged,
+      deactivatedCardCount,
       agencyId: updated.agencyId || null,
       agency: agency ? displayAgencyName(agency.name) : '',
       deliveryAgencies: savedDeliveryAccounts.map(account => ({
@@ -3867,9 +6401,10 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
         fileName: deliveryAccountDisplayFileName(account),
         documentUrl: account.fileKey ? `/uploads/${encodeURIComponent(account.fileKey)}` : '',
         status: account.accountStatus || account.status,
-        accountStatus: deliveryAccountStatusLabel(account.accountStatus, account.txid),
+        accountStatus: deliveryAccountStatusLabel(account.accountStatus, { ...account, pgProviderName: selectedPgProvider?.name || '' }),
         approvalStatus: account.accountStatus,
         txid: account.txid || '',
+        ...accountTidKeyDisplayFields(account, isSystemAdminUser(req.user)),
         exportReadyAt: account.exportReadyAt || '',
         exportedAt: account.exportedAt || '',
         active: account.active !== false,
@@ -3880,13 +6415,24 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
 }));
 
 app.delete('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  if (!isSystemAdminUser(req.user)) {
+    return sendError(res, 403, 'ACCESS_DENIED', '시스템 관리자만 가맹점을 DB에서 삭제할 수 있습니다.');
+  }
   const franchiseId = Number(req.params.id);
   if (!Number.isFinite(franchiseId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'franchiseId is required.');
   }
 
   const beforeUser = await repo.findUserByFranchiseId(franchiseId);
-  const deleted = await repo.deleteFranchiseById(franchiseId);
+  let deleted;
+  try {
+    deleted = await repo.deleteFranchiseById(franchiseId);
+  } catch (err) {
+    if (err?.code === 'FRANCHISE_HAS_TRANSACTIONS') {
+      return sendError(res, 409, 'FRANCHISE_HAS_TRANSACTIONS', '결제 내역이 있는 가맹점은 DB에서 삭제할 수 없습니다.');
+    }
+    throw err;
+  }
   if (!deleted) {
     return sendError(res, 404, 'FRANCHISE_NOT_FOUND', '가맹점을 찾을 수 없습니다.');
   }
@@ -3911,12 +6457,14 @@ app.delete('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (r
 }));
 
 app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (req, res) => {
-  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, transactions, settlements, installments, pgProviders, inquiries, notices, guides, faqs, legalDocuments, banners, admins, bankRows] = await Promise.all([
+  const includeSensitiveTidKeys = req.user?.role === 'ADMIN' && isSystemAdminUser(req.user);
+  const [users, agencies, deliveryAgencies, deliveryAccounts, accountRequests, accountRejectionReasons, transactions, settlements, installments, installmentPolicyMeta, pgProviders, pgAssignmentRules, inquiries, advanceInquiries, notices, guides, faqs, legalDocuments, banners, admins, talkPosts, bankRows] = await Promise.all([
     repo.listFranchiseUsers(),
     repo.listAgencies(),
     repo.listDeliveryAgencies(),
     repo.listDeliveryAccounts(),
     repo.listAccountRequests(),
+    repo.listAccountRejectionReasons(),
     repo.listTransactions({
       startDate: '2000-01-01',
       endDate: '2100-12-31',
@@ -3931,16 +6479,20 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       offset: 0
     }),
     repo.listInterestFreeInstallments(),
+    repo.getInstallmentPolicyMeta(),
     repo.listPgProviders(),
+    repo.listPgAssignmentRules(),
     repo.listAgencyInquiries(),
+    repo.listAdvanceInquiries(),
     repo.listBoardPosts('notices', { includeInactive: true }),
     repo.listBoardPosts('guides', { includeInactive: true }),
     repo.listFaqs({ includeInactive: true }),
     repo.listLegalDocuments(),
     repo.listBanners({ includeInactive: true }),
     repo.listAdminUsers(),
+    req.user.role === 'AGENCY' ? Promise.resolve({ rows: [] }) : repo.listAdminTalkPosts({ limit: 10, offset: 0 }),
     pool.query(
-      `SELECT code, name, sort_order
+      `SELECT code, name, sort_order, icon_url
        FROM financial_institutions
        WHERE active = true
        ORDER BY sort_order ASC, name ASC`
@@ -3950,10 +6502,19 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
   const adminUserIds = users.map(user => user.id).filter(Boolean);
   const adminCardRows = adminUserIds.length
     ? (await pool.query(
-      `SELECT id, user_id, masked_number, card_name, card_company, alias, active, hidden, created_at
+      `SELECT cards.id, cards.user_id, cards.masked_number, cards.card_name, cards.card_company, cards.alias,
+              cards.active, cards.hidden, cards.pg_provider_id, pg_providers.name AS pg_provider_name, cards.created_at
        FROM cards
-       WHERE user_id = ANY($1::bigint[])
-       ORDER BY created_at DESC`,
+       JOIN users AS card_users ON card_users.id = cards.user_id
+       LEFT JOIN pg_providers ON pg_providers.id = cards.pg_provider_id
+       WHERE cards.user_id = ANY($1::bigint[])
+         AND COALESCE(cards.hidden, false) = false
+         AND COALESCE(cards.active, true) = true
+         AND (
+           card_users.pg_provider_id IS NULL
+           OR cards.pg_provider_id = card_users.pg_provider_id
+         )
+       ORDER BY cards.created_at DESC`,
       [adminUserIds]
     )).rows
     : [];
@@ -3983,6 +6544,8 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       tel: user.tel || '',
       bizNo: user.businessNumber || '',
       feeRate: user.franchiseFeeRate,
+      pgProviderId: user.pgProviderId || null,
+      pgProviderName: user.pgProviderName || '',
       bizDocFile: user.bizDocFileKey || '',
       bizDocFileName: user.bizDocFileKey
         ? normalizedBusinessDocDisplayName(user.franchiseName, user.bizDocFileName || user.bizDocFileKey)
@@ -4007,6 +6570,8 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
         alias: item.alias || '',
         active: item.active !== false,
         hidden: item.hidden === true,
+        pgProviderId: item.pg_provider_id || null,
+        pgProviderName: item.pg_provider_name || '',
         maskedNumber: item.masked_number || '',
         cardLast4: item.masked_number ? String(item.masked_number).replace(/[^0-9]/g, '').slice(-4) : '',
         createdAt: item.created_at,
@@ -4039,9 +6604,10 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       normalizeAccountMergeKey(item.accountNo)
     ].join('|');
     const statusPriority = item => {
-      if (item.accountStatus === '승인완료') return 3;
-      if (item.accountStatus === '승인대기') return 2;
-      if (item.accountStatus === '반려') return 1;
+      const rawStatus = String(item.approvalStatus || item.status || '').toUpperCase();
+      if (rawStatus === 'PENDING' || item.accountStatus === '승인대기') return 4;
+      if (rawStatus === 'APPROVED' || item.accountStatus === '승인완료') return 3;
+      if (rawStatus === 'REJECTED' || item.accountStatus === '반려') return 1;
       return 0;
     };
     const existingIndex = franchise.deliveryAgencies.findIndex(item => (
@@ -4085,21 +6651,25 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
     const requestAccountNo = request.accountNo || request.assignedVirtualAccount?.accountNumber || '';
     if (!requestAccountNo) continue;
     ensureFranchiseForAccountRequest(request);
+    const franchise = franchiseMap.get(request.franchiseId) || {};
+    const accountForStatus = { ...request, pgProviderName: franchise.pgProviderName || '' };
     pushDeliveryAgency(request.franchiseId, {
       agency: request.deliveryAgencyName || bankLabel(request.bankCode),
-      bankName: request.bankName || bankLabel(request.bankCode),
+      bankName: request.bankName || bankLabel(request.bankCode || request.assignedVirtualAccount?.bankCode),
+      bankCode: request.bankCode || request.assignedVirtualAccount?.bankCode || '',
       accountNo: requestAccountNo,
       accountHolder: request.representativeName || '',
       businessNumber: request.businessNumber || '',
       fileName: request.documentOriginalName ? normalizeUploadOriginalName(request.documentOriginalName) : (request.documentUrl ? path.basename(request.documentUrl) : ''),
       documentUrl: request.documentUrl || '',
-      accountStatus: request.status === 'APPROVED' && request.txid ? '\uC2B9\uC778\uC644\uB8CC' : request.status === 'REJECTED' ? '\uBC18\uB824' : '\uC2B9\uC778\uB300\uAE30',
+      accountStatus: request.status === 'REJECTED' ? '\uBC18\uB824' : hasAccountApprovalCredentials(accountForStatus) ? '승인완료' : '\uC2B9\uC778\uB300\uAE30',
       approvalStatus: request.status,
       reqDate: formatDate(request.submittedAt),
       requestId: request.requestId,
       source: 'account_request',
       hidden: request.hidden === true,
       txid: request.txid || '',
+      ...accountTidKeyDisplayFields(request, includeSensitiveTidKeys),
       exportedAt: request.exportedAt || '',
       exportReadyAt: request.exportReadyAt || '',
       rejectReason: request.rejectionReason || ''
@@ -4107,22 +6677,26 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
   }
 
   for (const account of deliveryAccounts) {
+    const franchise = franchiseMap.get(account.franchiseId) || {};
+    const accountForStatus = { ...account, pgProviderName: franchise.pgProviderName || '' };
     pushDeliveryAgency(account.franchiseId, {
       id: account.id,
       agency: account.agencyName || account.bankName || '\uAC00\uC0C1\uACC4\uC88C',
       bankName: account.bankName || '',
+      bankCode: account.bankCode || '',
       accountNo: account.accountNo || '',
       accountHolder: account.accountHolder || '',
       fileName: deliveryAccountDisplayFileName(account),
       fileKey: account.fileKey || '',
       documentUrl: account.fileKey ? `/uploads/${encodeURIComponent(account.fileKey)}` : '',
-      accountStatus: account.accountStatus === 'APPROVED' && account.txid ? '\uC2B9\uC778\uC644\uB8CC' : account.accountStatus === 'REJECTED' ? '\uBC18\uB824' : '\uC2B9\uC778\uB300\uAE30',
+      accountStatus: account.accountStatus === 'REJECTED' ? '\uBC18\uB824' : hasAccountApprovalCredentials(accountForStatus) ? '승인완료' : '\uC2B9\uC778\uB300\uAE30',
       approvalStatus: account.accountStatus,
       reqDate: formatDate(account.reqDate),
       requestId: null,
       source: 'delivery_account',
       hidden: account.hidden === true,
       txid: account.txid || '',
+      ...accountTidKeyDisplayFields(account, includeSensitiveTidKeys),
       exportedAt: account.exportedAt || '',
       exportReadyAt: account.exportReadyAt || '',
       rejectReason: account.rejectionReason || ''
@@ -4193,6 +6767,8 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       id: tx.transactionId,
       date: formatKstDateTime(tx.createdAt),
       approvalNo: tx.transactionId,
+      paymentCode: tx.transactionId,
+      authCode: tx.authCode || '',
       agency: agencyName,
       franchise: franchise?.name || `가맹점 ${tx.franchiseId}`,
       franchiseId: tx.franchiseId,
@@ -4211,62 +6787,6 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       agencyId
     };
   });
-  const normalizeAccountKey = value => String(value || '').replace(/[^0-9A-Za-z]/g, '');
-  const bankLabelByName = bankCode => {
-    const normalized = String(bankCode || '').replace(/[^0-9]/g, '');
-    const labels = {
-      '003': '기업은행',
-      '004': '국민은행',
-      '011': '농협은행',
-      '020': '우리은행',
-      '081': '하나은행',
-      '088': '신한은행'
-    };
-    return labels[normalized] || bankCode || '';
-  };
-  const latestSettlementAccountByFranchise = new Map();
-  for (const settlement of settlementItems) {
-    const franchiseId = String(settlement.franchiseId || '');
-    const accountNo = String(settlement.accountNo || '').trim();
-    if (!franchiseId || !accountNo) continue;
-    const current = latestSettlementAccountByFranchise.get(franchiseId);
-    const currentDate = current?.settledAt || '';
-    const nextDate = settlement.settledAt || '';
-    if (!current || String(nextDate).localeCompare(String(currentDate)) >= 0) {
-      latestSettlementAccountByFranchise.set(franchiseId, settlement);
-    }
-  }
-  for (const franchise of franchises) {
-    const settlement = latestSettlementAccountByFranchise.get(String(franchise.id || ''));
-    if (!settlement) continue;
-    if (!Array.isArray(franchise.deliveryAgencies)) franchise.deliveryAgencies = [];
-    const settlementAccountKey = normalizeAccountKey(settlement.accountNo);
-    if (!settlementAccountKey) continue;
-    const exists = franchise.deliveryAgencies.some(account => (
-      normalizeAccountKey(account.accountNo) === settlementAccountKey
-    ));
-    if (exists) continue;
-    franchise.deliveryAgencies.push({
-      id: `settlement:${settlement.id || settlement.approvalNo || settlementAccountKey}`,
-      agency: settlement.deliveryAgency || settlement.agencyName || '배달대행사',
-      bankName: bankLabelByName(settlement.bankCode),
-      bankCode: settlement.bankCode || '',
-      accountNo: settlement.accountNo,
-      accountHolder: franchise.owner || '',
-      fileName: '',
-      documentUrl: '',
-      accountStatus: '승인완료',
-      reqDate: settlement.settledAt ? formatDate(settlement.settledAt) : '',
-      requestId: null,
-      source: 'pg_settlement',
-      hidden: false,
-      txid: settlement.pgTxId || '',
-      exportedAt: '',
-      exportReadyAt: '',
-      rejectReason: '',
-      readonly: true
-    });
-  }
   franchises = franchises.map((franchise, index) => enrichAdminFranchiseDisplay(franchise, index, paymentRows));
 
   const paymentNameByFranchiseId = new Map(franchises.map(f => [f.id, f.name]));
@@ -4277,13 +6797,16 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
   const paymentDateByApprovalNo = new Map(paymentRows.map(row => [String(row.approvalNo || ''), row.date]).filter(([approvalNo, date]) => approvalNo && date));
   const pgRows = settlementItems.map(item => {
     const fallbackAgency = paymentAgencyByFranchiseId.get(String(item.franchiseId || '')) || {};
+    const paymentDate = paymentDateByApprovalNo.get(String(item.approvalNo || '')) || formatKstDateTime(item.paymentDate);
+    const settlementDate = item.settledAt ? formatKstDateTime(item.settledAt) : '';
     return {
       id: item.id,
-      date: paymentDateByApprovalNo.get(String(item.approvalNo || '')) || formatKstDateTime(item.settledAt),
-      paymentDate: paymentDateByApprovalNo.get(String(item.approvalNo || '')) || formatKstDateTime(item.settledAt),
-      settlementDate: formatKstDateTime(item.settledAt),
-      settledAt: formatKstDateTime(item.settledAt),
+      date: paymentDate,
+      paymentDate,
+      settlementDate,
+      settledAt: settlementDate,
       approvalNo: item.approvalNo,
+      authCode: item.authCode || '',
       franchiseId: item.franchiseId || null,
       pg: item.pg,
       franchise: item.franchiseName || paymentNameByFranchiseId.get(item.franchiseId) || '',
@@ -4291,13 +6814,15 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       svcFee: Number(item.svcFee),
       netAmt: Number(item.netAmt),
       deliveryAgency: item.deliveryAgency || '',
-      status: item.status === 'ROLLED_BACK' ? '\uB864\uBC31' : '\uC815\uC0C1\uC2B9\uC778',
+      status: item.status || '',
       note: '',
       agencyId: item.agencyId || fallbackAgency.id || null,
       agency: item.agencyName || fallbackAgency.name || '',
       customerId: item.customerId || '',
       bankCode: item.bankCode || '',
+      depositBankName: item.depositBankName || '',
       accountNo: item.accountNo || '',
+      accountHolder: item.accountHolder || '',
       pgTxId: item.pgTxId || ''
     };
   });
@@ -4334,7 +6859,7 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
     data: {
       summary: {
         pendingFranchises: scopedFranchises.filter(franchise => franchise.role === 'OWNER_PENDING').length,
-        pendingAccounts: scopedAccountRequests.filter(request => request.status === 'PENDING').length,
+        pendingAccounts: scopedAccountRequests.filter(request => request.status === 'PENDING').length + scopedDeliveryAccounts.filter(account => account.accountStatus === 'PENDING').length,
       totalFranchises: scopedFranchises.length,
       todayPaymentTotal
     },
@@ -4344,19 +6869,25 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       name: displayAgencyName(agency.name)
     })),
     deliveryAgencies,
+    accountRejectionReasons: accountRejectionReasons,
     installments,
+    installmentPolicyMeta,
     pgProviders,
+    pgAssignmentRules,
     inquiries,
+    advanceInquiries: isAgencyViewer ? [] : advanceInquiries,
     notices,
     guides,
     faqs,
     legalDocuments,
     banners,
+    talkPosts: Array.isArray(talkPosts) ? talkPosts : (talkPosts.rows || []),
     admins: isAgencyViewer ? [] : admins.map(serializeAdminUser),
     banks: bankRows.rows.map(row => ({
       code: row.code,
       name: row.name,
-      sortOrder: row.sort_order
+      sortOrder: row.sort_order,
+      iconUrl: row.icon_url || ''
     })),
     customRoles: ADMIN_ROLE_LIST,
     payments: scopedPayments,
@@ -4377,6 +6908,570 @@ app.get('/api/admin/audit-logs', authenticateAdmin, asyncHandler(async (req, res
   return res.status(200).json({
     success: true,
     data: logs.map(serializeAuditLog)
+  });
+}));
+
+
+app.post('/api/admin/avicx/session', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const sessionId = await touchAvicxSession(req, req.body?.sessionId || req.query?.sessionId);
+  return res.status(200).json({ success: true, data: { sessionId } });
+}));
+
+app.get('/api/admin/avicx/history', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const sessionId = await touchAvicxSession(req, req.query.sessionId);
+  const limit = avicxLimit(req.query.limit, 50, 100);
+  const rows = await pool.query(
+    `SELECT id, command, status, output, created_at
+     FROM admin_console_commands
+     WHERE session_id = $1
+     ORDER BY id DESC
+     LIMIT $2`,
+    [sessionId, limit]
+  );
+  return res.status(200).json({
+    success: true,
+    data: {
+      sessionId,
+      rows: rows.rows.reverse().map(row => ({
+        id: row.id,
+        command: row.command,
+        status: row.status,
+        output: row.output || {},
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+      }))
+    }
+  });
+}));
+
+app.post('/api/admin/avicx/execute', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const sessionId = await touchAvicxSession(req, req.body?.sessionId);
+  const command = String(req.body?.command || '').trim();
+  let output;
+  let status = 'ok';
+  try {
+    output = await executeAvicxCommand(req, command);
+    status = output?.tone === 'warn' ? 'warn' : 'ok';
+  } catch (error) {
+    status = 'error';
+    output = avicxLines([error?.message || 'AVICX command failed.'], 'error');
+  }
+  if (command && output?.type !== 'clear') await recordAvicxCommand(sessionId, req, command, status, output);
+  return res.status(200).json({ success: true, data: { sessionId, command, status, output, createdAt: new Date().toISOString() } });
+}));
+
+app.get('/api/admin/pg-notifications', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const rows = await repo.listPgNotifications({
+    limit: req.query.limit,
+    provider: req.query.provider
+  });
+  return res.status(200).json({
+    success: true,
+    data: rows
+  });
+}));
+
+app.get('/api/admin/deposit-notifications', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const rows = await repo.listDepositNotifications({
+    limit: req.query.limit
+  });
+  return res.status(200).json({
+    success: true,
+    data: rows
+  });
+}));
+
+async function createRouteupLoginSession() {
+  if (!ROUTEUP_UID || !ROUTEUP_PW) {
+    const err = new Error('ROUTEUP_CREDENTIALS_MISSING');
+    err.statusCode = 503;
+    throw err;
+  }
+  const response = await fetch(`${ROUTEUP_BASE_URL}/api/v1/auth/sign-in`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0'
+    },
+    body: JSON.stringify({ user_name: ROUTEUP_UID, user_pw: ROUTEUP_PW, token: '' })
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) {}
+  if (!response.ok || !data?.access_token) {
+    const err = new Error(data?.message || data?.error?.message || 'ROUTEUP_LOGIN_FAILED');
+    err.statusCode = response.status || 502;
+    err.code = 'ROUTEUP_LOGIN_FAILED';
+    err.details = [{ status: response.status, body: data || text }];
+    throw err;
+  }
+  const tokenExpireTime = response.headers.get('token-expire-time') || '';
+  const parsedExpiresAt = Date.parse(tokenExpireTime);
+  const session = {
+    accessToken: String(data.access_token || ''),
+    user: data.user || {},
+    tokenExpireTime,
+    expiresAt: Number.isFinite(parsedExpiresAt) ? parsedExpiresAt : Date.now() + (8 * 60 * 1000)
+  };
+  routeupSessionCache = session;
+  return session;
+}
+
+function routeupLoginErrorMessage(err) {
+  const upstreamStatus = Number(err?.details?.[0]?.status || 0);
+  if (upstreamStatus === 403) {
+    return '루트업 로그인 요청이 403으로 차단되었습니다. 루트업 연동 IP 관리에 운영 서버 IP가 허용되어 있는지 확인해 주세요.';
+  }
+  if (upstreamStatus === 401) {
+    return '루트업 로그인 정보가 올바르지 않습니다. 아이디와 비밀번호를 확인해 주세요.';
+  }
+  const rawMessage = String(err?.message || '').trim();
+  if (rawMessage && rawMessage !== 'ROUTEUP_LOGIN_FAILED') {
+    return rawMessage;
+  }
+  return '루트업 로그인에 실패했습니다. 루트업 계정 정보와 연동 IP 허용 상태를 확인해 주세요.';
+}
+
+function routeupLoginHttpStatus(err) {
+  const statusCode = Number(err?.statusCode || 0);
+  if (statusCode >= 500) return statusCode;
+  return 502;
+}
+
+function sendRouteupLoginError(res, err) {
+  const upstreamStatus = Number(err?.details?.[0]?.status || 0);
+  return sendError(
+    res,
+    routeupLoginHttpStatus(err),
+    'ROUTEUP_LOGIN_FAILED',
+    routeupLoginErrorMessage(err),
+    [{ upstreamStatus: upstreamStatus || null, cause: 'ROUTEUP_LOGIN_FAILED' }]
+  );
+}
+
+async function getRouteupLoginSession(options = {}) {
+  const force = options.force === true;
+  if (!force && routeupSessionCache?.accessToken && Number(routeupSessionCache.expiresAt || 0) > Date.now() + 30000) {
+    return routeupSessionCache;
+  }
+  return createRouteupLoginSession();
+}
+
+async function routeupManagerRequest(pathSegment, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const targetPath = String(pathSegment || '').replace(/^\/+/, '');
+  const targetUrl = new URL(`${ROUTEUP_BASE_URL}/api/v1/manager/${targetPath}`);
+  for (const [key, value] of Object.entries(options.query || {})) {
+    if (Array.isArray(value)) value.forEach(item => targetUrl.searchParams.append(key, item));
+    else if (value !== undefined && value !== null) targetUrl.searchParams.set(key, value);
+  }
+  const session = await getRouteupLoginSession({ force: options.forceSession === true });
+  const authCandidates = Array.from(new Set([
+    `Bearer ${session.accessToken}`,
+    session.accessToken
+  ].filter(Boolean)));
+  let lastFailure = null;
+  for (const authorization of authCandidates) {
+    const headers = {
+      Accept: 'application/json',
+      'User-Agent': 'Mozilla/5.0',
+      Referer: `${ROUTEUP_BASE_URL}/build/merchandises/batch`,
+      Authorization: authorization
+    };
+    let body;
+    if (!['GET', 'HEAD'].includes(method)) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(options.body ?? {});
+    }
+    const response = await fetch(targetUrl, {
+      method,
+      headers,
+      body,
+      redirect: 'manual'
+    });
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) {}
+    if (response.ok) return { status: response.status, data, text };
+    lastFailure = { status: response.status, data, text };
+    if (![401, 403].includes(response.status)) break;
+  }
+  if (!options.forceSession && [401, 403].includes(Number(lastFailure?.status || 0))) {
+    routeupSessionCache = null;
+    return routeupManagerRequest(pathSegment, { ...options, forceSession: true });
+  }
+  const message = lastFailure?.data?.message
+    || lastFailure?.data?.error?.message
+    || lastFailure?.text
+    || '루트업 API 요청에 실패했습니다.';
+  const err = new Error(message);
+  err.statusCode = lastFailure?.status && lastFailure.status < 500 ? 502 : (lastFailure?.status || 502);
+  err.code = 'ROUTEUP_API_ERROR';
+  err.details = [{ path: targetPath, status: lastFailure?.status || 0, body: lastFailure?.data || lastFailure?.text || '' }];
+  throw err;
+}
+
+function rewriteRouteupJs(js) {
+  return String(js || '')
+    .replace(/(["'`])\/api\/v1\//g, '$1/api/admin/routeup/api/v1/')
+    .replace(/(["'`])\/build\//g, '$1/api/admin/routeup/proxy/build/')
+    .replace(/function\(e\)\{return"\/build\/"\+e\}/g, 'function(e){return"/api/admin/routeup/proxy/build/"+e}');
+}
+
+function rewriteRouteupHtml(html, currentPath = '') {
+  return String(html || '')
+    .replace(/\b(href|src)=["']\/build\/([^"']+)["']/gi, '$1="/api/admin/routeup/proxy/build/$2"')
+    .replace(/\b(href|src)=["']\/loader\.css["']/gi, '$1="/api/admin/routeup/proxy/loader.css"')
+    .replace(/<head([^>]*)>/i, '<head$1><base href="/api/admin/routeup/proxy/build/">');
+}
+
+app.get('/api/admin/routeup/start-token', authenticateAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+  if (!ROUTEUP_UID || !ROUTEUP_PW) {
+    return sendError(res, 503, 'ROUTEUP_CREDENTIALS_MISSING', '루트업 자동 로그인 정보가 설정되어 있지 않습니다.');
+  }
+  const token = issueRouteupStartToken(req);
+  return res.status(200).json({
+    success: true,
+    data: { url: `/api/admin/routeup/start/${encodeURIComponent(token)}` }
+  });
+}));
+
+app.get('/api/admin/routeup/start/:token', asyncHandler(async (req, res) => {
+  const entry = consumeRouteupStartToken(req.params.token);
+  if (!entry) {
+    return sendError(res, 401, 'UNAUTHORIZED', '루트업 시작 링크가 만료되었습니다.');
+  }
+  let session;
+  try {
+    session = await createRouteupLoginSession();
+  } catch (err) {
+    if (err?.code === 'ROUTEUP_LOGIN_FAILED') return sendRouteupLoginError(res, err);
+    throw err;
+  }
+  issueRouteupProxyToken(req, res, entry.adminId);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  return res.send(`<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>루트업 결제내역 자동 로그인</title>
+<style>
+body{margin:0;font-family:Pretendard,Apple SD Gothic Neo,Noto Sans KR,system-ui,sans-serif;background:linear-gradient(135deg,#07140e 0%,#10351f 54%,#04110b 100%);color:#ecfff3;display:grid;place-items:center;min-height:100vh}
+.box{width:min(460px,calc(100vw - 36px));background:rgba(7,20,14,.84);border:1px solid rgba(3,199,90,.32);border-radius:16px;padding:28px;box-shadow:0 22px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.08)}
+.eyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;color:#65ff9f;margin-bottom:12px}.title{font-size:22px;font-weight:900;margin-bottom:8px}.msg{font-size:13px;color:#c6f6d5;line-height:1.65}.bar{height:9px;background:rgba(255,255,255,.1);border:1px solid rgba(3,199,90,.28);border-radius:999px;margin-top:22px;overflow:hidden}.bar span{display:block;height:100%;width:38%;background:linear-gradient(90deg,#03c75a,#8cffb7,#03c75a);border-radius:999px;box-shadow:0 0 24px rgba(3,199,90,.65);animation:load 1.05s ease-in-out infinite}@keyframes load{0%{transform:translateX(-110%)}100%{transform:translateX(270%)}}
+</style>
+</head>
+<body>
+<div class="box"><div class="eyebrow">ROUTEUP</div><div class="title">결제내역 로그인 중</div><div class="msg">루트업 보안 세션을 준비하고 있습니다.<br>잠시 후 결제 상세조회 화면으로 이동합니다.</div><div class="bar"><span></span></div></div>
+<script>
+localStorage.setItem('access-token', ${JSON.stringify(session.accessToken)});
+localStorage.setItem('user_info', ${JSON.stringify(JSON.stringify(session.user || {}))});
+localStorage.setItem('token-expire-time', ${JSON.stringify(session.tokenExpireTime || '')});
+setTimeout(function(){ location.replace('/api/admin/routeup/proxy/build/transactions'); }, 850);
+</script>
+</body>
+</html>`);
+}));
+
+app.all('/api/admin/routeup/api/v1/*', asyncHandler(async (req, res) => {
+  if (!hasValidRouteupProxyToken(req)) {
+    return sendError(res, 401, 'UNAUTHORIZED', '루트업 자동 로그인 세션이 만료되었습니다.');
+  }
+  const targetUrl = new URL(`${ROUTEUP_BASE_URL}/api/v1/${String(req.params[0] || '').replace(/^\/+/, '')}`);
+  for (const [key, value] of Object.entries(req.query || {})) {
+    if (Array.isArray(value)) value.forEach(item => targetUrl.searchParams.append(key, item));
+    else if (value !== undefined) targetUrl.searchParams.set(key, value);
+  }
+  const headers = {
+    'Accept': req.headers.accept || 'application/json',
+    'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+    'Referer': `${ROUTEUP_BASE_URL}/build/transactions`
+  };
+  if (req.headers.authorization) headers.Authorization = req.headers.authorization;
+  let body;
+  if (!['GET', 'HEAD'].includes(req.method.toUpperCase())) {
+    const contentType = String(req.headers['content-type'] || 'application/json');
+    headers['Content-Type'] = contentType;
+    body = contentType.includes('application/json') ? JSON.stringify(req.body || {}) : new URLSearchParams(req.body || {}).toString();
+  }
+  const upstream = await fetch(targetUrl, { method: req.method, headers, body, redirect: 'manual' });
+  const buffer = Buffer.from(await upstream.arrayBuffer());
+  res.status(upstream.status);
+  const contentType = upstream.headers.get('content-type');
+  if (contentType) res.setHeader('Content-Type', contentType);
+  const tokenExpireTime = upstream.headers.get('token-expire-time');
+  if (tokenExpireTime) res.setHeader('token-expire-time', tokenExpireTime);
+  return res.send(buffer);
+}));
+
+app.all('/api/admin/routeup/proxy/*', asyncHandler(async (req, res) => {
+  if (!hasValidRouteupProxyToken(req)) {
+    return sendError(res, 401, 'UNAUTHORIZED', '루트업 자동 로그인 세션이 만료되었습니다.');
+  }
+  const rawPath = String(req.params[0] || 'build/transactions').replace(/^\/+/, '') || 'build/transactions';
+  const targetUrl = new URL(`${ROUTEUP_BASE_URL}/${rawPath}`);
+  for (const [key, value] of Object.entries(req.query || {})) {
+    if (Array.isArray(value)) value.forEach(item => targetUrl.searchParams.append(key, item));
+    else if (value !== undefined) targetUrl.searchParams.set(key, value);
+  }
+  const upstream = await fetch(targetUrl, {
+    method: req.method,
+    headers: {
+      'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+      'Referer': `${ROUTEUP_BASE_URL}/build/transactions`
+    },
+    redirect: 'manual'
+  });
+  const contentType = upstream.headers.get('content-type') || '';
+  const buffer = Buffer.from(await upstream.arrayBuffer());
+  res.status(upstream.status);
+  if (contentType.includes('text/html')) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(rewriteRouteupHtml(buffer.toString('utf8'), rawPath));
+  }
+  if (contentType.includes('javascript') || /\.js$/i.test(rawPath)) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    return res.send(rewriteRouteupJs(buffer.toString('utf8')));
+  }
+  if (contentType) res.setHeader('Content-Type', contentType);
+  return res.send(buffer);
+}));
+
+app.get('/api/admin/ch-payway/autologin', authenticateAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+  if (!CH_PAYWAY_UID || !CH_PAYWAY_PW) {
+    return sendError(res, 503, 'CH_PAYWAY_CREDENTIALS_MISSING', 'CH 결제내역 자동 로그인 정보가 설정되어 있지 않습니다.');
+  }
+  issueChPaywayProxyToken(req, res);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  return res.send(`<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CH 결제내역 자동 로그인</title>
+<style>
+body{margin:0;font-family:Pretendard,Apple SD Gothic Neo,Noto Sans KR,system-ui,sans-serif;background:#f4faf4;color:#102010;display:grid;place-items:center;min-height:100vh}
+.box{width:min(420px,calc(100vw - 32px));background:#fff;border:1px solid #d1e8d1;border-radius:10px;padding:24px;box-shadow:0 12px 30px rgba(0,0,0,.08)}
+.title{font-size:18px;font-weight:900;margin-bottom:8px}.msg{font-size:13px;color:#4b5563;line-height:1.6}.bar{height:6px;background:#e8f6e8;border-radius:999px;margin-top:18px;overflow:hidden}.bar span{display:block;height:100%;width:45%;background:#03c75a;border-radius:999px;animation:load 1.2s ease-in-out infinite}@keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
+</style>
+</head>
+<body>
+<div class="box"><div class="title">CH 결제내역 로그인 중</div><div class="msg">PAYWAY 세션을 준비한 뒤 결제내역 화면으로 이동합니다.</div><div class="bar"><span></span></div></div>
+<script>
+setTimeout(function(){ location.replace('/api/admin/ch-payway/proxy/home'); }, 120);
+</script>
+</body>
+</html>`);
+}));
+
+app.get('/api/admin/ch-payway/start-token', authenticateAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+  if (!CH_PAYWAY_UID || !CH_PAYWAY_PW) {
+    return sendError(res, 503, 'CH_PAYWAY_CREDENTIALS_MISSING', 'CH 결제내역 자동 로그인 정보가 설정되어 있지 않습니다.');
+  }
+  const token = issueChPaywayStartToken(req);
+  return res.status(200).json({
+    success: true,
+    data: { url: `/api/admin/ch-payway/start/${encodeURIComponent(token)}` }
+  });
+}));
+
+app.get('/api/admin/ch-payway/start/:token', asyncHandler(async (req, res) => {
+  const entry = consumeChPaywayStartToken(req.params.token);
+  if (!entry) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'CH 결제내역 시작 링크가 만료되었습니다.');
+  }
+  issueChPaywayProxyToken(req, res, entry.adminId);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  return res.send(`<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CH 결제내역 자동 로그인</title>
+<style>
+body{margin:0;font-family:Pretendard,Apple SD Gothic Neo,Noto Sans KR,system-ui,sans-serif;background:linear-gradient(135deg,#07140e 0%,#10351f 54%,#04110b 100%);color:#ecfff3;display:grid;place-items:center;min-height:100vh;overflow:hidden}
+body:before{content:"";position:fixed;inset:auto -20% -35% -20%;height:70%;background:radial-gradient(circle at 50% 30%,rgba(3,199,90,.22),transparent 62%);filter:blur(18px)}
+.box{position:relative;width:min(460px,calc(100vw - 36px));background:rgba(7,20,14,.82);border:1px solid rgba(3,199,90,.32);border-radius:16px;padding:28px;box-shadow:0 22px 70px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(10px)}
+.eyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;color:#65ff9f;margin-bottom:12px}.title{font-size:22px;font-weight:900;margin-bottom:8px}.msg{font-size:13px;color:#c6f6d5;line-height:1.65}.bar{height:9px;background:rgba(255,255,255,.1);border:1px solid rgba(3,199,90,.28);border-radius:999px;margin-top:22px;overflow:hidden}.bar span{display:block;height:100%;width:38%;background:linear-gradient(90deg,#03c75a,#8cffb7,#03c75a);border-radius:999px;box-shadow:0 0 24px rgba(3,199,90,.65);animation:load 1.05s ease-in-out infinite}.steps{display:flex;gap:8px;margin-top:16px}.dot{width:7px;height:7px;border-radius:50%;background:#03c75a;opacity:.4;animation:pulse 1.05s ease-in-out infinite}.dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}@keyframes load{0%{transform:translateX(-110%)}100%{transform:translateX(270%)}}@keyframes pulse{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+</style>
+</head>
+<body>
+<div class="box"><div class="eyebrow">CH PAYWAY</div><div class="title">결제내역 로그인 중</div><div class="msg">보안 세션을 준비하고 있습니다.<br>잠시 후 CH 결제내역 화면으로 이동합니다.</div><div class="bar"><span></span></div><div class="steps"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
+<script>
+setTimeout(function(){ location.replace('/api/admin/ch-payway/proxy/home'); }, 850);
+</script>
+</body>
+</html>`);
+}));
+
+async function ensureChPaywaySession() {
+  if (!CH_PAYWAY_UID || !CH_PAYWAY_PW) {
+    const err = new Error('CH_PAYWAY_CREDENTIALS_MISSING');
+    err.statusCode = 503;
+    throw err;
+  }
+  const body = new URLSearchParams({
+    cmd: 'LOGIN',
+    jData: JSON.stringify({ uid: CH_PAYWAY_UID, pw: CH_PAYWAY_PW }),
+    rtnType: 'scalar'
+  });
+  const response = await fetch(`${CH_PAYWAY_BASE_URL}/ajax.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body
+  });
+  const setCookie = response.headers.get('set-cookie') || '';
+  if (setCookie) chPaywayCookieHeader = setCookie.split(';')[0];
+  const text = await response.text();
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (_) {}
+  if (!response.ok || parsed?.res !== 'OK' || !chPaywayCookieHeader) {
+    const err = new Error('CH_PAYWAY_LOGIN_FAILED');
+    err.statusCode = 502;
+    throw err;
+  }
+}
+
+function chPaywayProxyUrl(value, currentPath = 'home') {
+  const raw = String(value || '').trim();
+  if (!raw || /^(#|javascript:|mailto:|tel:|data:)/i.test(raw)) return raw;
+  if (raw.startsWith('/api/admin/ch-payway/proxy/')) return raw;
+  if (raw.startsWith('api/admin/ch-payway/proxy/')) return `/${raw}`;
+  if (/^https?:\/\//i.test(raw) && !raw.toLowerCase().startsWith(`${CH_PAYWAY_BASE_URL}/`)) return raw;
+  const base = new URL(`${CH_PAYWAY_BASE_URL}/${String(currentPath || 'home').replace(/^\/+/, '')}`);
+  const target = raw.toLowerCase().startsWith(`${CH_PAYWAY_BASE_URL}/`)
+    ? new URL(raw)
+    : new URL(raw, base);
+  if (target.origin !== CH_PAYWAY_BASE_URL) return raw;
+  return `/api/admin/ch-payway/proxy/${target.pathname.replace(/^\/+/, '')}${target.search}${target.hash}`;
+}
+
+function rewriteChPaywayCss(css, currentPath = '') {
+  return String(css || '').replace(/url\((["']?)([^)"']+)\1\)/gi, (match, quote, urlValue) => {
+    return `url("${chPaywayProxyUrl(urlValue, currentPath)}")`;
+  });
+}
+
+function rewriteChPaywayHtml(html, currentPath = 'home') {
+  const proxyBase = '/api/admin/ch-payway/proxy/';
+  let output = String(html || '')
+    .replace(/<(head)([^>]*)>/i, `<$1$2><base href="${proxyBase}">`)
+    .replace(/\b(href|src|action)=["']([^"']+)["']/gi, (match, attr, urlValue) => {
+      return `${attr}="${chPaywayProxyUrl(urlValue, currentPath)}"`;
+    })
+    .replace(/url\((["']?)([^)"']+)\1\)/gi, (match, quote, urlValue) => {
+      return `url("${chPaywayProxyUrl(urlValue, currentPath)}")`;
+    });
+  output = output.replace(/location\.href\s*=\s*["']([^"']+)["']/gi, (match, urlValue) => {
+    return `location.href="${chPaywayProxyUrl(urlValue, currentPath)}"`;
+  });
+  output = output.replace(/location\.replace\(["']([^"']+)["']\)/gi, (match, urlValue) => {
+    return `location.replace("${chPaywayProxyUrl(urlValue, currentPath)}")`;
+  });
+  return output;
+}
+
+app.all('/api/admin/ch-payway/proxy/*', asyncHandler(async (req, res) => {
+  let rawPath = String(req.params[0] || 'home').replace(/^\/+/, '') || 'home';
+  const nestedProxyPrefix = 'api/admin/ch-payway/proxy/';
+  while (rawPath.startsWith(nestedProxyPrefix)) rawPath = rawPath.slice(nestedProxyPrefix.length) || 'home';
+  const isStaticAsset = /^(css|js|img|images|image|font|fonts|assets|upload|uploads)\//i.test(rawPath)
+    || /\.(css|js|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|map)$/i.test(rawPath);
+  if (!isStaticAsset && !hasValidChPaywayProxyToken(req)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'CH 결제내역 자동 로그인 세션이 만료되었습니다.');
+  }
+  if (!isStaticAsset) await ensureChPaywaySession();
+  const targetUrl = new URL(`${CH_PAYWAY_BASE_URL}/${rawPath}`);
+  for (const [key, value] of Object.entries(req.query || {})) {
+    if (Array.isArray(value)) value.forEach(item => targetUrl.searchParams.append(key, item));
+    else if (value !== undefined) targetUrl.searchParams.set(key, value);
+  }
+  const headers = {
+    'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+    Referer: `${CH_PAYWAY_BASE_URL}/home`
+  };
+  if (chPaywayCookieHeader && !isStaticAsset) headers.Cookie = chPaywayCookieHeader;
+  let body;
+  if (!['GET', 'HEAD'].includes(req.method.toUpperCase())) {
+    const contentType = String(req.headers['content-type'] || '');
+    if (contentType.includes('application/json')) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(req.body || {});
+    } else {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+      body = new URLSearchParams(req.body || {}).toString();
+    }
+  }
+  const upstream = await fetch(targetUrl, {
+    method: req.method,
+    headers,
+    body,
+    redirect: 'manual'
+  });
+  const setCookie = upstream.headers.get('set-cookie') || '';
+  if (setCookie) chPaywayCookieHeader = setCookie.split(';')[0];
+  const location = upstream.headers.get('location');
+  if (location && upstream.status >= 300 && upstream.status < 400) {
+    const nextUrl = location.startsWith('http') ? new URL(location) : new URL(location, CH_PAYWAY_BASE_URL);
+    return res.redirect(`/api/admin/ch-payway/proxy/${nextUrl.pathname.replace(/^\/+/, '')}${nextUrl.search}`);
+  }
+  const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+  res.status(upstream.status);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', contentType);
+  if (contentType.includes('text/html')) {
+    return res.send(rewriteChPaywayHtml(await upstream.text(), rawPath));
+  }
+  if (contentType.includes('text/css')) {
+    return res.send(rewriteChPaywayCss(await upstream.text(), rawPath));
+  }
+  const arrayBuffer = await upstream.arrayBuffer();
+  return res.send(Buffer.from(arrayBuffer));
+}));
+
+app.get('/api/admin/audit-notification-preferences', authenticateAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const rows = await repo.listAuditNotificationPreferences(req.user.id);
+  const byCategory = new Map(rows.map(row => [row.category, row]));
+  return res.status(200).json({
+    success: true,
+    data: AUDIT_NOTIFICATION_CATEGORIES.map(category => {
+      const saved = byCategory.get(category.key);
+      return {
+        ...category,
+        enabled: saved ? saved.enabled !== false : true,
+        updatedAt: saved?.updatedAt || null
+      };
+    })
+  });
+}));
+
+app.put('/api/admin/audit-notification-preferences/:category', authenticateAdmin, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const category = normalizeAuditNotificationCategory(req.params.category);
+  if (!category) {
+    return sendError(res, 400, 'INVALID_AUDIT_CATEGORY', '변경 알림 카테고리가 올바르지 않습니다.');
+  }
+  const enabled = req.body?.enabled !== false;
+  const saved = await repo.setAuditNotificationPreference(req.user.id, category, enabled);
+  await recordAuditLog(req, {
+    action: 'AUDIT_NOTIFICATION_PREFERENCE_UPDATE',
+    entityType: 'audit_notification_preference',
+    entityId: `${req.user.id}:${category}`,
+    entityName: AUDIT_NOTIFICATION_CATEGORIES.find(item => item.key === category)?.label || category,
+    beforeData: {},
+    afterData: { category, enabled },
+    changedFields: ['enabled'],
+    force: true
+  });
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...saved,
+      label: AUDIT_NOTIFICATION_CATEGORIES.find(item => item.key === category)?.label || category
+    }
   });
 }));
 
@@ -4567,26 +7662,43 @@ app.get('/api/admin/delivery-agencies', authenticateAdmin, asyncHandler(async (r
 }));
 
 app.get('/api/admin/installments', authenticateAdmin, asyncHandler(async (req, res) => {
-  const installments = await repo.listInterestFreeInstallments({ policyMonth: req.query.policyMonth });
-  return res.status(200).json({ success: true, data: installments });
+  const [installments, meta] = await Promise.all([
+    repo.listInterestFreeInstallments({ policyMonth: req.query.policyMonth }),
+    repo.getInstallmentPolicyMeta({ policyMonth: req.query.policyMonth })
+  ]);
+  return res.status(200).json({ success: true, data: installments, meta });
 }));
 
 app.put('/api/admin/installments', authenticateAdmin, asyncHandler(async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
-  if (!items.length) {
-    return sendError(res, 400, 'BAD_REQUEST', 'items are required.');
-  }
-
-  const saved = await repo.replaceInterestFreeInstallments(items, { policyMonth: req.body?.policyMonth });
-  return res.status(200).json({ success: true, data: saved });
+  const policyMonth = req.body?.policyMonth;
+  const saved = await repo.replaceInterestFreeInstallments(items, { policyMonth });
+  const meta = await repo.replaceInstallmentPolicyMeta(req.body?.meta || {}, { policyMonth });
+  return res.status(200).json({ success: true, data: saved, meta });
 }));
 
-app.get('/api/admin/pg-providers', authenticateAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/installments/copy-previous', authenticateAdmin, asyncHandler(async (req, res) => {
+  const result = await repo.copyInterestFreeInstallmentsFromPreviousMonth({
+    policyMonth: req.body?.policyMonth || req.query.policyMonth
+  });
+  if (!result.copied) {
+    return sendError(res, 404, 'INSTALLMENT_SOURCE_NOT_FOUND', '복사할 전월 무이자 할부 정책이 없습니다.');
+  }
+  return res.status(200).json({
+    success: true,
+    data: result.data,
+    meta: result.meta,
+    policyMonth: result.policyMonth,
+    sourcePolicyMonth: result.sourcePolicyMonth
+  });
+}));
+
+app.get('/api/admin/pg-providers', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const providers = await repo.listPgProviders();
   return res.status(200).json({ success: true, data: providers });
 }));
 
-app.post('/api/admin/pg-providers', authenticateAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/pg-providers', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const body = req.body || {};
   const name = String(body.name || '').trim();
   if (!name) {
@@ -4631,10 +7743,10 @@ async function savePgProviderHandler(req, res) {
   return res.status(200).json({ success: true, data: provider });
 }
 
-app.put('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(savePgProviderHandler));
-app.patch('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(savePgProviderHandler));
+app.put('/api/admin/pg-providers/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(savePgProviderHandler));
+app.patch('/api/admin/pg-providers/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(savePgProviderHandler));
 
-app.patch('/api/admin/pg-providers/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
+app.patch('/api/admin/pg-providers/:id/status', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const status = String(req.body?.status || '').trim();
   if (!Number.isFinite(id)) {
@@ -4650,7 +7762,7 @@ app.patch('/api/admin/pg-providers/:id/status', authenticateAdmin, asyncHandler(
   return res.status(200).json({ success: true, data: provider });
 }));
 
-app.delete('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+app.delete('/api/admin/pg-providers/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
     return sendError(res, 400, 'BAD_REQUEST', 'PG사 ID가 올바르지 않습니다.');
@@ -4662,8 +7774,89 @@ app.delete('/api/admin/pg-providers/:id', authenticateAdmin, asyncHandler(async 
   return res.status(200).json({ success: true, data: deleted });
 }));
 
+app.get('/api/admin/pg-assignment-rules', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const rules = await repo.listPgAssignmentRules();
+  return res.status(200).json({ success: true, data: rules });
+}));
+
+app.post('/api/admin/pg-assignment-rules', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  try {
+    const rule = await validatePgAssignmentRule(normalizePgAssignmentRulePayload(req.body || {}));
+    const saved = await repo.createPgAssignmentRule(rule);
+    await recordAuditLog(req, {
+      action: 'PG_ASSIGNMENT_RULE_CREATE',
+      entityType: 'pg',
+      entityId: saved.id,
+      entityName: saved.name || 'PG 자동 배정 규칙',
+      beforeData: {},
+      afterData: pickPgAssignmentRuleAuditData(saved),
+      force: true
+    });
+    const rules = await repo.listPgAssignmentRules();
+    return res.status(201).json({ success: true, data: rules });
+  } catch (err) {
+    return sendError(res, err.statusCode || 400, err.code || 'BAD_REQUEST', err.message || 'PG 자동 배정 규칙 저장에 실패했습니다.');
+  }
+}));
+
+async function savePgAssignmentRuleHandler(req, res) {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '규칙 ID가 올바르지 않습니다.');
+  }
+  try {
+    const rule = await validatePgAssignmentRule(normalizePgAssignmentRulePayload(req.body || {}));
+    const beforeRule = (await repo.listPgAssignmentRules()).find(item => Number(item.id) === id);
+    const saved = await repo.updatePgAssignmentRule(id, rule);
+    if (!saved) {
+      return sendError(res, 404, 'PG_ASSIGNMENT_RULE_NOT_FOUND', 'PG 자동 배정 규칙을 찾을 수 없습니다.');
+    }
+    await recordAuditLog(req, {
+      action: 'PG_ASSIGNMENT_RULE_UPDATE',
+      entityType: 'pg',
+      entityId: saved.id,
+      entityName: saved.name || beforeRule?.name || 'PG 자동 배정 규칙',
+      beforeData: pickPgAssignmentRuleAuditData(beforeRule),
+      afterData: pickPgAssignmentRuleAuditData(saved)
+    });
+    const rules = await repo.listPgAssignmentRules();
+    return res.status(200).json({ success: true, data: rules });
+  } catch (err) {
+    return sendError(res, err.statusCode || 400, err.code || 'BAD_REQUEST', err.message || 'PG 자동 배정 규칙 저장에 실패했습니다.');
+  }
+}
+
+app.put('/api/admin/pg-assignment-rules/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(savePgAssignmentRuleHandler));
+app.patch('/api/admin/pg-assignment-rules/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(savePgAssignmentRuleHandler));
+
+app.delete('/api/admin/pg-assignment-rules/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '규칙 ID가 올바르지 않습니다.');
+  }
+  const deleted = await repo.deletePgAssignmentRule(id);
+  if (!deleted) {
+    return sendError(res, 404, 'PG_ASSIGNMENT_RULE_NOT_FOUND', 'PG 자동 배정 규칙을 찾을 수 없습니다.');
+  }
+  await recordAuditLog(req, {
+    action: 'PG_ASSIGNMENT_RULE_DELETE',
+    entityType: 'pg',
+    entityId: deleted.id,
+    entityName: deleted.name || 'PG 자동 배정 규칙',
+    beforeData: pickPgAssignmentRuleAuditData(deleted),
+    afterData: {},
+    changedFields: ['deleted'],
+    force: true
+  });
+  const rules = await repo.listPgAssignmentRules();
+  return res.status(200).json({ success: true, data: rules });
+}));
+
 function normalizeAgencyInquiryPayload(body = {}) {
+  const allowedTypes = new Set(['가맹점 등록', '지점/지사 개설', '배달대행사 제휴', '기타 문의']);
+  const rawInquiryType = String(body.inquiryType || body.inquiry_type || '지점/지사 개설').trim();
   return {
+    inquiryType: allowedTypes.has(rawInquiryType) ? rawInquiryType : '기타 문의',
     name: String(body.name || '').trim(),
     phone: String(body.phone || '').trim(),
     deliveryAgency: String(body.deliveryAgency || body.business || body.currentBusiness || '').trim(),
@@ -4683,6 +7876,36 @@ function validateAgencyInquiryPayload(inquiry, requireAll = false) {
   return '';
 }
 
+function pickAgencyInquiryAuditData(inquiry) {
+  if (!inquiry) return {};
+  return {
+    id: inquiry.id,
+    inquiryType: inquiry.inquiryType || inquiry.inquiry_type || '',
+    name: inquiry.name || '',
+    phone: inquiry.phone || '',
+    deliveryAgency: inquiry.deliveryAgency || inquiry.delivery_agency || '',
+    region: inquiry.region || '',
+    handler: inquiry.handler || '',
+    status: inquiry.status || ''
+  };
+}
+
+function pickAdvanceInquiryAuditData(inquiry) {
+  if (!inquiry) return {};
+  return {
+    id: inquiry.id,
+    userId: inquiry.userId || inquiry.user_id || null,
+    franchiseId: inquiry.franchiseId || inquiry.franchise_id || null,
+    franchiseName: inquiry.franchiseName || inquiry.franchise_name || '',
+    phone: inquiry.phone || '',
+    email: inquiry.email || '',
+    deliverySalesManwon: inquiry.deliverySalesManwon || inquiry.delivery_sales_manwon || 0,
+    deliveryApps: inquiry.deliveryApps || inquiry.delivery_apps || '',
+    storeSalesManwon: inquiry.storeSalesManwon || inquiry.store_sales_manwon || 0,
+    status: inquiry.status || ''
+  };
+}
+
 app.post('/api/agency-inquiries', asyncHandler(async (req, res) => {
   const inquiryData = normalizeAgencyInquiryPayload(req.body || {});
   const validationMessage = validateAgencyInquiryPayload(inquiryData, true);
@@ -4692,6 +7915,15 @@ app.post('/api/agency-inquiries', asyncHandler(async (req, res) => {
   const inquiry = await repo.createAgencyInquiry({
     ...inquiryData,
     status: '상담 대기'
+  });
+  await recordAuditLog(req, {
+    action: 'AGENCY_INQUIRY_CREATE',
+    entityType: 'agency_inquiry',
+    entityId: inquiry.id,
+    entityName: inquiry.name || inquiry.inquiryType || '가맹점/지점 문의',
+    beforeData: {},
+    afterData: pickAgencyInquiryAuditData(inquiry),
+    force: true
   });
   return res.status(201).json({
     success: true,
@@ -4714,11 +7946,21 @@ app.post('/api/admin/inquiries', authenticateAdmin, asyncHandler(async (req, res
   }
   const inquiry = await repo.createAgencyInquiry({
     name: inquiryData.name,
+    inquiryType: inquiryData.inquiryType,
     phone: inquiryData.phone,
     deliveryAgency: inquiryData.deliveryAgency,
     region: inquiryData.region,
     handler: inquiryData.handler,
     status: inquiryData.status
+  });
+  await recordAuditLog(req, {
+    action: 'AGENCY_INQUIRY_CREATE',
+    entityType: 'agency_inquiry',
+    entityId: inquiry.id,
+    entityName: inquiry.name || inquiry.inquiryType || '가맹점/지점 문의',
+    beforeData: {},
+    afterData: pickAgencyInquiryAuditData(inquiry),
+    force: true
   });
   return res.status(201).json({ success: true, data: inquiry });
 }));
@@ -4734,8 +7976,10 @@ async function updateAdminInquiryHandler(req, res) {
   if (validationMessage) {
     return sendError(res, 400, 'BAD_REQUEST', validationMessage);
   }
+  const beforeInquiry = (await repo.listAgencyInquiries()).find(item => Number(item.id) === id);
   const inquiry = await repo.updateAgencyInquiry(id, {
     name: inquiryData.name,
+    inquiryType: inquiryData.inquiryType,
     phone: inquiryData.phone,
     deliveryAgency: inquiryData.deliveryAgency,
     region: inquiryData.region,
@@ -4745,6 +7989,14 @@ async function updateAdminInquiryHandler(req, res) {
   if (!inquiry) {
     return sendError(res, 404, 'INQUIRY_NOT_FOUND', '문의를 찾을 수 없습니다.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_INQUIRY_UPDATE',
+    entityType: 'agency_inquiry',
+    entityId: id,
+    entityName: inquiry.name || beforeInquiry?.name || '가맹점/지점 문의',
+    beforeData: pickAgencyInquiryAuditData(beforeInquiry),
+    afterData: pickAgencyInquiryAuditData(inquiry)
+  });
   return res.status(200).json({ success: true, data: inquiry });
 }
 
@@ -4760,10 +8012,19 @@ app.patch('/api/admin/inquiries/:id/status', authenticateAdmin, asyncHandler(asy
   if (!['상담 대기', '상담 완료'].includes(status)) {
     return sendError(res, 400, 'BAD_REQUEST', '상태는 상담 대기 또는 상담 완료여야 합니다.');
   }
+  const beforeInquiry = (await repo.listAgencyInquiries()).find(item => Number(item.id) === id);
   const inquiry = await repo.updateAgencyInquiryStatus(id, status);
   if (!inquiry) {
     return sendError(res, 404, 'INQUIRY_NOT_FOUND', '문의를 찾을 수 없습니다.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_INQUIRY_STATUS_UPDATE',
+    entityType: 'agency_inquiry',
+    entityId: id,
+    entityName: inquiry.name || beforeInquiry?.name || '가맹점/지점 문의',
+    beforeData: pickAgencyInquiryAuditData(beforeInquiry),
+    afterData: pickAgencyInquiryAuditData(inquiry)
+  });
   return res.status(200).json({ success: true, data: inquiry });
 }));
 
@@ -4776,6 +8037,150 @@ app.delete('/api/admin/inquiries/:id', authenticateAdmin, asyncHandler(async (re
   if (!deleted) {
     return sendError(res, 404, 'INQUIRY_NOT_FOUND', '문의를 찾을 수 없습니다.');
   }
+  await recordAuditLog(req, {
+    action: 'AGENCY_INQUIRY_DELETE',
+    entityType: 'agency_inquiry',
+    entityId: id,
+    entityName: deleted.name || deleted.inquiryType || '가맹점/지점 문의',
+    beforeData: pickAgencyInquiryAuditData(deleted),
+    afterData: {},
+    changedFields: ['deleted'],
+    force: true
+  });
+  return res.status(200).json({ success: true, data: deleted });
+}));
+
+function parseManwonAmount(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return 0;
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAdvanceInquiryPayload(body = {}, user = null) {
+  const sessionFranchiseName = user?.franchiseName || user?.franchise_name || '';
+  const sessionFranchiseId = user?.franchiseId || user?.franchise_id || null;
+  return {
+    userId: user?.id || null,
+    franchiseId: body.franchiseId || sessionFranchiseId || null,
+    franchiseName: String(body.franchiseName || sessionFranchiseName || '').trim(),
+    phone: String(body.phone || '').trim(),
+    email: String(body.email || '').trim(),
+    deliverySalesManwon: parseManwonAmount(body.deliverySalesManwon ?? body.deliverySales ?? body.delivery_sales),
+    deliveryApps: String(body.deliveryApps || body.delivery_apps || '').trim(),
+    storeSalesManwon: parseManwonAmount(body.storeSalesManwon ?? body.storeSales ?? body.store_sales),
+    status: String(body.status || '상담 대기').trim()
+  };
+}
+
+function validateAdvanceInquiryPayload(inquiry) {
+  if (!inquiry.phone) return '신청 전화번호를 입력해주세요.';
+  if (!inquiry.deliverySalesManwon && !inquiry.storeSalesManwon) return '예상 매출을 만원 단위로 입력해주세요.';
+  return '';
+}
+
+app.post('/api/advance-inquiries', authenticate, asyncHandler(async (req, res) => {
+  const inquiryData = normalizeAdvanceInquiryPayload(req.body || {}, req.user);
+  const validationMessage = validateAdvanceInquiryPayload(inquiryData);
+  if (validationMessage) {
+    return sendError(res, 400, 'BAD_REQUEST', validationMessage);
+  }
+  const inquiry = await repo.createAdvanceInquiry({
+    ...inquiryData,
+    status: '상담 대기'
+  });
+  await recordAuditLog(req, {
+    action: 'ADVANCE_INQUIRY_CREATE',
+    entityType: 'advance_inquiry',
+    entityId: inquiry.id,
+    entityName: inquiry.franchiseName || '선정산 문의',
+    beforeData: {},
+    afterData: pickAdvanceInquiryAuditData(inquiry),
+    force: true
+  });
+  return res.status(201).json({
+    success: true,
+    data: inquiry,
+    message: '선정산 상담 신청이 접수되었습니다.'
+  });
+}));
+
+app.get('/api/advance-inquiries/me', authenticate, asyncHandler(async (req, res) => {
+  const inquiries = await repo.listAdvanceInquiriesByUser(req.user.id);
+  return res.status(200).json({ success: true, data: inquiries });
+}));
+
+app.delete('/api/advance-inquiries/:id', authenticate, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '문의 ID가 올바르지 않습니다.');
+  }
+  const deleted = await repo.deleteAdvanceInquiryByUser(id, req.user.id);
+  if (!deleted) {
+    return sendError(res, 404, 'ADVANCE_INQUIRY_NOT_FOUND', '취소할 선정산 문의를 찾을 수 없습니다.');
+  }
+  await recordAuditLog(req, {
+    action: 'ADVANCE_INQUIRY_CANCEL',
+    entityType: 'advance_inquiry',
+    entityId: id,
+    entityName: deleted.franchiseName || '선정산 문의',
+    beforeData: pickAdvanceInquiryAuditData(deleted),
+    afterData: {},
+    changedFields: ['cancelled'],
+    force: true
+  });
+  return res.status(200).json({ success: true, data: deleted, message: '선정산 상담 신청이 취소되었습니다.' });
+}));
+
+app.get('/api/admin/advance-inquiries', authenticateAdmin, asyncHandler(async (req, res) => {
+  const inquiries = await repo.listAdvanceInquiries();
+  return res.status(200).json({ success: true, data: inquiries });
+}));
+
+app.patch('/api/admin/advance-inquiries/:id/status', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const status = String(req.body?.status || '').trim();
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '문의 ID가 올바르지 않습니다.');
+  }
+  if (!['상담 대기', '상담중', '상담 완료', '보류'].includes(status)) {
+    return sendError(res, 400, 'BAD_REQUEST', '상태는 상담 대기, 상담중, 상담 완료, 보류 중 하나여야 합니다.');
+  }
+  const beforeInquiry = (await repo.listAdvanceInquiries()).find(item => Number(item.id) === id);
+  const inquiry = await repo.updateAdvanceInquiryStatus(id, status);
+  if (!inquiry) {
+    return sendError(res, 404, 'ADVANCE_INQUIRY_NOT_FOUND', '선정산 문의를 찾을 수 없습니다.');
+  }
+  await recordAuditLog(req, {
+    action: 'ADVANCE_INQUIRY_STATUS_UPDATE',
+    entityType: 'advance_inquiry',
+    entityId: id,
+    entityName: inquiry.franchiseName || beforeInquiry?.franchiseName || '선정산 문의',
+    beforeData: pickAdvanceInquiryAuditData(beforeInquiry),
+    afterData: pickAdvanceInquiryAuditData(inquiry)
+  });
+  return res.status(200).json({ success: true, data: inquiry });
+}));
+
+app.delete('/api/admin/advance-inquiries/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '문의 ID가 올바르지 않습니다.');
+  }
+  const deleted = await repo.deleteAdvanceInquiry(id);
+  if (!deleted) {
+    return sendError(res, 404, 'ADVANCE_INQUIRY_NOT_FOUND', '선정산 문의를 찾을 수 없습니다.');
+  }
+  await recordAuditLog(req, {
+    action: 'ADVANCE_INQUIRY_DELETE',
+    entityType: 'advance_inquiry',
+    entityId: id,
+    entityName: deleted.franchiseName || '선정산 문의',
+    beforeData: pickAdvanceInquiryAuditData(deleted),
+    afterData: {},
+    changedFields: ['deleted'],
+    force: true
+  });
   return res.status(200).json({ success: true, data: deleted });
 }));
 
@@ -4915,6 +8320,26 @@ async function saveGeneratedBannerImage({ title, subtitle, style, file }) {
   return `/uploads/${encodeURIComponent(filename)}`;
 }
 
+async function saveUploadedBannerImage(file) {
+  const mimeType = String(file?.mimetype || '').toLowerCase();
+  const isImage = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'].includes(mimeType);
+  if (!file || !isImage) {
+    const error = new Error('배너 이미지는 PNG, JPG, WEBP, GIF 파일만 업로드할 수 있습니다.');
+    error.statusCode = 400;
+    throw error;
+  }
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const ext = path.extname(file.originalname || '').toLowerCase() || (
+    mimeType === 'image/png' ? '.png'
+      : mimeType === 'image/webp' ? '.webp'
+        : mimeType === 'image/gif' ? '.gif'
+          : '.jpg'
+  );
+  const filename = `banner-upload-${Date.now()}-${crypto.randomUUID()}${ext}`;
+  await fs.promises.writeFile(path.join(uploadDir, filename), file.buffer);
+  return `/uploads/${encodeURIComponent(filename)}`;
+}
+
 app.get('/api/admin/banners', authenticateAdmin, asyncHandler(async (req, res) => {
   const banners = await repo.listBanners({ includeInactive: true });
   return res.status(200).json({ success: true, data: banners });
@@ -4960,6 +8385,31 @@ app.post('/api/admin/banners/render-image', authenticateAdmin, singleUpload('log
       source: 'internal-svg'
     }
   });
+}));
+
+app.post('/api/admin/banners/upload-image', authenticateAdmin, singleUpload('file'), asyncHandler(async (req, res) => {
+  let imageUrl = '';
+  try {
+    imageUrl = await saveUploadedBannerImage(req.file);
+  } catch (err) {
+    return sendError(res, err.statusCode || 400, 'BAD_REQUEST', err.message || '배너 이미지 업로드에 실패했습니다.');
+  }
+  return res.status(201).json({
+    success: true,
+    data: {
+      imageUrl,
+      source: 'uploaded-image'
+    }
+  });
+}));
+
+app.patch('/api/admin/banners/order', authenticateAdmin, asyncHandler(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (!ids.length) {
+    return sendError(res, 400, 'BAD_REQUEST', '배너 순서 정보가 올바르지 않습니다.');
+  }
+  const banners = await repo.updateBannerOrder(ids);
+  return res.status(200).json({ success: true, data: banners });
 }));
 
 async function updateAdminBannerHandler(req, res) {
@@ -5085,6 +8535,20 @@ app.post('/api/admin/boards/:type', authenticateAdmin, asyncHandler(async (req, 
   return res.status(201).json({ success: true, data: post });
 }));
 
+app.patch('/api/admin/boards/:type/order', authenticateAdmin, asyncHandler(async (req, res) => {
+  const boardType = normalizeBoardType(req.params.type);
+  const id = Number(req.body?.id);
+  const direction = Number(req.body?.direction);
+  if (!boardType || !Number.isFinite(id) || !Number.isFinite(direction) || direction === 0) {
+    return sendError(res, 400, 'BAD_REQUEST', '게시글 순서 정보가 올바르지 않습니다.');
+  }
+  const post = await repo.reorderBoardPost(boardType, id, direction);
+  if (!post) {
+    return sendError(res, 404, 'BOARD_POST_NOT_FOUND', '게시글을 찾을 수 없습니다.');
+  }
+  return res.status(200).json({ success: true, data: post });
+}));
+
 app.patch('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async (req, res) => {
   const boardType = normalizeBoardType(req.params.type);
   const id = Number(req.params.id);
@@ -5113,6 +8577,168 @@ app.delete('/api/admin/boards/:type/:id', authenticateAdmin, asyncHandler(async 
     return sendError(res, 404, 'BOARD_POST_NOT_FOUND', '게시글을 찾을 수 없습니다.');
   }
   return res.status(200).json({ success: true, data: deleted });
+}));
+
+app.get('/api/admin/talk/posts', authenticateAdmin, asyncHandler(async (req, res) => {
+  const status = String(req.query.status || 'ALL').trim().toUpperCase();
+  const normalizedStatus = ['ALL', 'ACTIVE', 'DELETED', 'REPORTS'].includes(status) ? status : 'ALL';
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const offset = (page - 1) * limit;
+  const result = await repo.listAdminTalkPosts({
+    status: normalizedStatus,
+    q: String(req.query.q || '').trim(),
+    limit,
+    offset
+  });
+  const posts = Array.isArray(result) ? result : (result.rows || []);
+  const total = Array.isArray(result) ? posts.length : Number(result.total || 0);
+  const totalPages = Math.max(Math.ceil(total / limit), 1);
+  return res.status(200).json({
+    success: true,
+    data: posts.map(post => ({
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    })),
+    meta: {
+      page,
+      pageSize: limit,
+      total,
+      totalPages
+    }
+  });
+}));
+
+app.delete('/api/admin/talk/posts/:id', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '이츠톡 글 정보가 올바르지 않습니다.');
+  }
+  const beforePost = await repo.findAdminTalkPostById(id);
+  if (!beforePost || beforePost.status === 'DELETED') {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', '이츠톡 글을 찾을 수 없습니다.');
+  }
+  const reason = String(req.body?.reason || '관리자 삭제').trim().slice(0, 200) || '관리자 삭제';
+  const deleted = await repo.deleteTalkPostByAdmin(id, {
+    reason,
+    adminUserId: req.user?.id || null
+  });
+  await recordAuditLog(req, {
+    action: 'TALK_POST_DELETE',
+    entityType: 'talk_post',
+    entityId: id,
+    entityName: beforePost.title || '',
+    beforeData: {
+      id: beforePost.id,
+      title: beforePost.title,
+      franchiseName: beforePost.franchiseName,
+      status: beforePost.status,
+      adminDeletedReason: beforePost.adminDeletedReason || ''
+    },
+    afterData: {
+      id: deleted.id,
+      title: deleted.title,
+      franchiseName: deleted.franchiseName,
+      status: deleted.status,
+      adminDeletedReason: deleted.adminDeletedReason || reason,
+      adminDeletedAt: deleted.adminDeletedAt || null
+    },
+    changedFields: ['status', 'adminDeletedReason', 'adminDeletedAt']
+  });
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...deleted,
+      createdAtLabel: formatKstDateTime(deleted.createdAt)
+    }
+  });
+}));
+
+app.patch('/api/admin/talk/posts/:id/restore', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '이츠톡 글 정보가 올바르지 않습니다.');
+  }
+  const beforePost = await repo.findAdminTalkPostById(id);
+  if (!beforePost || beforePost.status !== 'DELETED') {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', '복구할 이츠톡 글을 찾을 수 없습니다.');
+  }
+  const restored = await repo.restoreTalkPostByAdmin(id);
+  await recordAuditLog(req, {
+    action: 'TALK_POST_RESTORE',
+    entityType: 'talk_post',
+    entityId: id,
+    entityName: beforePost.title || '',
+    beforeData: {
+      id: beforePost.id,
+      title: beforePost.title,
+      franchiseName: beforePost.franchiseName,
+      status: beforePost.status,
+      adminDeletedReason: beforePost.adminDeletedReason || ''
+    },
+    afterData: {
+      id: restored.id,
+      title: restored.title,
+      franchiseName: restored.franchiseName,
+      status: restored.status,
+      adminDeletedReason: restored.adminDeletedReason || ''
+    },
+    changedFields: ['status', 'adminDeletedReason', 'adminDeletedAt']
+  });
+  return res.status(200).json({
+    success: true,
+    data: {
+      ...restored,
+      createdAtLabel: formatKstDateTime(restored.createdAt)
+    }
+  });
+}));
+
+app.post('/api/admin/talk/posts/:id/hide-author', authenticateAdmin, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    return sendError(res, 400, 'BAD_REQUEST', '이츠톡 글 정보가 올바르지 않습니다.');
+  }
+  const beforePost = await repo.findAdminTalkPostById(id);
+  if (!beforePost || !beforePost.userId) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', '작성자를 확인할 수 없습니다.');
+  }
+  const reason = String(req.body?.reason || '작성자 전체 글 숨김').trim().slice(0, 200) || '작성자 전체 글 숨김';
+  const affected = await repo.hideTalkPostsByAuthor({
+    postId: id,
+    reason,
+    adminUserId: req.user?.id || null
+  });
+  if (!affected.length) {
+    return sendError(res, 404, 'TALK_POST_NOT_FOUND', '숨김 처리할 노출 글이 없습니다.');
+  }
+  await recordAuditLog(req, {
+    action: 'TALK_AUTHOR_HIDE',
+    entityType: 'talk_author',
+    entityId: beforePost.userId,
+    entityName: beforePost.franchiseName || beforePost.title || '',
+    beforeData: {
+      userId: beforePost.userId,
+      sourcePostId: beforePost.id,
+      franchiseName: beforePost.franchiseName,
+      reason: ''
+    },
+    afterData: {
+      userId: beforePost.userId,
+      sourcePostId: beforePost.id,
+      hiddenPostIds: affected.map(post => post.id),
+      hiddenCount: affected.length,
+      reason
+    },
+    changedFields: ['status', 'adminDeletedReason', 'hiddenCount']
+  });
+  return res.status(200).json({
+    success: true,
+    data: affected.map(post => ({
+      ...post,
+      createdAtLabel: formatKstDateTime(post.createdAt)
+    }))
+  });
 }));
 
 function validateFaqBody(body) {
@@ -5274,13 +8900,14 @@ app.delete('/api/admin/legal-documents/:id', authenticateAdmin, asyncHandler(asy
 }));
 
 app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res) => {
-  const { name, loginId, type, level, region, owner, phone, feeRate, parentId, deliveryNote } = req.body || {};
+  const { name, loginId, type, level, region, owner, phone, feeRate, parentId, deliveryNote, password } = req.body || {};
   if (!String(name || '').trim()) {
     return sendError(res, 400, 'BAD_REQUEST', 'name is required.');
   }
+  const initialPassword = String(password || '').trim();
   const agencyKind = normalizeAdminAgencyKind(type, level);
 
-  const agency = await repo.createAgency({
+  let agency = await repo.createAgency({
     type: agencyKind.type,
     level: agencyKind.level,
     parentId: parentId ? Number(parentId) : null,
@@ -5291,8 +8918,16 @@ app.post('/api/admin/agencies', authenticateAdmin, asyncHandler(async (req, res)
     phone: String(phone || '').trim(),
     feeRate: Number(feeRate) || 0,
     deliveryNote: String(deliveryNote || '').trim(),
-    joinCode: `JOIN-${Date.now()}`
+    passwordHash: initialPassword ? await hashPassword(initialPassword) : null,
+    joinCode: null
   });
+  const friendlyJoinCode = await createUniqueFriendlyAgencyJoinCode(agency.id);
+  if (friendlyJoinCode) {
+    agency = await repo.updateAgencyJoinCode(agency.id, friendlyJoinCode) || {
+      ...agency,
+      joinCode: friendlyJoinCode
+    };
+  }
   await recordAuditLog(req, {
     action: 'AGENCY_CREATE',
     entityType: 'agency',
@@ -5382,7 +9017,14 @@ app.patch('/api/admin/agencies/:id/join-code', authenticateAdmin, asyncHandler(a
   if (isProtectedAgencyJoinCode(beforeAgency)) {
     return sendError(res, 403, 'HQ_JOIN_CODE_LOCKED', '본사 가입링크는 변경할 수 없습니다.');
   }
-  const joinCode = bodyCode || `JOIN-${agencyId}-${Date.now().toString(36).toUpperCase()}`;
+  const joinCode = normalizeAgencyJoinCode(bodyCode || await createUniqueFriendlyAgencyJoinCode(agencyId));
+  if (!joinCode) {
+    return sendError(res, 400, 'INVALID_JOIN_CODE', '가입 코드를 입력해주세요.');
+  }
+  const duplicate = await repo.findAgencyByJoinCode(joinCode);
+  if (duplicate && Number(duplicate.id) !== agencyId) {
+    return sendError(res, 409, 'JOIN_CODE_EXISTS', '이미 사용 중인 가입 코드입니다.');
+  }
   const agency = await repo.updateAgencyJoinCode(agencyId, joinCode);
   if (!agency) {
     return sendError(res, 404, 'AGENCY_NOT_FOUND', 'Agency was not found.');
@@ -5440,7 +9082,7 @@ app.delete('/api/admin/agencies/:id', authenticateAdmin, asyncHandler(async (req
   });
 }));
 
-app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, res) => {
+app.get('/api/admin/push/status', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const email = String(req.query.email || '').trim();
   const summary = await repo.countPushTokenSummary(email ? { email } : {});
   const fcmStatus = getFcmConfigStatus();
@@ -5483,7 +9125,7 @@ app.get('/api/admin/push/status', authenticateAdmin, asyncHandler(async (req, re
   });
 }));
 
-app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/push/test', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const title = String(req.body?.title || 'eats PAY 테스트 알림').trim();
   const body = String(req.body?.body || '푸시알림 연결이 정상적으로 동작합니다.').trim();
@@ -5519,6 +9161,101 @@ app.post('/api/admin/push/test', authenticateAdmin, asyncHandler(async (req, res
   });
 }));
 
+
+
+app.post('/api/admin/push/broadcast', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const targetType = String(req.body?.targetType || 'all').trim().toLowerCase();
+  const targetValue = String(req.body?.targetValue || req.body?.targetId || '').trim();
+  const channel = String(req.body?.channel || 'both').trim().toLowerCase();
+  const targetScreen = String(req.body?.targetScreen || 'notifications').trim() || 'notifications';
+  const title = String(req.body?.title || '').trim();
+  const body = String(req.body?.body || '').trim();
+  if (!['all', 'bonbu', 'jisa', 'jijum', 'franchise', 'agency'].includes(targetType)) {
+    return sendError(res, 400, 'BAD_REQUEST', '대상 유형이 올바르지 않습니다.');
+  }
+  if (targetType !== 'all' && !targetValue) {
+    return sendError(res, 400, 'BAD_REQUEST', '본부/지사/지점/가맹점 ID 또는 이름을 입력해 주세요.');
+  }
+  if (!['both', 'inapp', 'push'].includes(channel)) {
+    return sendError(res, 400, 'BAD_REQUEST', '발송 방식이 올바르지 않습니다.');
+  }
+  if (!title || !body) {
+    return sendError(res, 400, 'BAD_REQUEST', '제목과 내용을 입력해 주세요.');
+  }
+  if (title.length > 80 || body.length > 800) {
+    return sendError(res, 400, 'BAD_REQUEST', '제목은 80자, 내용은 800자 이내로 입력해 주세요.');
+  }
+  const targets = await repo.listPushAnnouncementTargets({ targetType, targetValue });
+  if (!targets.length) {
+    return sendError(res, 404, 'TARGET_NOT_FOUND', '발송 대상 가맹점을 찾지 못했습니다.');
+  }
+  const data = {
+    targetScreen,
+    source: 'admin_push_broadcast',
+    requestedBy: req.user.id,
+    requestedAt: new Date().toISOString(),
+    targetType,
+    targetValue
+  };
+  let stored = 0;
+  let fcmSent = 0;
+  let fcmFailed = 0;
+  let webSubscriptions = 0;
+  const failures = [];
+  for (const target of targets) {
+    try {
+      if (channel === 'both' || channel === 'inapp') {
+        await repo.createNotification({
+          userId: target.id,
+          type: 'ADMIN_ANNOUNCEMENT',
+          title,
+          body,
+          data: {
+            ...data,
+            franchiseId: target.franchiseId || '',
+            franchiseName: target.franchiseName || ''
+          }
+        });
+        stored += 1;
+      }
+      if (channel === 'both' || channel === 'push') {
+        const push = await sendUserPushNotification(target.id, { title, body, data });
+        fcmSent += Number(push?.fcm?.sent || 0);
+        fcmFailed += Number(push?.fcm?.failed || 0);
+        webSubscriptions += Number(push?.web?.failed || 0);
+      }
+    } catch (err) {
+      failures.push({ userId: target.id, franchiseName: target.franchiseName || target.name || '', message: err?.message || String(err) });
+    }
+  }
+  await repo.createAuditLog({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    actorLoginId: req.user.loginId || req.user.email,
+    actorName: req.user.name,
+    action: 'PUSH_BROADCAST',
+    entityType: 'notifications',
+    entityId: targetType,
+    entityName: title,
+    beforeData: {},
+    changedFields: ['title', 'body', 'targetType', 'targetValue', 'channel'],
+    afterData: { title, body, targetType, targetValue, channel, targetCount: targets.length, stored, fcmSent, fcmFailed, webSubscriptions, failureCount: failures.length },
+    requestMethod: req.method,
+    requestPath: req.originalUrl,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent') || ''
+  }).catch(err => console.warn('[PUSH_BROADCAST_AUDIT_FAILED]', err?.message || err));
+  return res.status(200).json({
+    success: true,
+    data: {
+      targetCount: targets.length,
+      stored,
+      push: { fcm: { sent: fcmSent, failed: fcmFailed }, web: { storedSubscriptions: webSubscriptions } },
+      failures: failures.slice(0, 20)
+    }
+  });
+}));
+
 app.get('/api/delivery-agencies', asyncHandler(async (req, res) => {
   const deliveryAgencies = await repo.listDeliveryAgencies();
   return res.status(200).json({
@@ -5529,7 +9266,7 @@ app.get('/api/delivery-agencies', asyncHandler(async (req, res) => {
 
 app.get('/api/banks', asyncHandler(async (req, res) => {
   const result = await pool.query(
-    `SELECT code, name, sort_order
+    `SELECT code, name, sort_order, icon_url
      FROM financial_institutions
      WHERE active = true
      ORDER BY sort_order ASC, name ASC`
@@ -5539,7 +9276,8 @@ app.get('/api/banks', asyncHandler(async (req, res) => {
     data: result.rows.map(row => ({
       code: row.code,
       name: row.name,
-      sortOrder: row.sort_order
+      sortOrder: row.sort_order,
+      iconUrl: row.icon_url || ''
     }))
   });
 }));
@@ -5568,6 +9306,516 @@ app.get('/api/weather/current', asyncHandler(async (req, res) => {
   });
 }));
 
+
+const tvDashboardCache = {
+  exchange: { value: null, expiresAt: 0 },
+  news: { value: null, expiresAt: 0 },
+  market: { value: null, expiresAt: 0 },
+  weather: { value: null, expiresAt: 0 },
+  zodiac: { value: null, expiresAt: 0 }
+};
+
+function tvKstDate(value) {
+  return formatKstDate(value || new Date());
+}
+
+function tvKstHourKey(value) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false
+  }).formatToParts(new Date(value));
+  const map = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day} ${map.hour}`;
+}
+
+function tvAddDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function tvAmount(row) {
+  return Number(row?.amount ?? row?.totalAmount ?? row?.paymentAmt ?? row?.total_amount ?? 0) || 0;
+}
+
+function tvBuildDailyTrend(rows, days = 7) {
+  const todayDate = new Date();
+  const labels = [];
+  const values = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const day = tvAddDays(todayDate, -offset);
+    const key = tvKstDate(day);
+    labels.push(key.slice(5).replace('-', '.'));
+    values.push(rows.filter(row => tvKstDate(row.createdAt || row.date) === key).reduce((sum, row) => sum + tvAmount(row), 0));
+  }
+  return { labels, values };
+}
+
+function tvBuildHourlyTrend(rows, hours = 12) {
+  const now = new Date();
+  const labels = [];
+  const values = [];
+  for (let offset = hours - 1; offset >= 0; offset -= 1) {
+    const hour = new Date(now.getTime() - offset * 60 * 60 * 1000);
+    const key = tvKstHourKey(hour);
+    labels.push(`${key.slice(11, 13)}시`);
+    values.push(rows.filter(row => tvKstHourKey(row.createdAt || row.date) === key).reduce((sum, row) => sum + tvAmount(row), 0));
+  }
+  return { labels, values };
+}
+
+function tvPublicSalesIndex(todaySales, monthSales, totalSales) {
+  const base = Math.max(10000, Math.round(totalSales / 30), 1);
+  return {
+    todayAmount: Math.round(todaySales),
+    monthAmount: Math.round(monthSales),
+    totalAmount: Math.round(totalSales),
+    todayIndex: Math.max(1, Math.round((todaySales / base) * 100)),
+    monthIndex: Math.max(1, Math.round((monthSales / Math.max(base * 15, 1)) * 100)),
+    flowLabel: todaySales > 0 ? '?? ?? ??' : '?? ?? ??',
+    displayMode: 'actual-amount'
+  };
+}
+
+const TV_ZODIAC_META = [
+  { animal: '\uC950\uB760', icon: '\uD83D\uDC2D', element: '\uAE30\uBBFC\uD568', keywords: ['\uC810\uAC80', '\uC18D\uB3C4', '\uAE30\uD68C'] },
+  { animal: '\uC18C\uB760', icon: '\uD83D\uDC2E', element: '\uAFB8\uC900\uD568', keywords: ['\uC21C\uC11C', '\uC2E0\uB8B0', '\uAD00\uB9AC'] },
+  { animal: '\uD638\uB791\uC774\uB760', icon: '\uD83D\uDC2F', element: '\uCD94\uC9C4\uB825', keywords: ['\uC81C\uC548', '\uACB0\uC815', '\uD65C\uB825'] },
+  { animal: '\uD1A0\uB07C\uB760', icon: '\uD83D\uDC30', element: '\uADE0\uD615\uAC10', keywords: ['\uD611\uC5C5', '\uC18C\uD1B5', '\uC870\uC728'] },
+  { animal: '\uC6A9\uB760', icon: '\uD83D\uDC32', element: '\uD655\uC7A5\uC131', keywords: ['\uC131\uC7A5', '\uC804\uD658', '\uC8FC\uBAA9'] },
+  { animal: '\uBC40\uB760', icon: '\uD83D\uDC0D', element: '\uC9D1\uC911\uB825', keywords: ['\uBD84\uC11D', '\uC815\uB9AC', '\uC120\uD0DD'] },
+  { animal: '\uB9D0\uB760', icon: '\uD83D\uDC34', element: '\uC774\uB3D9\uC6B4', keywords: ['\uC2E4\uD589', '\uC5F0\uB77D', '\uD655\uC0B0'] },
+  { animal: '\uC591\uB760', icon: '\uD83D\uDC11', element: '\uC628\uD654\uD568', keywords: ['\uBC30\uB824', '\uC548\uC815', '\uD68C\uBCF5'] },
+  { animal: '\uC6D0\uC22D\uC774\uB760', icon: '\uD83D\uDC35', element: '\uC21C\uBC1C\uB825', keywords: ['\uC544\uC774\uB514\uC5B4', '\uC804\uD658', '\uC7AC\uCE58'] },
+  { animal: '\uB2ED\uB760', icon: '\uD83D\uDC14', element: '\uC815\uD655\uC131', keywords: ['\uAE30\uB85D', '\uD655\uC778', '\uC131\uACFC'] },
+  { animal: '\uAC1C\uB760', icon: '\uD83D\uDC36', element: '\uCC45\uC784\uAC10', keywords: ['\uC2E0\uB8B0', '\uC57D\uC18D', '\uBCF4\uC644'] },
+  { animal: '\uB3FC\uC9C0\uB760', icon: '\uD83D\uDC37', element: '\uD48D\uC694\uB85C\uC6C0', keywords: ['\uD750\uB984', '\uC5EC\uC720', '\uC218\uC775'] }
+];
+
+function tvDecodeHtml(value = '') {
+  return String(value)
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
+function tvCleanFortuneText(value = '') {
+  return tvDecodeHtml(String(value))
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tvShortFortuneText(value = '') {
+  const cleaned = tvCleanFortuneText(value)
+    .replace(/\uB124\uC774\uBC84|NAVER|\uC624\uB298\uC758 \uC6B4\uC138|\uB760\uBCC4\uC6B4\uC138|\uB760\uBCC4 \uC6B4\uC138/g, '')
+    .replace(/["\u201C\u201D\u2018\u2019]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return '';
+  if ((cleaned.match(/\d/g) || []).length > 8) return '';
+  if (!/[\uAC00-\uD7A3]/.test(cleaned)) return '';
+
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map(part => part.trim())
+    .filter(part => part.length >= 16 && /[\uAC00-\uD7A3]/.test(part));
+  const complete = sentences.find(part => /[.!?]$/.test(part));
+  if (complete) return complete;
+
+  const koreanComplete = cleaned.match(/.{16,}?(?:\uB2E4|\uC694)(?=\s|$)/);
+  return koreanComplete ? koreanComplete[0].trim() : '';
+}
+
+function tvBuildFallbackZodiac(provider = 'EatsPay') {
+  const messages = [
+    '\uC791\uC740 \uD655\uC778\uC774 \uD070 \uD750\uB984\uC744 \uC815\uB9AC\uD569\uB2C8\uB2E4. \uC22B\uC790\uC640 \uC57D\uC18D\uC744 \uBA3C\uC800 \uCC59\uAE30\uC138\uC694.',
+    '\uC11C\uB450\uB974\uAE30\uBCF4\uB2E4 \uC21C\uC11C\uB97C \uC9C0\uD0A4\uBA74 \uC88B\uC740 \uACB0\uACFC\uAC00 \uB530\uB77C\uC635\uB2C8\uB2E4.',
+    '\uC0C8 \uC81C\uC548\uC740 \uC870\uAC74\uC744 \uBA3C\uC800 \uC0B4\uD53C\uBA74 \uAE30\uD68C\uAC00 \uB429\uB2C8\uB2E4.',
+    '\uC775\uC219\uD55C \uC77C\uC5D0\uC11C \uC88B\uC740 \uC2E0\uD638\uAC00 \uBCF4\uC785\uB2C8\uB2E4. \uAE30\uBCF8\uAE30\uAC00 \uD798\uC744 \uB0C5\uB2C8\uB2E4.',
+    '\uBBF8\uB904\uB454 \uC5F0\uB77D\uC744 \uC815\uB9AC\uD558\uAE30 \uC88B\uC740 \uB0A0\uC785\uB2C8\uB2E4.',
+    '\uCC28\uBD84\uD55C \uC120\uD0DD\uC774 \uACB0\uACFC\uB97C \uB2E8\uB2E8\uD558\uAC8C \uB9CC\uB4ED\uB2C8\uB2E4.',
+    '\uC6C0\uC9C1\uC784\uC774 \uB9CE\uC740 \uB9CC\uD07C \uAE30\uB85D\uACFC \uD655\uC778\uC774 \uC911\uC694\uD569\uB2C8\uB2E4.',
+    '\uD611\uC5C5\uC5D0\uC11C \uB73B\uBC16\uC758 \uB3C4\uC6C0\uC774 \uB4E4\uC5B4\uC635\uB2C8\uB2E4.',
+    '\uC0C8\uB85C\uC6B4 \uC815\uBCF4\uBCF4\uB2E4 \uC774\uBBF8 \uAC00\uC9C4 \uAE30\uC900\uC744 \uCC59\uAE30\uBA74 \uC88B\uC2B5\uB2C8\uB2E4.',
+    '\uC791\uC740 \uC131\uACFC\uB97C \uBE60\uB974\uAC8C \uACF5\uC720\uD558\uBA74 \uD750\uB984\uC774 \uC0B4\uC544\uB0A9\uB2C8\uB2E4.',
+    '\uC815\uB9AC\uC640 \uC810\uAC80\uC5D0 \uC6B4\uC774 \uB530\uB974\uB294 \uB0A0\uC785\uB2C8\uB2E4.',
+    '\uAE30\uB2E4\uB9AC\uB358 \uD750\uB984\uC774 \uCC9C\uCC9C\uD788 \uC5F4\uB9BD\uB2C8\uB2E4.'
+  ]; const seed = Number(tvKstDate(new Date()).replace(/-/g, ''));
+  const items = TV_ZODIAC_META.map((meta, index) => ({
+    ...meta,
+    message: messages[(seed + index * 3) % messages.length],
+    score: 72 + ((seed + index * 7) % 24),
+    source: provider === 'Naver Search' ? '네이버 검색 기반' : 'EatsPay'
+  }));
+  return { provider, today: tvKstDate(new Date()), items, featured: items[seed % items.length], updatedAt: new Date().toISOString() };
+}
+
+function tvParseNaverZodiac(html = '') {
+  const text = tvCleanFortuneText(html);
+  if (!text || !text.includes('띠')) return null;
+  const seed = Number(tvKstDate(new Date()).replace(/-/g, ''));
+  const items = TV_ZODIAC_META.map((meta, index) => {
+    const animalIndex = text.indexOf(meta.animal);
+    let message = '';
+    if (animalIndex >= 0) {
+      const chunk = text.slice(animalIndex, animalIndex + 360);
+      const nextAnimal = TV_ZODIAC_META.find(other => other.animal !== meta.animal && chunk.indexOf(other.animal, 2) > 0);
+      const trimmed = nextAnimal ? chunk.slice(0, chunk.indexOf(nextAnimal.animal, 2)) : chunk;
+      message = tvShortFortuneText(trimmed.replace(meta.animal, '').replace(/^(?:\s*\d{2},?)+\s*\uB144\uC0DD\s*/, ''));
+    }
+    const fallback = tvBuildFallbackZodiac('Naver Search').items[index].message;
+    return {
+      ...meta,
+      message: message || fallback,
+      score: 74 + ((seed + index * 11) % 23),
+      source: message ? '네이버 검색 기반' : '네이버 검색 보조'
+    };
+  });
+  if (!items.some(item => item.source === '네이버 검색 기반')) return null;
+  return { provider: 'Naver Search', today: tvKstDate(new Date()), items, featured: items[seed % items.length], updatedAt: new Date().toISOString() };
+}
+
+async function tvZodiacSnapshot() {
+  const now = Date.now();
+  if (tvDashboardCache.zodiac.value && tvDashboardCache.zodiac.expiresAt > now) return tvDashboardCache.zodiac.value;
+  const fallback = tvBuildFallbackZodiac('EatsPay');
+  try {
+    const url = 'https://m.search.naver.com/search.naver?query=' + encodeURIComponent('띠별운세');
+    const response = await fetch(url, {
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'accept-language': 'ko-KR,ko;q=0.9',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36'
+      }
+    });
+    if (!response.ok) throw new Error('NAVER_ZODIAC_FETCH_FAILED');
+    const html = await response.text();
+    const parsed = tvParseNaverZodiac(html);
+    if (!parsed) throw new Error('NAVER_ZODIAC_PARSE_EMPTY');
+    tvDashboardCache.zodiac = { value: parsed, expiresAt: now + 6 * 60 * 60 * 1000 };
+    return parsed;
+  } catch (err) {
+    const value = { ...fallback, provider: 'EatsPay fallback', error: err.message };
+    tvDashboardCache.zodiac = { value, expiresAt: now + 30 * 60 * 1000 };
+    return value;
+  }
+}
+function tvWeatherIconFromLabel(label = '') {
+  const text = String(label || '');
+  if (/\uBE44|\uC18C\uB098\uAE30|\uB1CC\uC6B0/.test(text)) return '\u2614';
+  if (/\uB208/.test(text)) return '\u2744';
+  if (/\uD750\uB9BC|\uAD6C\uB984/.test(text)) return '\u2601';
+  if (/\uB9D1\uC74C/.test(text)) return '\u2600';
+  return '\u26C5';
+}
+
+async function tvNaverWeatherSnapshot(locationName = '', fallbackLat = 37.5665, fallbackLng = 126.9780) {
+  const now = Date.now();
+  const location = String(locationName || process.env.TV_WEATHER_LOCATION || '\uC11C\uC6B8').trim() || '\uC11C\uC6B8';
+  if (tvDashboardCache.weather.value && tvDashboardCache.weather.expiresAt > now && tvDashboardCache.weather.value.location === location) return tvDashboardCache.weather.value;
+  try {
+    const url = 'https://m.search.naver.com/search.naver?query=' + encodeURIComponent(location + ' \uB0A0\uC528');
+    const response = await fetch(url, {
+      headers: {
+        accept: 'text/html,application/xhtml+xml',
+        'accept-language': 'ko-KR,ko;q=0.9',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36'
+      }
+    });
+    if (!response.ok) throw new Error('NAVER_WEATHER_FETCH_FAILED');
+    const html = await response.text();
+    const text = tvCleanFortuneText(html);
+    const weatherMatch = text.match(/\uC624\uB298\uC758 \uB0A0\uC528\s*([^\s]+)\s*\uD604\uC7AC \uC628\uB3C4\s*(-?\d+(?:\.\d+)?)\s*\u00B0/);
+    const tempMatch = text.match(/\uD604\uC7AC \uC628\uB3C4\s*(-?\d+(?:\.\d+)?)\s*\u00B0/);
+    const apparentMatch = text.match(/\uCCB4\uAC10\s*(-?\d+(?:\.\d+)?)\s*\u00B0/);
+    const humidityMatch = text.match(/\uC2B5\uB3C4\s*(\d+)\s*%/);
+    const label = weatherMatch?.[1] || text.match(/\uC624\uB298\uC758 \uB0A0\uC528\s*([^\s]+)/)?.[1] || text.match(/\uB0AE\uC544\uC694\s*([^\s]+)\s*\uCCB4\uAC10/)?.[1] || '\uB0A0\uC528 \uD655\uC778 \uC911';
+    const temperature = Number(tempMatch?.[1] || weatherMatch?.[2]);
+    if (!Number.isFinite(temperature)) throw new Error('NAVER_WEATHER_PARSE_EMPTY');
+    const value = {
+      provider: 'Naver Search',
+      location,
+      temperature,
+      apparentTemperature: Number.isFinite(Number(apparentMatch?.[1])) ? Number(apparentMatch[1]) : null,
+      humidity: Number.isFinite(Number(humidityMatch?.[1])) ? Number(humidityMatch[1]) : null,
+      weatherLabel: label,
+      weatherIcon: tvWeatherIconFromLabel(label),
+      updatedAt: new Date().toISOString()
+    };
+    tvDashboardCache.weather = { value, expiresAt: now + 10 * 60 * 1000 };
+    return value;
+  } catch (err) {
+    const fallback = await fetchCurrentWeather(fallbackLat, fallbackLng).catch(() => null);
+    if (!fallback) return null;
+    const value = { ...fallback, provider: 'Open-Meteo fallback', location };
+    tvDashboardCache.weather = { value, expiresAt: now + 2 * 60 * 1000 };
+    return value;
+  }
+}
+
+async function tvKakaoLocationWeatherSnapshot(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return tvNaverWeatherSnapshot(process.env.TV_WEATHER_LOCATION || '\uC11C\uC6B8');
+  const region = await resolveKakaoRegion(latitude, longitude).catch(() => null);
+  const locationName = region?.region3 || region?.region2 || region?.addressName || process.env.TV_WEATHER_LOCATION || '\uC11C\uC6B8';
+  const weather = await tvNaverWeatherSnapshot(locationName, latitude, longitude);
+  return weather ? {
+    ...weather,
+    location: region?.addressName || weather.location || locationName,
+    region1: region?.region1 || '',
+    region2: region?.region2 || '',
+    region3: region?.region3 || '',
+    latitude,
+    longitude,
+    locationProvider: region ? 'Kakao Local' : 'Browser Geolocation'
+  } : null;
+}
+
+async function tvExchangeSnapshot() {
+  const now = Date.now();
+  if (tvDashboardCache.exchange.value && tvDashboardCache.exchange.expiresAt > now) return tvDashboardCache.exchange.value;
+  const fallback = {
+    provider: 'fallback',
+    items: [
+      { code: 'USD/KRW', label: '달러', value: '대기', delta: '' },
+      { code: 'JPY/KRW', label: '엔화', value: '대기', delta: '' }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+  try {
+    const response = await fetch('https://open.er-api.com/v6/latest/USD', {
+      headers: { accept: 'application/json', 'user-agent': 'eats-pay-tv-dashboard/1.0' }
+    });
+    if (!response.ok) throw new Error('EXCHANGE_FETCH_FAILED');
+    const payload = await response.json();
+    const krw = Number(payload?.rates?.KRW);
+    const jpy = Number(payload?.rates?.JPY);
+    const value = {
+      provider: 'open.er-api.com',
+      items: [
+        { code: 'USD/KRW', label: '달러', value: Number.isFinite(krw) ? krw.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '대기', delta: '' },
+        { code: 'JPY/KRW', label: '엔화', value: Number.isFinite(krw) && Number.isFinite(jpy) ? (krw / jpy).toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '대기', delta: '' }
+      ],
+      updatedAt: new Date().toISOString()
+    };
+    tvDashboardCache.exchange = { value, expiresAt: now + 10 * 60 * 1000 };
+    return value;
+  } catch (_) {
+    tvDashboardCache.exchange = { value: fallback, expiresAt: now + 2 * 60 * 1000 };
+    return fallback;
+  }
+}
+
+
+async function tvMarketSnapshot() {
+  const now = Date.now();
+  if (tvDashboardCache.market.value && tvDashboardCache.market.expiresAt > now) return tvDashboardCache.market.value;
+  const fallback = {
+    provider: 'fallback',
+    items: [
+      { code: 'KOSPI', label: '\uCF54\uC2A4\uD53C', value: '\uB300\uAE30', delta: '', direction: 'flat' }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+  try {
+    const response = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=1d&interval=5m', {
+      headers: { accept: 'application/json', 'user-agent': 'eats-pay-tv-dashboard/1.0' }
+    });
+    if (!response.ok) throw new Error('MARKET_FETCH_FAILED');
+    const payload = await response.json();
+    const result = payload?.chart?.result?.[0] || {};
+    const meta = result.meta || {};
+    const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+    const closes = Array.isArray(result.indicators?.quote?.[0]?.close) ? result.indicators.quote[0].close : [];
+    const trendRows = timestamps.map((time, index) => ({ time, close: Number(closes[index]) })).filter(row => Number.isFinite(row.close));
+    const sampled = trendRows.filter((_, index) => index % Math.max(1, Math.ceil(trendRows.length / 18)) === 0).slice(-18);
+    const price = Number(meta.regularMarketPrice);
+    const previous = Number(meta.previousClose);
+    const diff = Number.isFinite(price) && Number.isFinite(previous) ? price - previous : null;
+    const rate = Number.isFinite(diff) && previous ? (diff / previous) * 100 : null;
+    const value = {
+      provider: 'Yahoo Finance',
+      items: [
+        {
+          code: 'KOSPI',
+          label: '\uCF54\uC2A4\uD53C',
+          value: Number.isFinite(price) ? price.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '??',
+          numericValue: Number.isFinite(price) ? price : null,
+          delta: Number.isFinite(diff) && Number.isFinite(rate) ? `${diff >= 0 ? '+' : ''}${diff.toFixed(2)} (${rate >= 0 ? '+' : ''}${rate.toFixed(2)}%)` : '',
+          direction: Number.isFinite(diff) ? (diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat') : 'flat',
+          trend: {
+            labels: sampled.map(row => new Date(row.time * 1000).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false })),
+            values: sampled.map(row => Number(row.close.toFixed(2)))
+          }
+        }
+      ],
+      updatedAt: new Date().toISOString()
+    };
+    tvDashboardCache.market = { value, expiresAt: now + 5 * 60 * 1000 };
+    return value;
+  } catch (_) {
+    tvDashboardCache.market = { value: fallback, expiresAt: now + 2 * 60 * 1000 };
+    return fallback;
+  }
+}
+
+async function tvNewsSnapshot() {
+  const now = Date.now();
+  if (tvDashboardCache.news.value && tvDashboardCache.news.expiresAt > now) return tvDashboardCache.news.value;
+  const fallback = {
+    provider: 'EatsPay',
+    breaking: [
+      { headline: '속보 대기 중 - 운영 흐름 정상', source: 'EatsPay', urgency: 'normal', publishedAt: new Date().toISOString() }
+    ],
+    headlines: [
+      { headline: '\uC624\uB298\uC758 \uC815\uC0B0 \uD750\uB984\uACFC \uAC00\uB9F9\uC810 \uC9C0\uD45C\uB97C \uD55C \uD654\uBA74\uC5D0 \uD45C\uC2DC\uD569\uB2C8\uB2E4', source: 'EatsPay', urgency: 'normal', publishedAt: new Date().toISOString() },
+      { headline: '날씨와 환율 정보는 자동으로 갱신됩니다', source: 'EatsPay', urgency: 'normal', publishedAt: new Date().toISOString() },
+      { headline: '공개 화면에서는 민감한 가맹점 정보가 노출되지 않습니다', source: 'EatsPay', urgency: 'normal', publishedAt: new Date().toISOString() }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+  const feedUrl = String(process.env.TV_DASHBOARD_NEWS_RSS || 'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko').trim();
+  try {
+    const response = await fetch(feedUrl, { headers: { accept: 'application/rss+xml,text/xml', 'user-agent': 'eats-pay-tv-dashboard/1.0' } });
+    if (!response.ok) throw new Error('NEWS_FETCH_FAILED');
+    const xml = await response.text();
+    const itemBlocks = [...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)].map(match => match[0]);
+    const titles = itemBlocks
+      .map(item => {
+        const cdata = item.match(/<title>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/title>/i)?.[1];
+        const plain = item.match(/<title>([\s\S]*?)<\/title>/i)?.[1];
+        return tvDecodeHtml(String(cdata || plain || '')).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      })
+      .filter(Boolean)
+      .filter((title, index, arr) => arr.indexOf(title) === index)
+      .slice(0, 8);
+    if (!titles.length) throw new Error('NEWS_EMPTY');
+    const value = {
+      provider: 'RSS',
+      breaking: titles.slice(0, 1).map(headline => ({ headline, source: 'RSS', urgency: 'breaking', publishedAt: new Date().toISOString() })),
+      headlines: titles.map(headline => ({ headline, source: 'RSS', urgency: 'normal', publishedAt: new Date().toISOString() })),
+      updatedAt: new Date().toISOString()
+    };
+    tvDashboardCache.news = { value, expiresAt: now + 10 * 60 * 1000 };
+    return value;
+  } catch (_) {
+    tvDashboardCache.news = { value: fallback, expiresAt: now + 5 * 60 * 1000 };
+    return fallback;
+  }
+}
+
+app.get('/api/tv-dashboard', asyncHandler(async (req, res) => {
+  const today = formatKstDate(new Date());
+  const month = today.slice(0, 7);
+  const latitude = Number(req.query.lat || req.query.latitude);
+  const longitude = Number(req.query.lng || req.query.longitude);
+  const hasLocation = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const weatherPromise = hasLocation
+    ? tvKakaoLocationWeatherSnapshot(latitude, longitude).catch(() => null)
+    : tvNaverWeatherSnapshot(req.query.location || req.query.weatherLocation).catch(() => null);
+  const [transactions, users, agencies, inquiries, advanceInquiries, accountRequests, deliveryAccounts, weather, exchange, market, news] = await Promise.all([
+    repo.listTransactions({ startDate: '2000-01-01', endDate: '2100-12-31', role: 'ADMIN', limit: 1000, offset: 0 }),
+    repo.listFranchiseUsers(),
+    repo.listAgencies(),
+    repo.listAgencyInquiries(),
+    repo.listAdvanceInquiries(),
+    repo.listAccountRequests(),
+    repo.listDeliveryAccounts(),
+    weatherPromise,
+    tvExchangeSnapshot(),
+    tvMarketSnapshot(),
+    tvNewsSnapshot()
+  ]);
+  const paymentRows = Array.isArray(transactions?.items) ? transactions.items : [];
+  const merchantRows = Array.isArray(users) ? users.filter(user => user.role === 'OWNER') : [];
+  const agencyRows = Array.isArray(agencies) ? agencies : [];
+  const agencyCounts = agencyRows.reduce((counts, agency) => {
+    const key = agencyTypeKeyForApi(agency);
+    if (Object.prototype.hasOwnProperty.call(counts, key)) counts[key] += 1;
+    return counts;
+  }, { hq: 0, bonbu: 0, jisa: 0, jijum: 0 });
+  const todaySales = paymentRows.filter(row => tvKstDate(row.createdAt || row.date) === today).reduce((sum, row) => sum + tvAmount(row), 0);
+  const monthSales = paymentRows.filter(row => tvKstDate(row.createdAt || row.date).slice(0, 7) === month).reduce((sum, row) => sum + tvAmount(row), 0);
+  const totalSales = paymentRows.reduce((sum, row) => sum + tvAmount(row), 0);
+  const pendingAccounts = accountRequests.filter(request => request.status === 'PENDING').length + deliveryAccounts.filter(account => account.accountStatus === 'PENDING').length;
+  const pendingInquiries = inquiries.filter(item => item.status === '상담 대기').length;
+  const pendingAdvance = advanceInquiries.filter(item => item.status === '상담 대기').length;
+  const dailyTrend = tvBuildDailyTrend(paymentRows, 7);
+  const recentDailyIndex = dailyTrend.values.map((value, index) => ({ value, label: dailyTrend.labels[index] })).filter(item => item.value > 0).pop() || { value: todaySales, label: today.slice(5).replace('-', '.') };
+  const hourlyTrend = tvBuildHourlyTrend(paymentRows, 12);
+  return res.status(200).json({
+    success: true,
+    data: {
+      mode: 'public',
+      generatedAt: new Date().toISOString(),
+      sales: {
+        ...tvPublicSalesIndex(todaySales, monthSales, totalSales),
+        recentDailyAmount: Math.round(recentDailyIndex.value),
+        recentDailyLabel: recentDailyIndex.label
+      },
+      merchants: {
+        today: merchantRows.filter(user => tvKstDate(user.createdAt) === today).length,
+        month: merchantRows.filter(user => tvKstDate(user.createdAt).slice(0, 7) === month).length,
+        total: merchantRows.length
+      },
+      organization: {
+        hq: agencyCounts.hq,
+        bonbu: agencyCounts.bonbu,
+        jisa: agencyCounts.jisa,
+        jijum: agencyCounts.jijum,
+        merchants: merchantRows.length,
+        total: agencyCounts.hq + agencyCounts.bonbu + agencyCounts.jisa + agencyCounts.jijum + merchantRows.length
+      },
+      operations: {
+        pendingAccounts,
+        pendingInquiries,
+        pendingAdvance,
+        healthLabel: pendingAccounts + pendingInquiries + pendingAdvance > 0 ? '처리중' : '정상'
+      },
+      trends: {
+        hourlySales: hourlyTrend,
+        dailySales: dailyTrend,
+        merchantGrowth: tvBuildDailyTrend(merchantRows.map(user => ({ createdAt: user.createdAt, amount: 1 })), 7)
+      },
+      weather: weather ? {
+        location: weather.location || '\uC11C\uC6B8',
+        temperature: weather.temperature,
+        apparentTemperature: weather.apparentTemperature,
+        humidity: weather.humidity,
+        weatherLabel: weather.weatherLabel,
+        weatherIcon: weather.weatherIcon,
+        windSpeed: weather.windSpeed,
+        provider: weather.provider,
+        locationProvider: weather.locationProvider || '',
+        region1: weather.region1 || '',
+        region2: weather.region2 || '',
+        region3: weather.region3 || '',
+        latitude: weather.latitude || null,
+        longitude: weather.longitude || null
+      } : { location: '\uC11C\uC6B8', temperature: null, weatherLabel: '\uB0A0\uC528 \uB300\uAE30', weatherIcon: '\u2022', provider: 'fallback' },
+      exchange,
+      market,
+      zodiac: await tvZodiacSnapshot(),
+      news,
+      brand: {
+        logoUrl: '/logo.png',
+        phrases: ['\uBC30\uB2EC\uB300\uD589\uBE44 \uCE74\uB4DC\uACB0\uC81C\uC758 \uC0C8\uB85C\uC6B4 \uAE30\uC900', '\uC815\uC0B0\uC758 \uD750\uB984\uC744 \uB354 \uC120\uBA85\uD558\uAC8C', '\uC6B4\uC601\uC758 \uAE30\uC900\uC744 \uB354 \uC120\uBA85\uD558\uAC8C']
+      }
+    }
+  });
+}));
 app.get('/api/delivery-agencies/nearby', asyncHandler(async (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
@@ -5868,8 +10116,127 @@ app.post('/api/admin/franchise/approve', authenticateAdmin, asyncHandler(async (
 }));
 
 app.get('/api/admin/accounts', authenticateAdmin, asyncHandler(async (req, res) => {
+  const includeSensitiveTidKeys = isSystemAdminUser(req.user);
   const requests = await repo.listAccountRequests();
-  return res.status(200).json({ success: true, data: requests });
+  return res.status(200).json({
+    success: true,
+    data: requests.map(request => {
+      if (includeSensitiveTidKeys) return request;
+      const { manualKey, recurringKey, manual_key, recurring_key, ...safe } = request;
+      return safe;
+    })
+  });
+}));
+
+function normalizeAdminPgContractPayload(body = {}) {
+  const providerName = normalizeProviderName(body.providerName || body.pgProviderName || body.provider || '');
+  const legacy = {
+    manualTid: String(body.manualTid || body.manual_tid || '').trim(),
+    manualKey: String(body.manualKey || body.manual_key || '').trim(),
+    recurringTid: String(body.recurringTid || body.recurring_tid || body.txid || '').trim(),
+    recurringKey: String(body.recurringKey || body.recurring_key || '').trim()
+  };
+  legacy.txid = legacy.recurringTid || legacy.manualTid;
+  const rawContracts = Array.isArray(body.contracts) ? body.contracts : [];
+  const contracts = rawContracts.map(contract => {
+    const normalizedProvider = normalizeProviderName(contract.providerName || contract.pgProviderName || providerName);
+    if (normalizedProvider === '루트업') {
+      const metadata = {
+        ...(contract.metadata && typeof contract.metadata === 'object' ? contract.metadata : {})
+      };
+      const routeupApiKey = String(contract.routeupApiKey || contract.apiKey || metadata.routeupApiKey || metadata.apiKey || '').trim();
+      const routeupEncryptionKey = String(contract.routeupEncryptionKey || contract.encryptionKey || contract.encryptKey || metadata.routeupEncryptionKey || metadata.encryptionKey || metadata.encryptKey || '').trim();
+      const initializationVector = String(contract.initializationVector || contract.iv || metadata.initializationVector || metadata.iv || '').trim();
+      if (routeupApiKey) metadata.routeupApiKey = routeupApiKey;
+      if (routeupEncryptionKey) metadata.routeupEncryptionKey = routeupEncryptionKey;
+      if (initializationVector) metadata.initializationVector = initializationVector;
+      return buildRouteupPaymentContract({
+        providerId: contract.providerId || contract.pgProviderId || body.providerId || body.pgProviderId || null,
+        mid: contract.mid || body.mid,
+        tid: contract.tid || contract.txid,
+        paymentKey: contract.paymentKey || contract.payKey || contract.key,
+        signatureKey: contract.signatureKey || contract.signKey,
+        contractStartDate: contract.contractStartDate || contract.startDate,
+        contractEndDate: contract.contractEndDate || contract.endDate,
+        deviceType: contract.deviceType || contract.terminalType,
+        isDefault: contract.isDefault !== false,
+        metadata
+      });
+    }
+    return contract;
+  });
+  return { providerName, legacy, contracts };
+}
+
+app.put('/api/admin/accounts/pg-contracts', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const source = String(req.body?.source || '').trim();
+  const accountId = String(req.body?.accountId || req.body?.requestId || '').trim();
+  if (!['delivery_account', 'account_request'].includes(source) || !accountId) {
+    return sendError(res, 400, 'INVALID_ACCOUNT_TARGET', 'source and accountId are required.');
+  }
+  const target = source === 'delivery_account'
+    ? await repo.findDeliveryAccountById(Number(accountId))
+    : await repo.findAccountRequest(accountId);
+  if (!target) {
+    return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+  }
+  const normalized = normalizeAdminPgContractPayload(req.body || {});
+  await repo.updateAccountApprovalPgContracts({
+    source,
+    id: accountId,
+    franchiseId: target.franchiseId,
+    legacy: normalized.legacy,
+    contracts: normalized.contracts
+  });
+  const updated = source === 'delivery_account'
+    ? await repo.findDeliveryAccountById(Number(accountId))
+    : await repo.findAccountRequest(accountId);
+  await recordAuditLog(req, {
+    action: 'ACCOUNT_PG_CONTRACT_UPDATE',
+    entityType: source,
+    entityId: accountId,
+    entityName: target.agencyName || target.deliveryAgencyName || target.franchiseName || '',
+    beforeData: {
+      txid: target.txid || '',
+      manualTid: target.manualTid || '',
+      recurringTid: target.recurringTid || '',
+      pgContracts: (target.pgContracts || []).map(maskPgContract)
+    },
+    afterData: {
+      txid: updated?.txid || '',
+      manualTid: updated?.manualTid || '',
+      recurringTid: updated?.recurringTid || '',
+      pgContracts: (updated?.pgContracts || []).map(maskPgContract)
+    },
+    force: true
+  });
+  return res.status(200).json({
+    success: true,
+    data: {
+      source,
+      accountId,
+      account: {
+        ...updated,
+        ...accountTidKeyDisplayFields(updated || {}, isSystemAdminUser(req.user))
+      }
+    }
+  });
+}));
+
+app.get('/api/admin/account-rejection-reasons', authenticateAdmin, asyncHandler(async (req, res) => {
+  const reasons = await repo.listAccountRejectionReasons();
+  return res.status(200).json({ success: true, data: reasons });
+}));
+
+app.put('/api/admin/account-rejection-reasons', authenticateAdmin, asyncHandler(async (req, res) => {
+  const reasons = Array.isArray(req.body?.reasons)
+    ? req.body.reasons.map(reason => String(reason || '').trim()).filter(Boolean)
+    : [];
+  if (!reasons.length) {
+    return sendError(res, 400, 'MISSING_REJECTION_REASONS', 'At least one rejection reason is required.');
+  }
+  const saved = await repo.replaceAccountRejectionReasons(reasons);
+  return res.status(200).json({ success: true, data: saved });
 }));
 
 app.put('/api/admin/accounts/:id', authenticateAdmin, singleUpload('documentFile'), asyncHandler(async (req, res) => {
@@ -6112,6 +10479,234 @@ function scheduleCardGorillaDailyUpdate() {
   console.log(`[cardgorilla] next daily update scheduled in ${Math.round(delay / 60000)} minutes (KST ${CARDGORILLA_UPDATE_HOUR_KST}:00)`);
 }
 
+function formatKstDateInput(value) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+function numberFromPayway(value) {
+  const numeric = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(numeric) ? Math.round(numeric) : 0;
+}
+
+function paywayAdjDateToTimestamptz(value) {
+  const raw = String(value || '').replace(/[^0-9]/g, '');
+  if (raw.length !== 8) return new Date().toISOString();
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(4, 6));
+  const day = Number(raw.slice(6, 8));
+  if (!year || !month || !day) return new Date().toISOString();
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - 9 * 60 * 60 * 1000).toISOString();
+}
+
+async function fetchChPaywayPaymentByAuthNo(authNo, paymentDate) {
+  await ensureChPaywaySession();
+  const day = formatKstDateInput(paymentDate);
+  const form = {
+    st: day,
+    ed: day,
+    pay_sta: 'ALL',
+    pg: 'ALL',
+    kf: 'authno',
+    k: String(authNo || '').trim(),
+    rows: '15',
+    page: 1,
+    pageSize: 15
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CH_PAYWAY_FALLBACK_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${CH_PAYWAY_BASE_URL}/ajax.php`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0',
+        Referer: `${CH_PAYWAY_BASE_URL}/pay`,
+        Cookie: chPaywayCookieHeader
+      },
+      body: new URLSearchParams({ qry: 'asp_usr_pay_lst', jData: JSON.stringify(form), rtnType: 'json3' }),
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`CH_PAYWAY_LIST_FAILED ${response.status}`);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (_) { throw new Error('CH_PAYWAY_LIST_PARSE_FAILED'); }
+    return Array.isArray(parsed?.T2) ? parsed.T2 : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function markSettlementConfirmedByChPayway(client, settlement, paywayRow) {
+  const payload = {
+    source: 'ch_payway_fallback',
+    seq: paywayRow.seq || null,
+    authno: paywayRow.authno || '',
+    odrno: paywayRow.odrno || '',
+    tradeno: paywayRow.tradeno || '',
+    pay_dt: paywayRow.pay_dt || '',
+    adj_sta: paywayRow.adj_sta,
+    adj_dt: paywayRow.adj_dt || '',
+    adj_amt: paywayRow.adj_amt || '',
+    mc_nm: paywayRow.mc_nm || ''
+  };
+  const settledAt = paywayAdjDateToTimestamptz(paywayRow.adj_dt || paywayRow.pay_dt);
+  const result = await client.query(
+    `UPDATE pg_settlements
+     SET status = 'SETTLED', settled_at = COALESCE(settled_at, $2::timestamptz), updated_at = now()
+     WHERE id = $1
+       AND settled_at IS NULL
+       AND status IN ('NORMAL_APPROVED', 'PENDING', 'APPROVED')
+     RETURNING id, approval_no, pg_tx_id, settled_at`,
+    [settlement.id, settledAt]
+  );
+  if (!result.rowCount) return null;
+  await client.query(
+    `INSERT INTO pg_notifications (
+       provider, event_type, transaction_id, pg_transaction_id,
+       result_code, result_message, payload, query, headers, processed
+     ) VALUES ('CH PAYWAY', 'CH_PAYWAY_FALLBACK_SETTLED', $1, $2, 'OK', 'CH PAYWAY 정산완료 자동 확인', $3::jsonb, $4::jsonb, '{}'::jsonb, true)`,
+    [settlement.approval_no, settlement.pg_tx_id, JSON.stringify(payload), JSON.stringify(payload)]
+  );
+  await client.query(
+    `INSERT INTO pg_settlement_ch_checks (settlement_id, approval_no, pg_tx_id, last_checked_at, next_check_at, check_count, last_result, confirmed_at, updated_at)
+     VALUES ($1, $2, $3, now(), NULL, 1, 'CONFIRMED', now(), now())
+     ON CONFLICT (settlement_id) DO UPDATE SET
+       last_checked_at = now(),
+       next_check_at = NULL,
+       check_count = pg_settlement_ch_checks.check_count + 1,
+       last_result = 'CONFIRMED',
+       last_error = NULL,
+       confirmed_at = now(),
+       updated_at = now()`,
+    [settlement.id, settlement.approval_no, settlement.pg_tx_id]
+  );
+  return result.rows[0];
+}
+
+async function recordChPaywayCheckResult(client, settlement, result, errorMessage = '') {
+  const createdAt = settlement.payment_created_at || settlement.created_at;
+  await client.query(
+    `INSERT INTO pg_settlement_ch_checks (settlement_id, approval_no, pg_tx_id, last_checked_at, next_check_at, check_count, last_result, last_error, updated_at)
+     VALUES (
+       $1, $2, $3, now(),
+       CASE
+         WHEN now() < $4::timestamptz + interval '10 minutes' THEN now() + interval '1 minute'
+         WHEN now() < $4::timestamptz + interval '24 hours' THEN now() + interval '10 minutes'
+         ELSE NULL
+       END,
+       1, $5, NULLIF($6, ''), now()
+     )
+     ON CONFLICT (settlement_id) DO UPDATE SET
+       last_checked_at = now(),
+       next_check_at = CASE
+         WHEN now() < $4::timestamptz + interval '10 minutes' THEN now() + interval '1 minute'
+         WHEN now() < $4::timestamptz + interval '24 hours' THEN now() + interval '10 minutes'
+         ELSE NULL
+       END,
+       check_count = pg_settlement_ch_checks.check_count + 1,
+       last_result = $5,
+       last_error = NULLIF($6, ''),
+       updated_at = now()`,
+    [settlement.id, settlement.approval_no, settlement.pg_tx_id, createdAt, result, errorMessage]
+  );
+}
+
+async function getChPaywayFallbackCandidates(limit = CH_PAYWAY_FALLBACK_BATCH_SIZE) {
+  const result = await pool.query(
+    `SELECT ps.id, ps.approval_no, ps.pg_tx_id, ps.franchise_name, ps.payment_amt, ps.svc_fee, ps.net_amt,
+            ps.status, ps.created_at, t.created_at AS payment_created_at, t.auth_code,
+            chk.next_check_at, chk.check_count
+     FROM pg_settlements ps
+     JOIN transactions t ON t.transaction_id = ps.approval_no
+     LEFT JOIN pg_settlement_ch_checks chk ON chk.settlement_id = ps.id
+     WHERE ps.settled_at IS NULL
+       AND ps.status IN ('NORMAL_APPROVED', 'PENDING', 'APPROVED')
+       AND t.created_at <= now() - interval '5 minutes'
+       AND t.created_at >= now() - interval '24 hours'
+       AND NULLIF(t.auth_code, '') IS NOT NULL
+       AND (chk.confirmed_at IS NULL)
+       AND (chk.next_check_at IS NULL OR chk.next_check_at <= now())
+     ORDER BY t.created_at ASC, ps.id ASC
+     LIMIT $1`,
+    [limit]
+  );
+  return result.rows;
+}
+
+async function checkOneSettlementWithChPayway(settlement) {
+  const rows = await fetchChPaywayPaymentByAuthNo(settlement.auth_code, settlement.payment_created_at || settlement.created_at);
+  const matched = rows.find(row => {
+    const approved = Number(row.cancel_yn || 0) === 0;
+    const settled = Number(row.adj_sta || 0) !== 0 && Number(row.adj_sta || 0) !== 9;
+    const sameApproval = String(row.odrno || '') === String(settlement.approval_no || '');
+    const samePgTx = String(row.tradeno || '') === String(settlement.pg_tx_id || '');
+    const sameAuth = String(row.authno || '') === String(settlement.auth_code || '');
+    const samePayment = numberFromPayway(row.amt) === Number(settlement.payment_amt || 0);
+    const sameNet = Math.abs(numberFromPayway(row.adj_amt) - Number(settlement.net_amt || 0)) <= 1;
+    return approved && settled && sameApproval && samePgTx && sameAuth && samePayment && sameNet;
+  });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (matched) {
+      const confirmed = await markSettlementConfirmedByChPayway(client, settlement, matched);
+      await client.query('COMMIT');
+      return { confirmed: Boolean(confirmed), row: matched };
+    }
+    await recordChPaywayCheckResult(client, settlement, rows.length ? 'NOT_SETTLED' : 'NOT_FOUND');
+    await client.query('COMMIT');
+    return { confirmed: false, row: null };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+let chPaywayFallbackRunning = false;
+async function runChPaywayFallbackCheck() {
+  if (!CH_PAYWAY_FALLBACK_ENABLED || !CH_PAYWAY_UID || !CH_PAYWAY_PW) return;
+  if (chPaywayFallbackRunning) return;
+  chPaywayFallbackRunning = true;
+  try {
+    const candidates = await getChPaywayFallbackCandidates();
+    for (const settlement of candidates) {
+      try {
+        const result = await checkOneSettlementWithChPayway(settlement);
+        if (result.confirmed) {
+          console.log(`[ch-payway-fallback] confirmed approval=${settlement.approval_no} pgTx=${settlement.pg_tx_id}`);
+        }
+      } catch (err) {
+        const client = await pool.connect();
+        try {
+          await recordChPaywayCheckResult(client, settlement, 'ERROR', err.message || String(err));
+        } finally {
+          client.release();
+        }
+        console.error(`[ch-payway-fallback] failed approval=${settlement.approval_no}:`, err.message || err);
+      }
+    }
+  } finally {
+    chPaywayFallbackRunning = false;
+  }
+}
+
+function scheduleChPaywayFallbackCheck() {
+  if (!CH_PAYWAY_FALLBACK_ENABLED) {
+    console.log('[ch-payway-fallback] disabled');
+    return;
+  }
+  if (!CH_PAYWAY_UID || !CH_PAYWAY_PW) {
+    console.warn('[ch-payway-fallback] skipped: CH PAYWAY credentials missing');
+    return;
+  }
+  setTimeout(() => void runChPaywayFallbackCheck(), 15 * 1000);
+  setInterval(() => void runChPaywayFallbackCheck(), 60 * 1000);
+  console.log('[ch-payway-fallback] scheduled every 60 seconds; per-settlement cadence 5-10m=1m, 10m+=10m');
+}
 app.use((err, req, res, next) => {
   handleError(err, res);
 });
@@ -6120,6 +10715,7 @@ if (require.main === module) {
   dbBootstrapPromise
     .then(() => {
       scheduleCardGorillaDailyUpdate();
+      scheduleChPaywayFallbackCheck();
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`[EatsPay Server] Running on http://localhost:${PORT}`);
       });
@@ -6199,13 +10795,36 @@ function sendError(res, statusCode, code, message, details = []) {
   });
 }
 
+function authenticateKakaoTxid(req, res, next) {
+  const expected = String(process.env.KAKAO_TXID_TOKEN || '').trim();
+  const provided = String(req.get('x-kakao-txid-token') || req.query?.token || '').trim();
+  if (!expected || !provided) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Kakao TID token is required.');
+  }
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Kakao TID token is invalid.');
+  }
+  req.user = {
+    id: null,
+    role: 'admin',
+    adminLevel: 'SYSTEM',
+    loginId: 'kakao-txid-bot',
+    name: 'Kakao TID Bot'
+  };
+  return next();
+}
+
+
 function auditActorFromRequest(req) {
   const user = req.user || {};
+  const loginId = user.loginId || user.email || '';
   return {
     actorUserId: user.id || null,
     actorRole: user.role || user.adminLevel || '',
-    actorLoginId: user.loginId || user.email || '',
-    actorName: user.name || user.franchiseName || user.agencyName || ''
+    actorLoginId: loginId,
+    actorName: user.name || user.franchiseName || user.agencyName || loginId || ''
   };
 }
 
@@ -6217,6 +10836,85 @@ function auditRequestMeta(req) {
     ipAddress: forwardedFor || req.ip || '',
     userAgent: String(req.headers?.['user-agent'] || '')
   };
+}
+
+function normalizeAuditNotificationCategory(category) {
+  const key = String(category || '').trim();
+  return AUDIT_NOTIFICATION_CATEGORY_SET.has(key) ? key : '';
+}
+
+function auditNotificationCategory(log = {}) {
+  const entityType = String(log.entityType || log.entity_type || '').toLowerCase();
+  const action = String(log.action || '').toUpperCase();
+  if (entityType.includes('banner') || action.includes('BANNER')) return 'banners';
+  if (entityType.includes('account') || action.includes('ACCOUNT')) return 'accounts';
+  if (entityType.includes('inquiry') || action.includes('INQUIRY')) return 'inquiries';
+  if (entityType.includes('franchise') || action.includes('FRANCHISE')) return 'franchises';
+  if (entityType.includes('agency') || action.includes('AGENCY')) return 'agencies';
+  if (entityType.includes('talk') || action.includes('TALK')) return 'talk';
+  if (entityType.includes('notice') || entityType.includes('guide') || entityType.includes('faq') || action.includes('NOTICE') || action.includes('GUIDE') || action.includes('FAQ')) return 'boards';
+  if (entityType.includes('installment') || action.includes('INSTALLMENT')) return 'installments';
+  if (entityType.includes('admin') || action.includes('ADMIN_USER') || action.includes('ADMIN_PASSWORD')) return 'admins';
+  if (entityType.includes('pg') || action.includes('PG_')) return 'pg';
+  return 'system';
+}
+
+function auditNotificationTitle(log = {}) {
+  const category = AUDIT_NOTIFICATION_CATEGORIES.find(item => item.key === auditNotificationCategory(log));
+  return category ? `${category.label} 알림` : '관리자 변경 알림';
+}
+
+function auditNotificationBody(log = {}) {
+  const actor = log.actorName || log.actorLoginId || '관리자';
+  const target = log.entityName || log.entityId || log.entityType || '대상';
+  const fields = Array.isArray(log.changedFields) && log.changedFields.length
+    ? ` (${log.changedFields.slice(0, 3).join(', ')} 변경)`
+    : '';
+  return `${actor}님이 ${target} 항목을 변경했습니다.${fields}`;
+}
+
+async function notifyAuditLogRecipients(log) {
+  if (!log?.id) return;
+  const category = auditNotificationCategory(log);
+  const actorLoginIdLower = String(log.actorLoginId || '').trim().toLowerCase();
+  const recipientLoginId = (recipient) => String(recipient?.loginId || recipient?.email || '').trim().toLowerCase();
+  let recipients = await repo.listAuditNotificationRecipients({
+    category,
+    actorUserId: actorLoginIdLower === SYSTEM_ADMIN_LOGIN_ID ? null : (log.actorUserId || null)
+  });
+  if (actorLoginIdLower === SYSTEM_ADMIN_LOGIN_ID) {
+    recipients = recipients.filter(recipient => recipientLoginId(recipient) === SYSTEM_ADMIN_LOGIN_ID);
+  }
+  if (!recipients.length) return;
+  const title = auditNotificationTitle(log);
+  const body = auditNotificationBody(log);
+  const data = {
+    source: 'admin_audit',
+    category,
+    auditLogId: String(log.id),
+    action: log.action || '',
+    entityType: log.entityType || '',
+    entityId: String(log.entityId || ''),
+    targetScreen: 'admin-audit-logs'
+  };
+  for (const recipient of recipients) {
+    try {
+      await repo.createNotification({
+        userId: recipient.id,
+        type: 'ADMIN_AUDIT_LOG',
+        title,
+        body,
+        data
+      });
+      await sendUserPushNotification(recipient.id, { title, body, data });
+    } catch (err) {
+      console.warn('[AUDIT_LOG_NOTIFICATION_FAILED]', {
+        auditLogId: log.id,
+        recipientId: recipient.id,
+        message: err?.message || String(err)
+      });
+    }
+  }
 }
 
 async function recordAuditLog(req, {
@@ -6239,7 +10937,7 @@ async function recordAuditLog(req, {
     : buildAuditChangeSet(beforeData || {}, afterData || {});
   if (!force && changeSet.changedFields.length === 0) return null;
   try {
-    return await repo.createAuditLog({
+    const log = await repo.createAuditLog({
       ...auditActorFromRequest(req),
       action,
       entityType,
@@ -6250,6 +10948,13 @@ async function recordAuditLog(req, {
       changedFields: changeSet.changedFields,
       ...auditRequestMeta(req)
     });
+    notifyAuditLogRecipients(log).catch(err => {
+      console.warn('[AUDIT_LOG_NOTIFICATION_FANOUT_FAILED]', {
+        auditLogId: log?.id,
+        message: err?.message || String(err)
+      });
+    });
+    return log;
   } catch (err) {
     console.warn('[AUDIT_LOG_WRITE_FAILED]', {
       action,
@@ -6281,7 +10986,9 @@ function pickFranchiseAuditData(user) {
     bizDocFileKey: user.bizDocFileKey || '',
     signupSource: user.signupSource || '',
     signupAgencyId: user.signupAgencyId || null,
-    signupJoinCode: user.signupJoinCode || ''
+    signupJoinCode: user.signupJoinCode || '',
+    pgProviderId: user.pgProviderId || null,
+    pgProviderName: user.pgProviderName || ''
   };
 }
 
@@ -6300,6 +11007,25 @@ function pickAgencyAuditData(agency) {
     feeRate: agency.feeRate == null ? 0 : Number(agency.feeRate),
     deliveryNote: agency.deliveryNote || '',
     joinCode: agency.joinCode || ''
+  };
+}
+
+function pickPgAssignmentRuleAuditData(rule) {
+  if (!rule) return {};
+  return {
+    id: rule.id,
+    name: rule.name || '',
+    pgProviderId: rule.pgProviderId || null,
+    pgProviderName: rule.pgProviderName || '',
+    agencyId: rule.agencyId || null,
+    agencyName: rule.agencyName || '',
+    joinCode: rule.joinCode || '',
+    startDate: rule.startDate || '',
+    endDate: rule.endDate || '',
+    weekdays: Array.isArray(rule.weekdays) ? rule.weekdays : [],
+    priority: Number(rule.priority || 100),
+    active: rule.active !== false,
+    note: rule.note || ''
   };
 }
 
@@ -6352,8 +11078,189 @@ function pickCardAuditData(card) {
     cardName: card.cardName || card.card_name || '',
     cardCompany: card.cardCompany || card.card_company || '',
     alias: card.alias || '',
+    pgProviderId: card.pgProviderId || card.pg_provider_id || null,
     active: card.active !== false,
     hidden: card.hidden === true
+  };
+}
+
+function normalizePgNameForRouting(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function isGhPaymentsProviderName(value) {
+  const normalized = normalizePgNameForRouting(value);
+  return normalized === 'ghpayments' || normalized === 'ghpayment' || normalized === 'gh';
+}
+
+function isRouteupProviderName(value) {
+  return avicxNormalizeProvider(value) === '루트업';
+}
+
+function pickRouteupBillingContract(account = {}, pgProvider = {}) {
+  const contracts = sanitizePgContracts(account.pgContracts || account.pg_contracts || []);
+  const contract = contracts.find(item =>
+    normalizeProviderName(item.providerName) === '루트업' &&
+    item.active !== false &&
+    item.isDefault !== false &&
+    item.tid &&
+    item.paymentKey
+  ) || contracts.find(item =>
+    normalizeProviderName(item.providerName) === '루트업' &&
+    item.active !== false &&
+    item.tid &&
+    item.paymentKey
+  );
+  if (!contract) return null;
+  const mid = String(contract.mid || pgProvider?.mid || '').trim();
+  if (!mid || !contract.tid || !contract.paymentKey) return null;
+  return { ...contract, mid };
+}
+
+function pickRouteupCardRegistrationContract(account = {}, pgProvider = {}) {
+  const contracts = (Array.isArray(account.pgContracts || account.pg_contracts) ? (account.pgContracts || account.pg_contracts) : [])
+    .map(normalizePgContract);
+  const contract = contracts.find(item =>
+    normalizeProviderName(item.providerName) === '루트업' &&
+    item.active !== false &&
+    item.paymentKey
+  );
+  if (!contract) return null;
+  const mid = String(contract.mid || pgProvider?.mid || '').trim();
+  if (!mid || !contract.paymentKey) return null;
+  return { ...contract, mid, tid: '' };
+}
+
+async function resolveAdminPgProvider(pgProviderId) {
+  const raw = String(pgProviderId || '').trim();
+  if (!raw) return null;
+  const id = Number(raw);
+  if (!Number.isFinite(id)) {
+    const err = new Error('PG사 선택값이 올바르지 않습니다.');
+    err.statusCode = 400;
+    err.code = 'INVALID_PG_PROVIDER';
+    throw err;
+  }
+  const providers = await repo.listPgProviders();
+  const provider = providers.find(item => Number(item.id) === id);
+  if (!provider) {
+    const err = new Error('선택한 PG사를 찾을 수 없습니다.');
+    err.statusCode = 404;
+    err.code = 'PG_PROVIDER_NOT_FOUND';
+    throw err;
+  }
+  if (provider.status !== '활성') {
+    const err = new Error('활성 상태의 PG사만 가맹점에 지정할 수 있습니다.');
+    err.statusCode = 409;
+    err.code = 'PG_PROVIDER_NOT_ACTIVE';
+    throw err;
+  }
+  return provider;
+}
+
+async function getUserPgProvider(user) {
+  if (!user?.pgProviderId) return null;
+  const providers = await repo.listPgProviders();
+  return providers.find(item => Number(item.id) === Number(user.pgProviderId)) || null;
+}
+
+function currentKstDateInfo() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short'
+  }).formatToParts(new Date());
+  const year = parts.find(part => part.type === 'year')?.value || '1970';
+  const month = parts.find(part => part.type === 'month')?.value || '01';
+  const day = parts.find(part => part.type === 'day')?.value || '01';
+  const date = `${year}-${month}-${day}`;
+  const weekday = new Date(`${date}T00:00:00+09:00`).getDay();
+  return { date, weekday };
+}
+
+function normalizePgAssignmentRulePayload(body = {}) {
+  const weekdays = Array.isArray(body.weekdays)
+    ? body.weekdays.map(Number).filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+    : [];
+  return {
+    name: String(body.name || '').trim(),
+    pgProviderId: Number(body.pgProviderId),
+    agencyId: body.agencyId ? Number(body.agencyId) : null,
+    joinCode: String(body.joinCode || '').trim(),
+    startDate: String(body.startDate || '').trim(),
+    endDate: String(body.endDate || '').trim(),
+    weekdays: [...new Set(weekdays)].sort((a, b) => a - b),
+    priority: Number.isFinite(Number(body.priority)) ? Number(body.priority) : 100,
+    active: body.active !== false,
+    note: String(body.note || '').trim()
+  };
+}
+
+async function validatePgAssignmentRule(rule) {
+  if (!rule.name) {
+    const error = new Error('규칙명은 필수입니다.');
+    error.statusCode = 400;
+    error.code = 'BAD_REQUEST';
+    throw error;
+  }
+  if (!Number.isFinite(rule.pgProviderId)) {
+    const error = new Error('PG사를 선택해 주세요.');
+    error.statusCode = 400;
+    error.code = 'INVALID_PG_PROVIDER';
+    throw error;
+  }
+  const providers = await repo.listPgProviders();
+  const provider = providers.find(item => Number(item.id) === Number(rule.pgProviderId));
+  if (!provider) {
+    const error = new Error('PG사를 찾을 수 없습니다.');
+    error.statusCode = 404;
+    error.code = 'PG_PROVIDER_NOT_FOUND';
+    throw error;
+  }
+  if (rule.agencyId && !Number.isFinite(rule.agencyId)) {
+    const error = new Error('대리점 선택값이 올바르지 않습니다.');
+    error.statusCode = 400;
+    error.code = 'INVALID_AGENCY_ID';
+    throw error;
+  }
+  if (rule.startDate && rule.endDate && rule.startDate > rule.endDate) {
+    const error = new Error('종료일은 시작일보다 빠를 수 없습니다.');
+    error.statusCode = 400;
+    error.code = 'INVALID_DATE_RANGE';
+    throw error;
+  }
+  return rule;
+}
+
+async function resolveSignupPgProvider({ agencyId = null, joinCode = '' } = {}) {
+  const [providers, rules] = await Promise.all([
+    repo.listPgProviders(),
+    repo.listPgAssignmentRules({ onlyActive: true })
+  ]);
+  const activeProviders = providers.filter(provider => provider.status === '활성');
+  const providerById = new Map(activeProviders.map(provider => [String(provider.id), provider]));
+  const { date, weekday } = currentKstDateInfo();
+  const normalizedJoinCode = String(joinCode || '').trim().toLowerCase();
+  const matchedRule = rules.find(rule => {
+    if (!providerById.has(String(rule.pgProviderId))) return false;
+    if (rule.agencyId && String(rule.agencyId) !== String(agencyId || '')) return false;
+    if (rule.joinCode && rule.joinCode.toLowerCase() !== normalizedJoinCode) return false;
+    if (rule.startDate && date < rule.startDate) return false;
+    if (rule.endDate && date > rule.endDate) return false;
+    if (Array.isArray(rule.weekdays) && rule.weekdays.length && !rule.weekdays.includes(weekday)) return false;
+    return true;
+  });
+  const fallback = activeProviders
+    .slice()
+    .sort((a, b) => (Number(a.displayOrder || 0) - Number(b.displayOrder || 0)) || String(a.name || '').localeCompare(String(b.name || '')))[0] || null;
+  const provider = matchedRule ? providerById.get(String(matchedRule.pgProviderId)) : fallback;
+  return {
+    provider: provider || null,
+    rule: matchedRule || null,
+    date,
+    weekday
   };
 }
 
@@ -7069,6 +11976,18 @@ function requireSuperAdmin(req, res, next) {
   return next();
 }
 
+function isSystemAdminUser(user) {
+  const login = String(user?.loginId || user?.email || '').trim().toLowerCase();
+  return login === SYSTEM_ADMIN_LOGIN_ID;
+}
+
+function requireSystemAdminOnly(req, res, next) {
+  if (!isSystemAdminUser(req.user)) {
+    return sendError(res, 403, 'ACCESS_DENIED', '시스템 관리자 전용 메뉴입니다.');
+  }
+  return next();
+}
+
 async function userFromRequest(req) {
   const authHeader = req.headers.authorization;
   const cookieToken = getCookieValue(req, 'eatspay_access_token');
@@ -7270,7 +12189,7 @@ function createTemporaryPassword() {
 }
 
 function isTestBusinessNumber(value) {
-  return String(value || '').trim() === TEST_BUSINESS_NUMBER;
+  return String(value || '').replace(/[^0-9]/g, '') === TEST_BUSINESS_NUMBER;
 }
 
 function createStoredTestBusinessNumber(loginId) {
@@ -7411,9 +12330,10 @@ function normalizeDeliveryAccountStatusForDb(value) {
   return 'PENDING';
 }
 
-function deliveryAccountStatusLabel(status, txid = '') {
-  if (status === 'APPROVED') return txid ? '승인완료' : '승인대기';
+function deliveryAccountStatusLabel(status, account = {}) {
   if (status === 'REJECTED') return '반려';
+  if (hasAccountApprovalCredentials(account)) return '승인완료';
+  if (status === 'APPROVED') return '승인대기';
   return '승인대기';
 }
 
@@ -7889,6 +12809,11 @@ function publicUser(user) {
     role: user.role,
     agencyId: user.agencyId || null,
     agencyName: user.agencyName || null,
+    pgProviderId: user.pgProviderId || null,
+    pgProviderName: user.pgProviderName || '',
+    settleBankName: user.role === 'AGENCY' ? user.settleBankName || '' : '',
+    settleAccountNo: user.role === 'AGENCY' ? user.settleAccountNo || '' : '',
+    settleAccountHolder: user.role === 'AGENCY' ? user.settleAccountHolder || '' : '',
     adminLevel: isAdmin ? adminLevel : null,
     adminRoleLabel: isAdmin ? ADMIN_LEVELS[adminLevel].name : null,
     adminPermissions: isAdmin ? adminPermissions : [],
@@ -7913,7 +12838,7 @@ function normalizeAdminPermissions(value, adminLevel = 'SUPER') {
   if (!Array.isArray(value)) return [...fallback];
   const normalized = value
     .map(item => String(item || '').trim())
-    .filter(item => ADMIN_MENU_PERMISSION_SET.has(item));
+    .filter(item => ADMIN_MENU_PERMISSION_SET.has(item) && !SYSTEM_ADMIN_ONLY_MENU_PERMISSIONS.has(item));
   return Array.from(new Set(normalized.length ? normalized : fallback));
 }
 
@@ -7941,6 +12866,26 @@ function displayAgencyName(name) {
     return DEFAULT_AGENCY_NAME;
   }
   return normalized;
+}
+
+function agencyTypeKeyForApi(agency = {}) {
+  const raw = String(agency.type || agency.agencyType || '').trim().toLowerCase();
+  if (raw === 'hq' || raw === 'head' || raw === 'headquarters' || raw === '본사') return 'hq';
+  if (raw === 'bonbu' || raw === 'division' || raw === '본부') return 'bonbu';
+  if (raw === 'branch' || raw === 'jisa' || raw === '지사') return 'jisa';
+  if (raw === 'office' || raw === 'agency' || raw === 'jijum' || raw === '지점') {
+    return Number(agency.level || 0) >= 3 ? 'jijum' : 'jisa';
+  }
+  const level = Number(agency.level || 0);
+  if (level <= 1) return 'hq';
+  if (level === 2) return 'bonbu';
+  if (level === 3) return 'jisa';
+  return 'jijum';
+}
+
+function agencyTypeLabelForApi(agency = {}) {
+  const key = agencyTypeKeyForApi(agency);
+  return ({ hq: '본사', bonbu: '본부', jisa: '지사', jijum: '지점' })[key] || '대리점';
 }
 
 function formatDate(value) {
@@ -7980,7 +12925,7 @@ function inferCardName(digits) {
   const first2 = Number(value.slice(0, 2));
   const first4 = Number(value.slice(0, 4));
   if (value.length < 6) return '';
-  if (/^(419803)/.test(value)) return 'IBK기업은행';
+  if (/^(419803|621003)/.test(value)) return 'IBK기업 BC카드';
   if (value.startsWith('34') || value.startsWith('37')) return '아멕스카드';
   if (/^(356316|356317|356901|404825|438676|457973|515594|524353|540926|552220|558526|625804)/.test(value)) return '신한카드';
   if (/^(356416|356417|356418|404678|457047|464942|515954|516574|524144|540447|552070|558526)/.test(value)) return '삼성카드';
@@ -7998,12 +12943,22 @@ function inferCardName(digits) {
   return '카드';
 }
 
+function maskCardNumberForStorage(value, fallbackDigits = '', label = '카드') {
+  const raw = String(value || '').trim();
+  const fallback = String(fallbackDigits || '').replace(/[^0-9]/g, '');
+  const rawDigits = raw.replace(/[^0-9]/g, '');
+  const last4 = (rawDigits || fallback).slice(-4);
+  const safeLabel = String(label || '카드').trim() || '카드';
+  if (raw && /[*xX]/.test(raw) && rawDigits.length <= 8) return raw;
+  return last4 ? `${safeLabel} (****-****-${last4})` : `${safeLabel} (****-****-****)`;
+}
+
 function normalizeProviderCardCompany(providerName, fallbackName, digits = '') {
   const inferred = inferCardName(digits);
   const raw = String(providerName || '').trim();
   const fallback = String(fallbackName || '').trim();
   const compact = raw.replace(/\s+/g, '').toLowerCase();
-  if (inferred === 'IBK기업은행') return inferred;
+  if (inferred.startsWith('IBK기업')) return inferred;
   if ((compact.includes('unionpay') || raw.includes('은련')) && (compact.includes('bc') || raw.includes('비씨'))) {
     return fallback || inferred || '카드';
   }
@@ -8053,18 +13008,22 @@ async function seedDeliveryAgencies() {
 }
 
 async function seedFinancialInstitutions() {
-  for (const [index, item] of DEFAULT_FINANCIAL_INSTITUTIONS.entries()) {
+  await pool.query("UPDATE financial_institutions SET active = false, updated_at = now() WHERE name = '저축은행'");
+  const institutions = [...DEFAULT_FINANCIAL_INSTITUTIONS, ...ROUTEUP_FINANCIAL_INSTITUTIONS];
+  for (const [index, item] of institutions.entries()) {
     await pool.query(
-      `INSERT INTO financial_institutions (code, name, sort_order, active)
-       VALUES ($1, $2, $3, true)
+      `INSERT INTO financial_institutions (code, name, sort_order, active, icon_url)
+       VALUES ($1, $2, $3, true, $4)
        ON CONFLICT (name) DO UPDATE SET
          code = EXCLUDED.code,
          sort_order = EXCLUDED.sort_order,
          active = true,
+         icon_url = EXCLUDED.icon_url,
          updated_at = now()`,
-      [item.code, item.name, index + 1]
+      [item.code, item.name, index + 1, item.iconUrl || '']
     );
   }
+  await pool.query("UPDATE financial_institutions SET active = false, updated_at = now() WHERE name = '저축은행'");
 }
 
 function hasGhPaymentsPayKey() {
@@ -8100,12 +13059,12 @@ function getGhPaymentsPayKey(pathname = '') {
   ).trim();
 }
 
-async function ghPaymentsRequest(pathname, { method = 'GET', body } = {}) {
+async function ghPaymentsRequest(pathname, { method = 'GET', body, payKey: payKeyOverride } = {}) {
   if (!hasGhPaymentsPayKey()) {
     throw new Error('GH_PAYMENTS_PAY_KEY is required for GH Payments integration.');
   }
 
-  const payKey = getGhPaymentsPayKey(pathname);
+  const payKey = String(payKeyOverride || getGhPaymentsPayKey(pathname)).trim();
   const headers = {
     Authorization: payKey,
     Accept: 'application/json'
@@ -8118,6 +13077,25 @@ async function ghPaymentsRequest(pathname, { method = 'GET', body } = {}) {
   }
 
   return fetch(`${GH_PAYMENTS_BASE_URL}${pathname}`, init);
+}
+
+async function routeupRequest(pathname, { method = 'GET', body, payKey } = {}) {
+  const authorization = String(payKey || '').trim();
+  if (!authorization) {
+    const err = new Error('ROUTEUP_PAYMENT_KEY_REQUIRED');
+    err.code = 'ROUTEUP_PAYMENT_KEY_REQUIRED';
+    throw err;
+  }
+  const headers = {
+    Authorization: authorization,
+    Accept: 'application/json'
+  };
+  const init = { method, headers };
+  if (body !== undefined && method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  return fetch(`${ROUTEUP_API_BASE_URL}${pathname}`, init);
 }
 
 async function relayProviderResponse(providerResponse, res) {
@@ -8138,8 +13116,3 @@ async function relayProviderResponse(providerResponse, res) {
 }
 
 module.exports = app;
-
-
-
-
-

@@ -1,3 +1,15 @@
+const {
+  buildGhPaymentContracts,
+  buildRouteupPaymentContract,
+  hasRouteupExternalIntegrationKeys,
+  maskPgContract,
+  normalizePgContract,
+  normalizeProviderName,
+  sanitizePgContracts
+} = require('../lib/pg-contracts');
+
+const MAX_INSTALLMENT_MONTH = 6;
+
 function toUser(row) {
   if (!row) return null;
   return {
@@ -29,6 +41,8 @@ function toUser(row) {
     signupSource: row.signup_source,
     signupAgencyId: row.signup_agency_id,
     signupJoinCode: row.signup_join_code,
+    pgProviderId: row.pg_provider_id || null,
+    pgProviderName: row.pg_provider_name || row.pg_provider || '',
     createdAt: row.created_at
   };
 }
@@ -56,6 +70,17 @@ function toAuditLog(row) {
   };
 }
 
+function toAuditNotificationPreference(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    adminUserId: row.admin_user_id,
+    category: row.category,
+    enabled: row.enabled !== false,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function toAgencyAuth(row) {
   if (!row) return null;
   return {
@@ -76,6 +101,9 @@ function toAgencyAuth(row) {
     phone: row.phone,
     address: row.address,
     tel: row.phone,
+    settleBankName: row.settle_bank_name || '',
+    settleAccountNo: row.settle_account_no || '',
+    settleAccountHolder: row.settle_account_holder || '',
     businessNumber: null,
     adminActive: true,
     joinCode: row.join_code
@@ -123,6 +151,11 @@ function toAccountRequest(row) {
     exportBatchId: row.export_batch_id,
     exportedAt: row.exported_at instanceof Date ? row.exported_at.toISOString() : row.exported_at,
     txid: row.txid,
+    manualTid: row.manual_tid,
+    manualKey: row.manual_key,
+    recurringTid: row.recurring_tid,
+    recurringKey: row.recurring_key,
+    pgContracts: Array.isArray(row.pg_contracts) ? row.pg_contracts.map(item => normalizePgContract(item)) : [],
     txidUploadedAt: row.txid_uploaded_at instanceof Date ? row.txid_uploaded_at.toISOString() : row.txid_uploaded_at,
     active: row.active !== false,
     hidden: row.hidden === true
@@ -161,6 +194,11 @@ function toDeliveryAccount(row) {
     exportBatchId: row.export_batch_id,
     exportedAt: row.exported_at instanceof Date ? row.exported_at.toISOString() : row.exported_at,
     txid: row.txid,
+    manualTid: row.manual_tid,
+    manualKey: row.manual_key,
+    recurringTid: row.recurring_tid,
+    recurringKey: row.recurring_key,
+    pgContracts: Array.isArray(row.pg_contracts) ? row.pg_contracts.map(item => normalizePgContract(item)) : [],
     txidUploadedAt: row.txid_uploaded_at instanceof Date ? row.txid_uploaded_at.toISOString() : row.txid_uploaded_at,
     active: row.active !== false,
     hidden: row.hidden === true,
@@ -173,7 +211,7 @@ function normalizeAccountNo(value) {
 }
 
 function isValidAccountApprovalTxid(value) {
-  return /^T\d{12}$/.test(String(value || '').trim());
+  return /^(T\d{12}|TMN\d{6,})$/.test(String(value || '').trim());
 }
 
 function deliveryAccountDedupeKey(account) {
@@ -278,10 +316,24 @@ function findProviderSettlementTime(payload) {
 
 function toPgSettlement(row) {
   if (!row) return null;
+  const settledAt = row.transfer_received_at || row.deposit_received_at || row.settled_at || null;
+  const paymentDate = row.payment_created_at || row.payment_date || row.created_at;
+  const rawStatus = String(row.status || '').trim();
+  const hasPaymentCode = !!String(row.approval_no || '').trim();
+  const hasSettlementSignal = !!settledAt;
+  const normalizePgSettlementStatus = () => {
+    if (rawStatus === 'ROLLED_BACK' || rawStatus === '롤백' || rawStatus === '취소') return '취소';
+    if (rawStatus === 'SETTLED' || rawStatus === '정산완료') return '정산완료';
+    if (hasSettlementSignal) return '정산완료';
+    if (hasPaymentCode) return '정산대기';
+    return '확인필요';
+  };
   return {
     id: row.id,
-    settledAt: row.settled_at instanceof Date ? row.settled_at.toISOString() : row.settled_at,
+    paymentDate: paymentDate instanceof Date ? paymentDate.toISOString() : paymentDate,
+    settledAt: settledAt instanceof Date ? settledAt.toISOString() : settledAt,
     approvalNo: row.approval_no,
+    authCode: row.payment_auth_code || row.auth_code || '',
     pg: row.pg,
     pgTxId: row.pg_tx_id,
     franchiseId: row.franchise_id,
@@ -293,9 +345,18 @@ function toPgSettlement(row) {
     agencyName: row.resolved_agency_name || row.agency_name,
     customerId: row.customer_id,
     bankCode: row.bank_code,
-    accountNo: row.account_no,
+    depositBankName: row.transfer_bank_name || row.deposit_bank_name || row.bank_code || row.account_bank_name || '',
+    accountNo: row.transfer_account_no || row.deposit_account_no || row.account_no || row.account_account_no || '',
+    accountHolder: row.transfer_account_holder || row.deposit_account_holder || row.account_holder || row.account_account_holder || '',
+    transferSeq: row.transfer_seq || row.deposit_txid || '',
+    transferAmount: row.transfer_amount == null ? null : Number(row.transfer_amount),
+    transferFee: row.transfer_fee == null ? null : Number(row.transfer_fee),
+    transferResult: row.transfer_result || '',
+    transferRequestedAt: row.transfer_requested_at instanceof Date ? row.transfer_requested_at.toISOString() : row.transfer_requested_at,
+    transferCompletedAt: row.transfer_completed_at instanceof Date ? row.transfer_completed_at.toISOString() : row.transfer_completed_at,
     deliveryAgency: row.delivery_agency,
-    status: row.status
+    status: normalizePgSettlementStatus(),
+    rawStatus
   };
 }
 
@@ -315,6 +376,86 @@ function toPgProvider(row) {
   };
 }
 
+function toPgContract(row, { includeRaw = true } = {}) {
+  if (!row) return null;
+  const contract = normalizePgContract({
+    id: row.id,
+    providerId: row.pg_provider_id,
+    providerName: row.pg_provider_name,
+    credentialType: row.credential_type,
+    mid: row.mid,
+    tid: row.tid,
+    paymentKey: row.payment_key,
+    signatureKey: row.signature_key,
+    contractStartDate: row.contract_start_date instanceof Date ? row.contract_start_date.toISOString().slice(0, 10) : row.contract_start_date,
+    contractEndDate: row.contract_end_date instanceof Date ? row.contract_end_date.toISOString().slice(0, 10) : row.contract_end_date,
+    deviceType: row.device_type,
+    isDefault: row.is_default,
+    active: row.active,
+    metadata: row.metadata || {}
+  });
+  if (includeRaw) return contract;
+  return maskPgContract(contract);
+}
+
+function toPgAssignmentRule(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name || '',
+    pgProviderId: row.pg_provider_id || null,
+    pgProviderName: row.pg_provider_name || '',
+    agencyId: row.agency_id || null,
+    agencyName: row.agency_name || '',
+    joinCode: row.join_code || '',
+    startDate: row.start_date instanceof Date ? row.start_date.toISOString().slice(0, 10) : row.start_date || '',
+    endDate: row.end_date instanceof Date ? row.end_date.toISOString().slice(0, 10) : row.end_date || '',
+    weekdays: Array.isArray(row.weekdays) ? row.weekdays.map(Number).filter(day => day >= 0 && day <= 6) : [],
+    priority: Number(row.priority || 100),
+    active: row.active !== false,
+    note: row.note || '',
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
+function toPgNotification(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider || '',
+    eventType: row.event_type || '',
+    transactionId: row.transaction_id || '',
+    pgTransactionId: row.pg_transaction_id || '',
+    resultCode: row.result_code || '',
+    resultMessage: row.result_message || '',
+    payload: row.payload || {},
+    query: row.query || {},
+    headers: row.headers || {},
+    receivedAt: row.received_at instanceof Date ? row.received_at.toISOString() : row.received_at
+  };
+}
+
+function toDepositNotification(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider || '',
+    eventType: row.event_type || '',
+    txid: row.txid || '',
+    accountNo: row.account_no || '',
+    bankName: row.bank_name || '',
+    depositorName: row.depositor_name || '',
+    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    resultCode: row.result_code || '',
+    resultMessage: row.result_message || '',
+    payload: row.payload || {},
+    query: row.query || {},
+    headers: row.headers || {},
+    receivedAt: row.received_at instanceof Date ? row.received_at.toISOString() : row.received_at
+  };
+}
+
 function toBoardPost(row) {
   if (!row) return null;
   const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at;
@@ -327,6 +468,8 @@ function toBoardPost(row) {
     author: row.author,
     content: row.content,
     active: row.active,
+    order: Number(row.display_order || 0),
+    displayOrder: Number(row.display_order || 0),
     date: createdAt ? String(createdAt).slice(0, 10) : '',
     createdAt,
     updatedAt
@@ -393,6 +536,7 @@ function toTalkPost(row) {
     userId: row.user_id,
     franchiseId: row.franchise_id,
     franchiseName: row.franchise_name,
+    authorLoginId: row.author_login_id || '',
     title: row.title,
     body: row.body,
     price: Number(row.price || 0),
@@ -400,6 +544,14 @@ function toTalkPost(row) {
     imageUrls: Array.isArray(row.image_urls) ? row.image_urls : [],
     status: row.status,
     tradeStatus: row.trade_status || 'SALE',
+    reportCount: Number(row.report_count || 0),
+    pendingReportCount: Number(row.pending_report_count || 0),
+    latestReportReason: row.latest_report_reason || '',
+    latestReportDetail: row.latest_report_detail || '',
+    latestReportedAt: row.latest_reported_at instanceof Date ? row.latest_reported_at.toISOString() : row.latest_reported_at,
+    adminDeletedReason: row.admin_deleted_reason || '',
+    adminDeletedAt: row.admin_deleted_at instanceof Date ? row.admin_deleted_at.toISOString() : row.admin_deleted_at,
+    adminDeletedBy: row.admin_deleted_by || null,
     sellerAddress: row.seller_address || '',
     sellerLatitude: row.seller_latitude == null ? null : Number(row.seller_latitude),
     sellerLongitude: row.seller_longitude == null ? null : Number(row.seller_longitude),
@@ -423,6 +575,8 @@ function toTalkComment(row) {
     userName: row.user_name || row.franchise_name || '',
     comment: row.comment,
     status: row.status,
+    likeCount: Number(row.like_count || 0),
+    likedByMe: row.liked_by_me === true,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
   };
@@ -466,6 +620,7 @@ function toAgencyInquiry(row) {
   if (!row) return null;
   return {
     id: row.id,
+    inquiryType: row.inquiry_type || '지점/지사 개설',
     name: row.name,
     phone: row.phone || '',
     deliveryAgency: row.delivery_agency || '',
@@ -478,11 +633,83 @@ function toAgencyInquiry(row) {
   };
 }
 
+function toAdvanceInquiry(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id || null,
+    franchiseId: row.franchise_id || null,
+    franchiseName: row.franchise_name || '',
+    phone: row.phone || '',
+    email: row.email || '',
+    deliverySalesManwon: Number(row.delivery_sales_manwon || 0),
+    deliveryApps: row.delivery_apps || '',
+    storeSalesManwon: Number(row.store_sales_manwon || 0),
+    status: row.status || '상담 대기',
+    date: row.created_at instanceof Date ? row.created_at.toISOString().slice(0, 10) : String(row.created_at || '').slice(0, 10),
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+  };
+}
+
 function normalizePolicyMonth(value) {
-  const source = value ? new Date(`${String(value).slice(0, 7)}-01T00:00:00Z`) : new Date();
+  if (value) {
+    const source = new Date(`${String(value).slice(0, 7)}-01T00:00:00Z`);
+    const year = source.getUTCFullYear();
+    const month = String(source.getUTCMonth() + 1).padStart(2, '0');
+    return `${year}-${month}-01`;
+  }
+  const source = new Date(Date.now() + (9 * 60 * 60 * 1000));
   const year = source.getUTCFullYear();
   const month = String(source.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}-01`;
+}
+
+function getPreviousPolicyMonth(value) {
+  const source = new Date(`${normalizePolicyMonth(value)}T00:00:00Z`);
+  source.setUTCMonth(source.getUTCMonth() - 1);
+  const year = source.getUTCFullYear();
+  const month = String(source.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
+}
+
+function normalizeInstallmentPartialPlans(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '').split(/\r?\n/).map(line => ({ label: line.trim() }));
+  return source
+    .map(plan => {
+      const label = String(plan?.label || plan?.text || '').trim();
+      const rawMonths = Array.isArray(plan?.months)
+        ? plan.months
+        : [plan?.month].filter(Boolean);
+      const labelMonths = [];
+      const monthPattern = /(\d+)\s*(?:개월|媛쒖썡)/g;
+      let monthMatch;
+      while ((monthMatch = monthPattern.exec(label)) !== null) {
+        labelMonths.push(Number(monthMatch[1]));
+      }
+      const hasExplicitMonths = rawMonths.length > 0 || labelMonths.length > 0;
+      const months = [...new Set(rawMonths
+        .map(Number)
+        .filter(month => Number.isInteger(month) && month >= 2 && month <= MAX_INSTALLMENT_MONTH)
+        .concat(labelMonths.filter(month => Number.isInteger(month) && month >= 2 && month <= MAX_INSTALLMENT_MONTH)))]
+        .sort((a, b) => a - b);
+      const note = String(plan?.note || plan?.customerBurden || '').trim();
+      const normalizedLabel = label || (months.length ? `${months.join(', ')}개월${note ? `(${note})` : ''}` : '');
+      return {
+        months,
+        note,
+        label: normalizedLabel
+      };
+    })
+    .filter(plan => plan.label && (!/(\d+)\s*(?:개월|媛쒖썡)/.test(plan.label) || plan.months.length))
+    .slice(0, 20);
+}
+
+function normalizeInstallmentExclusions(value) {
+  const source = Array.isArray(value) ? value : String(value || '').split(/\r?\n/);
+  return [...new Set(source.map(item => String(item || '').trim()).filter(Boolean))].slice(0, 50);
 }
 
 function toNotification(row) {
@@ -499,7 +726,132 @@ function toNotification(row) {
   };
 }
 
+async function attachPgContracts(pool, accounts = [], source, { includeRaw = true } = {}) {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const ids = list.map(account => String(source === 'delivery_account' ? account.id : account.requestId || account.request_id || account.id || '')).filter(Boolean);
+  if (!ids.length) return list;
+  const result = await pool.query(
+    `SELECT *
+     FROM account_pg_contracts
+     WHERE account_source = $1
+       AND account_id = ANY($2::text[])
+       AND active = true
+     ORDER BY is_default DESC,
+              CASE credential_type WHEN 'recurring' THEN 0 WHEN 'routeup' THEN 1 WHEN 'manual' THEN 2 ELSE 3 END,
+              id ASC`,
+    [source, ids]
+  );
+  const byId = new Map();
+  for (const row of result.rows) {
+    const key = String(row.account_id || '');
+    if (!byId.has(key)) byId.set(key, []);
+    byId.get(key).push(toPgContract(row, { includeRaw }));
+  }
+  list.forEach(account => {
+    const key = String(source === 'delivery_account' ? account.id : account.requestId || account.request_id || account.id || '');
+    account.pgContracts = byId.get(key) || [];
+  });
+  return list;
+}
+
+function pgContractMergeKey(contract = {}) {
+  const normalized = normalizePgContract(contract);
+  return [
+    normalizeProviderName(normalized.providerName),
+    normalized.credentialType || '',
+    normalized.tid || ''
+  ].join('|');
+}
+
+function mergeReplacementPgContracts(incomingContracts = [], previousContracts = []) {
+  const previous = sanitizePgContracts(previousContracts);
+  const incoming = (Array.isArray(incomingContracts) ? incomingContracts : [])
+    .map(normalizePgContract)
+    .filter(contract => sanitizePgContracts([contract]).length > 0);
+  if (!incoming.length) return previous;
+  const previousByKey = new Map(previous.map(contract => [pgContractMergeKey(contract), contract]));
+  return incoming.map(contract => {
+    const previousMatch = previousByKey.get(pgContractMergeKey(contract))
+      || previous.find(item => normalizeProviderName(item.providerName) === normalizeProviderName(contract.providerName)
+        && item.credentialType === contract.credentialType)
+      || {};
+    return normalizePgContract({
+      ...contract,
+      providerId: contract.providerId || previousMatch.providerId || null,
+      mid: contract.mid || previousMatch.mid || '',
+      paymentKey: contract.paymentKey || previousMatch.paymentKey || '',
+      signatureKey: contract.signatureKey || previousMatch.signatureKey || '',
+      contractStartDate: contract.contractStartDate || previousMatch.contractStartDate || '',
+      contractEndDate: contract.contractEndDate || previousMatch.contractEndDate || '',
+      deviceType: contract.deviceType || previousMatch.deviceType || '',
+      metadata: {
+        ...(previousMatch.metadata && typeof previousMatch.metadata === 'object' ? previousMatch.metadata : {}),
+        ...(contract.metadata && typeof contract.metadata === 'object' ? contract.metadata : {})
+      }
+    });
+  }).filter(contract => sanitizePgContracts([contract]).length > 0);
+}
+
+async function insertAccountPgContract(client, { source, accountId, franchiseId, contract }) {
+  return client.query(
+    `INSERT INTO account_pg_contracts (
+      account_source, account_id, franchise_id, pg_provider_id, pg_provider_name,
+      credential_type, mid, tid, payment_key, signature_key, contract_start_date,
+      contract_end_date, device_type, is_default, active, metadata
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, NULLIF($9, ''), NULLIF($10, ''),
+            NULLIF($11, '')::date, NULLIF($12, '')::date, NULLIF($13, ''), $14, true, $15::jsonb)
+    ON CONFLICT (account_source, account_id, pg_provider_name, credential_type, tid)
+    DO UPDATE SET
+      franchise_id = EXCLUDED.franchise_id,
+      pg_provider_id = EXCLUDED.pg_provider_id,
+      mid = EXCLUDED.mid,
+      payment_key = EXCLUDED.payment_key,
+      signature_key = EXCLUDED.signature_key,
+      contract_start_date = EXCLUDED.contract_start_date,
+      contract_end_date = EXCLUDED.contract_end_date,
+      device_type = EXCLUDED.device_type,
+      is_default = EXCLUDED.is_default,
+      active = true,
+      metadata = EXCLUDED.metadata,
+      updated_at = now()
+    RETURNING *`,
+    [
+      String(source || ''),
+      String(accountId || ''),
+      franchiseId,
+      contract.providerId || null,
+      normalizeProviderName(contract.providerName),
+      contract.credentialType || 'recurring',
+      contract.mid || '',
+      contract.tid || '',
+      contract.paymentKey || '',
+      contract.signatureKey || '',
+      contract.contractStartDate || '',
+      contract.contractEndDate || '',
+      contract.deviceType || '',
+      contract.isDefault !== false,
+      JSON.stringify(contract.metadata || {})
+    ]
+  );
+}
+
 function createRepository(pool) {
+  async function withTransaction(work) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await work(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   return {
     async listTalkPosts({ limit = 20, offset = 0, viewerUserId = null, likedOnly = false } = {}) {
       const params = [limit, offset, viewerUserId || null];
@@ -507,6 +859,7 @@ function createRepository(pool) {
       const result = await pool.query(
         `SELECT p.*,
                 users.address AS seller_address,
+                users.login_id AS author_login_id,
                 COALESCE(likes.like_count, 0)::int AS like_count,
                 COALESCE(chats.chat_count, 0)::int AS chat_count,
                 COALESCE(comments.comment_count, 0)::int AS comment_count,
@@ -557,6 +910,7 @@ function createRepository(pool) {
       const result = await pool.query(
         `SELECT p.*,
                 users.address AS seller_address,
+                users.login_id AS author_login_id,
                 COALESCE(likes.like_count, 0)::int AS like_count,
                 COALESCE(chats.chat_count, 0)::int AS chat_count,
                 COALESCE(comments.comment_count, 0)::int AS comment_count,
@@ -583,6 +937,188 @@ function createRepository(pool) {
         [id]
       );
       return toTalkPost(result.rows[0]);
+    },
+
+    async findAdminTalkPostById(id) {
+      const result = await pool.query(
+        `SELECT p.*,
+                users.address AS seller_address,
+                users.login_id AS author_login_id,
+                COALESCE(likes.like_count, 0)::int AS like_count,
+                COALESCE(chats.chat_count, 0)::int AS chat_count,
+                COALESCE(comments.comment_count, 0)::int AS comment_count,
+                COALESCE(reports.report_count, 0)::int AS report_count,
+                COALESCE(reports.pending_report_count, 0)::int AS pending_report_count,
+                reports.latest_report_reason,
+                reports.latest_report_detail,
+                reports.latest_reported_at,
+                false AS liked_by_me
+         FROM talk_posts p
+         LEFT JOIN users ON users.id = p.user_id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS like_count
+           FROM talk_post_likes
+           GROUP BY post_id
+         ) likes ON likes.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS chat_count
+           FROM talk_chats
+           GROUP BY post_id
+         ) chats ON chats.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS comment_count
+           FROM talk_comments
+           WHERE status = 'ACTIVE'
+           GROUP BY post_id
+         ) comments ON comments.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id,
+                  count(*)::int AS report_count,
+                  count(*) FILTER (WHERE status = 'PENDING')::int AS pending_report_count,
+                  (array_agg(reason ORDER BY created_at DESC))[1] AS latest_report_reason,
+                  (array_agg(detail ORDER BY created_at DESC))[1] AS latest_report_detail,
+                  max(created_at) AS latest_reported_at
+           FROM talk_reports
+           WHERE post_id IS NOT NULL
+           GROUP BY post_id
+         ) reports ON reports.post_id = p.id
+         WHERE p.id = $1`,
+        [id]
+      );
+      return toTalkPost(result.rows[0]);
+    },
+
+    async listAdminTalkPosts(options = {}) {
+      const status = String(options.status || '').trim().toUpperCase();
+      const q = String(options.q || '').trim();
+      const limit = Math.min(Math.max(Number(options.limit) || 10, 1), 100);
+      const offset = Math.max(Number(options.offset) || 0, 0);
+      const result = await pool.query(
+        `SELECT p.*,
+                count(*) OVER()::int AS total_count,
+                users.address AS seller_address,
+                users.login_id AS author_login_id,
+                COALESCE(likes.like_count, 0)::int AS like_count,
+                COALESCE(chats.chat_count, 0)::int AS chat_count,
+                COALESCE(comments.comment_count, 0)::int AS comment_count,
+                COALESCE(reports.report_count, 0)::int AS report_count,
+                COALESCE(reports.pending_report_count, 0)::int AS pending_report_count,
+                reports.latest_report_reason,
+                reports.latest_report_detail,
+                reports.latest_reported_at,
+                false AS liked_by_me
+         FROM talk_posts p
+         LEFT JOIN users ON users.id = p.user_id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS like_count
+           FROM talk_post_likes
+           GROUP BY post_id
+         ) likes ON likes.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS chat_count
+           FROM talk_chats
+           GROUP BY post_id
+         ) chats ON chats.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id, count(*)::int AS comment_count
+           FROM talk_comments
+           WHERE status = 'ACTIVE'
+           GROUP BY post_id
+         ) comments ON comments.post_id = p.id
+         LEFT JOIN (
+           SELECT post_id,
+                  count(*)::int AS report_count,
+                  count(*) FILTER (WHERE status = 'PENDING')::int AS pending_report_count,
+                  (array_agg(reason ORDER BY created_at DESC))[1] AS latest_report_reason,
+                  (array_agg(detail ORDER BY created_at DESC))[1] AS latest_report_detail,
+                  max(created_at) AS latest_reported_at
+           FROM talk_reports
+           WHERE post_id IS NOT NULL
+           GROUP BY post_id
+         ) reports ON reports.post_id = p.id
+         WHERE (
+             $1::text = ''
+             OR p.status = $1
+             OR ($1::text = 'REPORTS' AND COALESCE(reports.pending_report_count, 0) > 0)
+           )
+           AND (
+             $2::text = ''
+             OR users.login_id ILIKE $2
+             OR p.franchise_name ILIKE $2
+             OR p.title ILIKE $2
+             OR p.body ILIKE $2
+           )
+         ORDER BY CASE WHEN COALESCE(reports.pending_report_count, 0) > 0 THEN 0 ELSE 1 END,
+                  CASE WHEN p.status = 'ACTIVE' THEN 0 ELSE 1 END,
+                  p.created_at DESC,
+                  p.id DESC
+         LIMIT $3
+         OFFSET $4`,
+        [
+          status === 'ALL' ? '' : status,
+          q ? `%${q}%` : '',
+          limit,
+          offset
+        ]
+      );
+      return {
+        rows: result.rows.map(toTalkPost),
+        total: Number(result.rows[0]?.total_count || 0)
+      };
+    },
+
+    async deleteTalkPostByAdmin(id, { reason = '', adminUserId = null } = {}) {
+      const result = await pool.query(
+        `UPDATE talk_posts
+         SET status = 'DELETED',
+             admin_deleted_reason = $2,
+             admin_deleted_at = now(),
+             admin_deleted_by = $3,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [id, String(reason || '').trim(), adminUserId || null]
+      );
+      return toTalkPost(result.rows[0]);
+    },
+
+    async restoreTalkPostByAdmin(id) {
+      const result = await pool.query(
+        `UPDATE talk_posts
+         SET status = 'ACTIVE',
+             admin_deleted_reason = '',
+             admin_deleted_at = NULL,
+             admin_deleted_by = NULL,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+      return toTalkPost(result.rows[0]);
+    },
+
+    async hideTalkPostsByAuthor({ postId, reason = '', adminUserId = null }) {
+      const target = await pool.query(
+        `SELECT user_id
+         FROM talk_posts
+         WHERE id = $1`,
+        [postId]
+      );
+      const userId = target.rows[0]?.user_id;
+      if (!userId) return [];
+      const result = await pool.query(
+        `UPDATE talk_posts
+         SET status = 'DELETED',
+             admin_deleted_reason = $2,
+             admin_deleted_at = now(),
+             admin_deleted_by = $3,
+             updated_at = now()
+         WHERE user_id = $1
+           AND status = 'ACTIVE'
+         RETURNING *`,
+        [userId, String(reason || '').trim(), adminUserId || null]
+      );
+      return result.rows.map(toTalkPost);
     },
 
     async incrementTalkPostView(id) {
@@ -626,6 +1162,37 @@ function createRepository(pool) {
         );
       }
       return this.getTalkPostLikeState(postId, userId);
+    },
+
+    async getTalkCommentLikeState(commentId, userId) {
+      const result = await pool.query(
+        `SELECT
+           (SELECT count(*)::int FROM talk_comment_likes WHERE comment_id = $1) AS like_count,
+           EXISTS(SELECT 1 FROM talk_comment_likes WHERE comment_id = $1 AND user_id = $2) AS liked_by_me`,
+        [commentId, userId]
+      );
+      return {
+        likeCount: Number(result.rows[0]?.like_count || 0),
+        likedByMe: result.rows[0]?.liked_by_me === true
+      };
+    },
+
+    async toggleTalkCommentLike({ commentId, userId }) {
+      const existing = await pool.query(
+        'SELECT 1 FROM talk_comment_likes WHERE comment_id = $1 AND user_id = $2',
+        [commentId, userId]
+      );
+      if (existing.rowCount) {
+        await pool.query('DELETE FROM talk_comment_likes WHERE comment_id = $1 AND user_id = $2', [commentId, userId]);
+      } else {
+        await pool.query(
+          `INSERT INTO talk_comment_likes (comment_id, user_id)
+           VALUES ($1, $2)
+           ON CONFLICT (comment_id, user_id) DO NOTHING`,
+          [commentId, userId]
+        );
+      }
+      return this.getTalkCommentLikeState(commentId, userId);
     },
 
     async createTalkReport({ reporterUserId, postId = null, chatId = null, messageId = null, reason, detail = '' }) {
@@ -673,14 +1240,23 @@ function createRepository(pool) {
       return toTalkPost(result.rows[0]);
     },
 
-    async listTalkComments(postId) {
+    async listTalkComments(postId, viewerUserId = null) {
       const result = await pool.query(
-        `SELECT c.*, users.franchise_name AS user_name
+        `SELECT c.*, users.franchise_name AS user_name,
+                COALESCE(likes.like_count, 0)::int AS like_count,
+                (viewer_like.user_id IS NOT NULL) AS liked_by_me
          FROM talk_comments c
          LEFT JOIN users ON users.id = c.user_id
+         LEFT JOIN (
+           SELECT comment_id, count(*)::int AS like_count
+           FROM talk_comment_likes
+           GROUP BY comment_id
+         ) likes ON likes.comment_id = c.id
+         LEFT JOIN talk_comment_likes viewer_like
+           ON viewer_like.comment_id = c.id AND viewer_like.user_id = $2
          WHERE c.post_id = $1 AND c.status = 'ACTIVE'
          ORDER BY COALESCE(c.parent_comment_id, c.id) ASC, c.parent_comment_id NULLS FIRST, c.created_at ASC, c.id ASC`,
-        [postId]
+        [postId, viewerUserId]
       );
       return result.rows.map(toTalkComment);
     },
@@ -890,7 +1466,8 @@ function createRepository(pool) {
 
     async findAgencyAuthById(id) {
       const result = await pool.query(
-        `SELECT id, type, level, parent_id, name, address, login_id, owner, phone, fee_rate, password_hash, join_code
+        `SELECT id, type, level, parent_id, name, address, login_id, owner, phone, fee_rate, password_hash, join_code,
+                settle_bank_name, settle_account_no, settle_account_holder
          FROM agencies
          WHERE id = $1
          LIMIT 1`,
@@ -903,7 +1480,8 @@ function createRepository(pool) {
       const normalized = String(loginId || '').trim();
       if (!normalized) return null;
       const result = await pool.query(
-        `SELECT id, type, level, parent_id, name, address, login_id, owner, phone, fee_rate, password_hash, join_code
+        `SELECT id, type, level, parent_id, name, address, login_id, owner, phone, fee_rate, password_hash, join_code,
+                settle_bank_name, settle_account_no, settle_account_holder
          FROM agencies
          WHERE login_id = $1
          ORDER BY id DESC
@@ -1001,6 +1579,47 @@ function createRepository(pool) {
         params
       );
       return result.rows.map(toAuditLog);
+    },
+
+    async listAuditNotificationPreferences(adminUserId) {
+      const result = await pool.query(
+        `SELECT *
+         FROM admin_audit_notification_preferences
+         WHERE admin_user_id = $1
+         ORDER BY category ASC`,
+        [adminUserId]
+      );
+      return result.rows.map(toAuditNotificationPreference);
+    },
+
+    async setAuditNotificationPreference(adminUserId, category, enabled) {
+      const result = await pool.query(
+        `INSERT INTO admin_audit_notification_preferences (admin_user_id, category, enabled)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (admin_user_id, category)
+         DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()
+         RETURNING *`,
+        [adminUserId, String(category || ''), enabled !== false]
+      );
+      return toAuditNotificationPreference(result.rows[0]);
+    },
+
+    async listAuditNotificationRecipients({ category, actorUserId = null } = {}) {
+      const result = await pool.query(
+        `SELECT users.*
+         FROM users
+         LEFT JOIN admin_audit_notification_preferences pref
+           ON pref.admin_user_id = users.id
+          AND pref.category = $1
+         WHERE users.role = 'ADMIN'
+           AND COALESCE(users.admin_active, true) = true
+           AND COALESCE(users.admin_level, 'SUPER') = 'SUPER'
+           AND ($2::bigint IS NULL OR users.id <> $2::bigint)
+           AND COALESCE(pref.enabled, true) = true
+         ORDER BY users.id ASC`,
+        [String(category || ''), actorUserId || null]
+      );
+      return result.rows.map(toUser);
     },
 
     async listUnreadNotifications(userId) {
@@ -1120,14 +1739,92 @@ function createRepository(pool) {
       };
     },
 
+    async listPushAnnouncementTargets(filters = {}) {
+      const targetType = String(filters.targetType || 'all').trim().toLowerCase();
+      const targetValue = String(filters.targetValue || '').trim();
+      const limit = Math.min(Math.max(Number(filters.limit) || 1000, 1), 2000);
+      const agencyTypeSql = `CASE
+        WHEN lower(coalesce(type, '')) IN ('hq', 'head', 'headquarters') OR coalesce(name, '') LIKE '%본사%' THEN 'hq'
+        WHEN lower(coalesce(type, '')) IN ('bonbu', 'division') OR coalesce(type, '') = '본부' THEN 'bonbu'
+        WHEN lower(coalesce(type, '')) IN ('branch', 'jisa') OR coalesce(type, '') = '지사' OR level = 2 THEN 'jisa'
+        WHEN lower(coalesce(type, '')) IN ('office', 'agency', 'jijum') OR coalesce(type, '') = '지점' OR level >= 3 THEN 'jijum'
+        ELSE 'jijum'
+      END`;
+      if (targetType === 'all') {
+        const result = await pool.query(
+          `SELECT users.*, agencies.name AS agency_name
+           FROM users
+           LEFT JOIN agencies ON agencies.id = users.agency_id
+           WHERE users.role = 'OWNER'
+             AND users.franchise_id IS NOT NULL
+           ORDER BY users.created_at DESC, users.id DESC
+           LIMIT $1`,
+          [limit]
+        );
+        return result.rows.map(toUser);
+      }
+      if (targetType === 'franchise') {
+        if (!targetValue) return [];
+        const result = await pool.query(
+          `SELECT users.*, agencies.name AS agency_name
+           FROM users
+           LEFT JOIN agencies ON agencies.id = users.agency_id
+           WHERE users.role = 'OWNER'
+             AND users.franchise_id IS NOT NULL
+             AND (
+               users.id::text = $1
+               OR users.franchise_id::text = $1
+               OR users.login_id = $1
+               OR users.email = $1
+               OR users.contact_email = $1
+               OR btrim(users.franchise_name) = btrim($1)
+             )
+           ORDER BY users.created_at DESC, users.id DESC
+           LIMIT $2`,
+          [targetValue, limit]
+        );
+        return result.rows.map(toUser);
+      }
+      const agencyTargetType = targetType === 'agency' ? '' : targetType;
+      if (!['bonbu', 'jisa', 'jijum', ''].includes(agencyTargetType) || !targetValue) return [];
+      const result = await pool.query(
+        `WITH RECURSIVE matched_agencies AS (
+           SELECT id
+           FROM agencies
+           WHERE ($2::text = '' OR (${agencyTypeSql}) = $2)
+             AND (
+               id::text = $1
+               OR login_id = $1
+               OR btrim(name) = btrim($1)
+             )
+         ), agency_tree AS (
+           SELECT id FROM matched_agencies
+           UNION ALL
+           SELECT child.id
+           FROM agencies child
+           JOIN agency_tree parent ON child.parent_id = parent.id
+         )
+         SELECT users.*, agencies.name AS agency_name
+         FROM users
+         LEFT JOIN agencies ON agencies.id = users.agency_id
+         WHERE users.role = 'OWNER'
+           AND users.franchise_id IS NOT NULL
+           AND users.agency_id IN (SELECT id FROM agency_tree)
+         ORDER BY users.created_at DESC, users.id DESC
+         LIMIT $3`,
+        [targetValue, agencyTargetType, limit]
+      );
+      return result.rows.map(toUser);
+    },
+
     async createUser(user) {
       const result = await pool.query(
         `INSERT INTO users (
           email, password_hash, name, franchise_name, role, balance,
           phone, address, tel, business_number, agency_id, biz_doc_file_key, pos_file_key, franchise_fee_rate,
-          signup_source, signup_agency_id, signup_join_code
+          signup_source, signup_agency_id, signup_join_code, pg_provider_id
         )
-        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, 'OWNER', 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`,
         [
           user.email,
@@ -1144,7 +1841,8 @@ function createRepository(pool) {
           user.franchiseFeeRate == null || user.franchiseFeeRate === '' ? 0 : Number(user.franchiseFeeRate),
           user.signupSource || null,
           user.signupAgencyId || null,
-          user.signupJoinCode || null
+          user.signupJoinCode || null,
+          user.pgProviderId || null
         ]
       );
       if (user.loginId || user.contactEmail) {
@@ -1318,9 +2016,10 @@ function createRepository(pool) {
 
     async listFranchiseUsers() {
       const result = await pool.query(
-        `SELECT users.*, agencies.name AS agency_name, biz_doc_file.original_name AS biz_doc_original_name
+        `SELECT users.*, agencies.name AS agency_name, pg_providers.name AS pg_provider_name, biz_doc_file.original_name AS biz_doc_original_name
          FROM users
          LEFT JOIN agencies ON agencies.id = users.agency_id
+         LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
          LEFT JOIN stored_files biz_doc_file ON biz_doc_file.file_key = users.biz_doc_file_key
          WHERE users.role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
          ORDER BY users.created_at DESC`
@@ -1477,6 +2176,7 @@ function createRepository(pool) {
              contact_email = COALESCE(NULLIF($9, ''), contact_email),
              agency_id = COALESCE($10, agency_id),
              franchise_fee_rate = $11,
+             pg_provider_id = $12,
              updated_at = now()
          WHERE franchise_id = $1
            AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')
@@ -1492,10 +2192,26 @@ function createRepository(pool) {
           fields.loginId || null,
           fields.contactEmail || null,
           fields.agencyId || null,
-          fields.franchiseFeeRate == null || fields.franchiseFeeRate === '' ? 0 : Number(fields.franchiseFeeRate)
+          fields.franchiseFeeRate == null || fields.franchiseFeeRate === '' ? 0 : Number(fields.franchiseFeeRate),
+          fields.pgProviderId || null
         ]
       );
       return toUser(result.rows[0]);
+    },
+
+    async deactivateCardsByFranchiseId(franchiseId) {
+      const result = await pool.query(
+        `UPDATE cards
+         SET active = false
+         WHERE user_id IN (
+           SELECT id FROM users WHERE franchise_id = $1
+         )
+           AND COALESCE(hidden, false) = false
+           AND COALESCE(active, true) = true
+         RETURNING id`,
+        [franchiseId]
+      );
+      return result.rowCount || 0;
     },
 
     async replaceDeliveryAccountsForFranchise(franchiseId, accounts = []) {
@@ -1513,6 +2229,25 @@ function createRepository(pool) {
         const existingAccounts = existingResult.rows.map(toDeliveryAccount).filter(Boolean);
         const existingById = new Map(existingAccounts.map(account => [String(account.id), account]));
         const existingByKey = new Map(existingAccounts.map(account => [deliveryAccountDedupeKey(account), account]));
+        const existingContractResult = existingAccounts.length
+          ? await client.query(
+            `SELECT *
+             FROM account_pg_contracts
+             WHERE account_source = 'delivery_account'
+               AND account_id = ANY($1::text[])
+               AND active = true
+             ORDER BY is_default DESC,
+                      CASE credential_type WHEN 'recurring' THEN 0 WHEN 'routeup' THEN 1 WHEN 'manual' THEN 2 ELSE 3 END,
+                      id ASC`,
+            [existingAccounts.map(account => String(account.id))]
+          )
+          : { rows: [] };
+        const existingContractsById = new Map();
+        for (const row of existingContractResult.rows) {
+          const key = String(row.account_id || '');
+          if (!existingContractsById.has(key)) existingContractsById.set(key, []);
+          existingContractsById.get(key).push(toPgContract(row));
+        }
         const incomingIds = new Set(normalizedAccounts.map(account => String(account.id || '')).filter(Boolean));
         const incomingKeys = new Set(normalizedAccounts.map(deliveryAccountDedupeKey));
         const accountsToSave = [...normalizedAccounts];
@@ -1527,16 +2262,30 @@ function createRepository(pool) {
           const previous = existingById.get(String(account.id || '')) || existingByKey.get(deliveryAccountDedupeKey(account)) || null;
           const previousTxid = String(previous?.txid || '').trim();
           const nextTxid = String(account.txid || previousTxid || '').trim();
+          const previousManualTid = String(previous?.manualTid || '').trim();
+          const previousManualKey = String(previous?.manualKey || '').trim();
+          const previousRecurringTid = String(previous?.recurringTid || '').trim();
+          const previousRecurringKey = String(previous?.recurringKey || '').trim();
+          const nextManualTid = String(account.manualTid || previousManualTid || '').trim();
+          const nextManualKey = String(account.manualKey || previousManualKey || '').trim();
+          const nextRecurringTid = String(account.recurringTid || previousRecurringTid || '').trim();
+          const nextRecurringKey = String(account.recurringKey || previousRecurringKey || '').trim();
+          const previousContracts = previous ? existingContractsById.get(String(previous.id)) || [] : [];
+          const replacementContracts = mergeReplacementPgContracts(account.pgContracts, previousContracts);
+          const routeupExternalKeysCompleteForAccount = hasRouteupExternalIntegrationKeys({ pgContracts: replacementContracts });
           let nextStatus = account.accountStatus || previous?.accountStatus || 'PENDING';
+          if (routeupExternalKeysCompleteForAccount && nextStatus !== 'REJECTED') {
+            nextStatus = 'APPROVED';
+          }
           if (previous?.accountStatus === 'APPROVED' && previousTxid && nextStatus !== 'REJECTED') {
             nextStatus = 'APPROVED';
           }
           const result = await client.query(
             `INSERT INTO delivery_accounts (
               franchise_id, agency_id, agency_name, bank_name, account_holder, account_no, file_key,
-              account_status, rejection_reason, approved_at, export_ready_at, exported_at, txid, txid_uploaded_at, active, hidden
+              account_status, rejection_reason, approved_at, export_ready_at, exported_at, txid, manual_tid, manual_key, recurring_tid, recurring_key, txid_uploaded_at, active, hidden
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             RETURNING *,
               (SELECT original_name FROM stored_files WHERE file_key = $7) AS original_name`,
             [
@@ -1549,16 +2298,32 @@ function createRepository(pool) {
               account.fileKey || null,
               nextStatus,
               previous?.rejectionReason || null,
-              previous?.approvedAt || null,
-              previous?.exportReadyAt || null,
-              previous?.exportedAt || null,
+              previous?.approvedAt || (routeupExternalKeysCompleteForAccount ? new Date() : null),
+              routeupExternalKeysCompleteForAccount ? null : previous?.exportReadyAt || null,
+              routeupExternalKeysCompleteForAccount ? null : previous?.exportedAt || null,
               nextTxid || null,
+              nextManualTid || null,
+              nextManualKey || null,
+              nextRecurringTid || null,
+              nextRecurringKey || null,
               previous?.txidUploadedAt || null,
               account.active !== false,
               account.hidden === true || previous?.hidden === true
             ]
           );
-          rows.push(toDeliveryAccount(result.rows[0]));
+          const saved = toDeliveryAccount(result.rows[0]);
+          if (replacementContracts.length) {
+            for (const contract of replacementContracts) {
+              await insertAccountPgContract(client, {
+                source: 'delivery_account',
+                accountId: saved.id,
+                franchiseId,
+                contract
+              });
+            }
+            saved.pgContracts = replacementContracts;
+          }
+          rows.push(saved);
         }
         await client.query('COMMIT');
         return rows;
@@ -1600,7 +2365,7 @@ function createRepository(pool) {
          RETURNING da.*`,
         [franchiseId]
       );
-      return result.rows.map(toDeliveryAccount);
+      return attachPgContracts(pool, result.rows.map(toDeliveryAccount), 'delivery_account');
     },
 
     async deleteFranchiseById(franchiseId) {
@@ -1722,9 +2487,9 @@ function createRepository(pool) {
     async createAgency(agency) {
       const result = await pool.query(
         `INSERT INTO agencies (
-           type, level, parent_id, name, address, login_id, owner, phone, fee_rate, delivery_note, join_code
+           type, level, parent_id, name, address, login_id, owner, phone, fee_rate, delivery_note, join_code, password_hash
          )
-         VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10, $11)
+         VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10, $11, $12)
          RETURNING id, type, level, parent_id, name, address, login_id, owner, phone, fee_rate, delivery_note, join_code,
                    contract_file_key, settle_bank_name, settle_account_no, settle_account_holder, created_at`,
         [
@@ -1738,7 +2503,8 @@ function createRepository(pool) {
           agency.phone || null,
           agency.feeRate || 0,
           agency.deliveryNote || '',
-          agency.joinCode || null
+          agency.joinCode || null,
+          agency.passwordHash || null
         ]
       );
       return result.rows.map(row => ({
@@ -1863,7 +2629,7 @@ function createRepository(pool) {
         await client.query('UPDATE agencies SET parent_id = NULL WHERE parent_id = $1', [agencyId]);
         await client.query("UPDATE users SET agency_id = NULL, updated_at = now() WHERE agency_id = $1 AND role IN ('OWNER', 'OWNER_PENDING', 'OWNER_REJECTED')", [agencyId]);
         await client.query('UPDATE delivery_accounts SET agency_id = NULL WHERE agency_id = $1', [agencyId]);
-        await client.query('UPDATE transactions SET agency_id = NULL WHERE agency_id = $1', [agencyId]);
+        await client.query('UPDATE pg_settlements SET agency_id = NULL, updated_at = now() WHERE agency_id = $1', [agencyId]);
         const result = await client.query(
           'DELETE FROM agencies WHERE id = $1 RETURNING id, name',
           [agencyId]
@@ -1880,9 +2646,9 @@ function createRepository(pool) {
 
     async registerCard(userId, card) {
       const result = await pool.query(
-        `INSERT INTO cards (id, user_id, masked_number, card_name, card_company, alias, active, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity)
-         VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12)
-         RETURNING id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, created_at`,
+        `INSERT INTO cards (id, user_id, masked_number, card_name, card_company, alias, active, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, pg_provider_id)
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, pg_provider_id, created_at`,
         [
           card.id,
           userId,
@@ -1895,7 +2661,8 @@ function createRepository(pool) {
           card.payerName || null,
           card.payerEmail || null,
           card.payerTel || null,
-          card.cardIdentity || null
+          card.cardIdentity || null,
+          card.pgProviderId || null
         ]
       );
       const row = result.rows[0];
@@ -1913,6 +2680,7 @@ function createRepository(pool) {
         payerEmail: row.payer_email,
         payerTel: row.payer_tel,
         cardIdentity: row.card_identity,
+        pgProviderId: row.pg_provider_id || null,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
       };
     },
@@ -1924,7 +2692,7 @@ function createRepository(pool) {
 
     async listCardsByUserId(userId) {
       const result = await pool.query(
-        'SELECT id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, created_at FROM cards WHERE user_id = $1 ORDER BY COALESCE(hidden, false) ASC, COALESCE(active, true) DESC, created_at DESC',
+        'SELECT id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, pg_provider_id, created_at FROM cards WHERE user_id = $1 ORDER BY COALESCE(hidden, false) ASC, COALESCE(active, true) DESC, created_at DESC',
         [userId]
       );
       return result.rows.map(row => ({
@@ -1941,13 +2709,14 @@ function createRepository(pool) {
         payerEmail: row.payer_email,
         payerTel: row.payer_tel,
         cardIdentity: row.card_identity,
+        pgProviderId: row.pg_provider_id || null,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
       }));
     },
 
     async findCardByUserId(cardId, userId) {
       const result = await pool.query(
-        'SELECT id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, created_at FROM cards WHERE id = $1 AND user_id = $2',
+        'SELECT id, masked_number, card_name, card_company, alias, active, hidden, expiry_month, expiry_year, payer_name, payer_email, payer_tel, card_identity, pg_provider_id, created_at FROM cards WHERE id = $1 AND user_id = $2',
         [cardId, userId]
       );
       const row = result.rows[0];
@@ -1966,6 +2735,7 @@ function createRepository(pool) {
         payerEmail: row.payer_email,
         payerTel: row.payer_tel,
         cardIdentity: row.card_identity,
+        pgProviderId: row.pg_provider_id || null,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
       };
     },
@@ -2153,7 +2923,71 @@ function createRepository(pool) {
         ${includeHidden ? '' : 'WHERE COALESCE(da.hidden, false) = false'}
         ORDER BY da.req_date DESC
       `);
-      return result.rows.map(toDeliveryAccount);
+      return attachPgContracts(pool, result.rows.map(toDeliveryAccount), 'delivery_account');
+    },
+
+    async listAccountRejectionReasons() {
+      const result = await pool.query(
+        `SELECT id, reason, active, display_order, created_at, updated_at
+         FROM account_rejection_reasons
+         WHERE active = true
+         ORDER BY display_order ASC, id ASC`
+      );
+      return result.rows.map(row => ({
+        id: row.id,
+        reason: row.reason || '',
+        active: row.active !== false,
+        displayOrder: row.display_order || 0,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+    },
+
+    async replaceAccountRejectionReasons(reasons = []) {
+      const normalized = (Array.isArray(reasons) ? reasons : [])
+        .map(reason => String(reason || '').trim())
+        .filter(Boolean)
+        .slice(0, 20);
+      const unique = [];
+      const seen = new Set();
+      for (const reason of normalized) {
+        const key = reason.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(reason.slice(0, 100));
+      }
+      if (!unique.length) {
+        unique.push('기타');
+      }
+
+      return withTransaction(async client => {
+        await client.query('UPDATE account_rejection_reasons SET active = false, updated_at = now()');
+        for (let i = 0; i < unique.length; i += 1) {
+          await client.query(
+            `INSERT INTO account_rejection_reasons (reason, active, display_order, updated_at)
+             VALUES ($1, true, $2, now())
+             ON CONFLICT (reason) DO UPDATE SET
+               active = true,
+               display_order = EXCLUDED.display_order,
+               updated_at = now()`,
+            [unique[i], (i + 1) * 10]
+          );
+        }
+        const result = await client.query(
+          `SELECT id, reason, active, display_order, created_at, updated_at
+           FROM account_rejection_reasons
+           WHERE active = true
+           ORDER BY display_order ASC, id ASC`
+        );
+        return result.rows.map(row => ({
+          id: row.id,
+          reason: row.reason || '',
+          active: row.active !== false,
+          displayOrder: row.display_order || 0,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        }));
+      });
     },
 
     async listDeliveryAccountsByFranchise(franchiseId) {
@@ -2166,7 +3000,7 @@ function createRepository(pool) {
          ORDER BY da.req_date DESC`,
         [franchiseId]
       );
-      return result.rows.map(toDeliveryAccount);
+      return attachPgContracts(pool, result.rows.map(toDeliveryAccount), 'delivery_account');
     },
 
     async deleteDeliveryAccountByFranchise(id, franchiseId) {
@@ -2174,7 +3008,10 @@ function createRepository(pool) {
         'DELETE FROM delivery_accounts WHERE id = $1 AND franchise_id = $2 RETURNING *',
         [id, franchiseId]
       );
-      return toDeliveryAccount(result.rows[0]);
+      const account = toDeliveryAccount(result.rows[0]);
+      if (!account) return null;
+      const [attached] = await attachPgContracts(pool, [account], 'delivery_account');
+      return attached || account;
     },
 
     async updateDeliveryAccountVisibilityByFranchise(id, franchiseId, data) {
@@ -2203,7 +3040,7 @@ function createRepository(pool) {
              updated_at = now()
          WHERE id = $1
          RETURNING *,
-           (SELECT original_name FROM stored_files WHERE file_key = COALESCE($6, delivery_accounts.file_key)) AS original_name`,
+           (SELECT original_name FROM stored_files WHERE file_key = delivery_accounts.file_key) AS original_name`,
         [
           id,
           typeof data.active === 'boolean' ? data.active : null,
@@ -2254,6 +3091,9 @@ function createRepository(pool) {
              rejection_reason = $3,
              approved_at = CASE WHEN $2 = 'APPROVED' THEN COALESCE(approved_at, now()) ELSE approved_at END,
              export_ready_at = CASE WHEN $2 = 'APPROVED' AND export_ready_at IS NULL THEN now() ELSE export_ready_at END,
+             export_batch_id = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE export_batch_id END,
+             export_row_no = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE export_row_no END,
+             exported_at = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE exported_at END,
              updated_at = now()
          WHERE id = $1
          RETURNING *,
@@ -2263,6 +3103,31 @@ function createRepository(pool) {
           data.status,
           data.rejectionReason || null
         ]
+      );
+      return toDeliveryAccount(result.rows[0]);
+    },
+
+    async resetDeliveryAccountVerification(id) {
+      const result = await pool.query(
+        `UPDATE delivery_accounts
+         SET account_status = 'PENDING',
+             rejection_reason = NULL,
+             approved_at = NULL,
+             export_ready_at = NULL,
+             export_batch_id = NULL,
+             export_row_no = NULL,
+             exported_at = NULL,
+             txid = NULL,
+             manual_tid = NULL,
+             manual_key = NULL,
+             recurring_tid = NULL,
+             recurring_key = NULL,
+             txid_uploaded_at = NULL,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *,
+           (SELECT original_name FROM stored_files WHERE file_key = delivery_accounts.file_key) AS original_name`,
+        [id]
       );
       return toDeliveryAccount(result.rows[0]);
     },
@@ -2475,21 +3340,62 @@ function createRepository(pool) {
     async listInterestFreeInstallments({ onlyActive = false, policyMonth } = {}) {
       const month = normalizePolicyMonth(policyMonth);
       const result = await pool.query(
-        `SELECT policy_month, card_company, months, active, display_order, updated_at
+        `SELECT policy_month, card_company, months, partial_plans, active, display_order, updated_at
          FROM interest_free_installments
          WHERE policy_month = $1::date
-         ${onlyActive ? 'AND active = true AND cardinality(months) > 0' : ''}
+         ${onlyActive ? "AND active = true AND (cardinality(months) > 0 OR jsonb_array_length(partial_plans) > 0)" : ''}
          ORDER BY display_order ASC, card_company ASC`,
         [month]
       );
       return result.rows.map(row => ({
         policyMonth: row.policy_month instanceof Date ? row.policy_month.toISOString().slice(0, 10) : row.policy_month,
         cardCompany: row.card_company,
-        months: Array.isArray(row.months) ? row.months.map(Number).sort((a, b) => a - b) : [],
+        months: Array.isArray(row.months) ? row.months.map(Number).filter(month => Number.isInteger(month) && month >= 2 && month <= MAX_INSTALLMENT_MONTH).sort((a, b) => a - b) : [],
+        partialPlans: normalizeInstallmentPartialPlans(row.partial_plans),
         active: row.active,
         displayOrder: Number(row.display_order || 0),
         updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
       }));
+    },
+
+    async getInstallmentPolicyMeta({ policyMonth } = {}) {
+      const month = normalizePolicyMonth(policyMonth);
+      const result = await pool.query(
+        `SELECT policy_month, general_note, exclusion_notes, updated_at
+         FROM installment_policy_meta
+         WHERE policy_month = $1::date`,
+        [month]
+      );
+      const row = result.rows[0];
+      return {
+        policyMonth: month,
+        generalNote: row?.general_note || '',
+        exclusionNotes: normalizeInstallmentExclusions(row?.exclusion_notes || []),
+        updatedAt: row?.updated_at instanceof Date ? row.updated_at.toISOString() : row?.updated_at || null
+      };
+    },
+
+    async replaceInstallmentPolicyMeta(meta = {}, { policyMonth } = {}) {
+      const month = normalizePolicyMonth(policyMonth);
+      const generalNote = String(meta.generalNote || '').trim();
+      const exclusionNotes = normalizeInstallmentExclusions(meta.exclusionNotes);
+      const result = await pool.query(
+        `INSERT INTO installment_policy_meta (policy_month, general_note, exclusion_notes, updated_at)
+         VALUES ($1::date, $2, $3::text[], now())
+         ON CONFLICT (policy_month) DO UPDATE SET
+           general_note = EXCLUDED.general_note,
+           exclusion_notes = EXCLUDED.exclusion_notes,
+           updated_at = now()
+         RETURNING policy_month, general_note, exclusion_notes, updated_at`,
+        [month, generalNote, exclusionNotes]
+      );
+      const row = result.rows[0];
+      return {
+        policyMonth: row.policy_month instanceof Date ? row.policy_month.toISOString().slice(0, 10) : row.policy_month,
+        generalNote: row.general_note || '',
+        exclusionNotes: normalizeInstallmentExclusions(row.exclusion_notes || []),
+        updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+      };
     },
 
     async replaceInterestFreeInstallments(items, { policyMonth } = {}) {
@@ -2502,13 +3408,15 @@ function createRepository(pool) {
           if (!cardCompany) continue;
           const months = [...new Set((Array.isArray(item.months) ? item.months : [])
             .map(Number)
-            .filter(month => Number.isInteger(month) && month >= 2 && month <= 12))]
+            .filter(month => Number.isInteger(month) && month >= 2 && month <= MAX_INSTALLMENT_MONTH))]
             .sort((a, b) => a - b);
+          const partialPlans = normalizeInstallmentPartialPlans(item.partialPlans || item.partialText);
           await pool.query(
-            `INSERT INTO interest_free_installments (policy_month, card_company, months, active, display_order, updated_at)
-             VALUES ($1::date, $2, $3::int[], $4, $5, now())
+            `INSERT INTO interest_free_installments (policy_month, card_company, months, partial_plans, active, display_order, updated_at)
+             VALUES ($1::date, $2, $3::int[], $4::jsonb, $5, $6, now())
              ON CONFLICT (policy_month, card_company) DO UPDATE SET
                months = EXCLUDED.months,
+               partial_plans = EXCLUDED.partial_plans,
                active = EXCLUDED.active,
                display_order = EXCLUDED.display_order,
                updated_at = now()`,
@@ -2516,7 +3424,8 @@ function createRepository(pool) {
               month,
               cardCompany,
               months,
-              item.active !== false,
+              JSON.stringify(partialPlans),
+              item.active !== false && (months.length > 0 || partialPlans.length > 0),
               Number(item.displayOrder || 0)
             ]
           );
@@ -2527,6 +3436,39 @@ function createRepository(pool) {
         throw error;
       }
       return this.listInterestFreeInstallments({ policyMonth: month });
+    },
+
+    async copyInterestFreeInstallmentsFromPreviousMonth({ policyMonth } = {}) {
+      const targetMonth = normalizePolicyMonth(policyMonth);
+      const sourceMonth = getPreviousPolicyMonth(targetMonth);
+      const [sourceItems, sourceMeta] = await Promise.all([
+        this.listInterestFreeInstallments({ policyMonth: sourceMonth }),
+        this.getInstallmentPolicyMeta({ policyMonth: sourceMonth })
+      ]);
+      if (!sourceItems.length) {
+        return {
+          copied: false,
+          policyMonth: targetMonth,
+          sourcePolicyMonth: sourceMonth,
+          data: [],
+          meta: await this.getInstallmentPolicyMeta({ policyMonth: targetMonth })
+        };
+      }
+      const items = sourceItems.map(item => ({
+        ...item,
+        policyMonth: targetMonth
+      }));
+      const [savedItems, savedMeta] = await Promise.all([
+        this.replaceInterestFreeInstallments(items, { policyMonth: targetMonth }),
+        this.replaceInstallmentPolicyMeta(sourceMeta || {}, { policyMonth: targetMonth })
+      ]);
+      return {
+        copied: true,
+        policyMonth: targetMonth,
+        sourcePolicyMonth: sourceMonth,
+        data: savedItems,
+        meta: savedMeta
+      };
     },
 
     async createAccountRequest(request) {
@@ -2563,7 +3505,7 @@ function createRepository(pool) {
         ${includeHidden ? '' : 'WHERE COALESCE(ar.hidden, false) = false'}
         ORDER BY ar.submitted_at DESC
       `);
-      return result.rows.map(toAccountRequest);
+      return attachPgContracts(pool, result.rows.map(toAccountRequest), 'account_request');
     },
 
     async listAccountRequestsByFranchise(franchiseId) {
@@ -2577,7 +3519,7 @@ function createRepository(pool) {
          ORDER BY ar.submitted_at DESC`,
         [franchiseId]
       );
-      return result.rows.map(toAccountRequest);
+      return attachPgContracts(pool, result.rows.map(toAccountRequest), 'account_request');
     },
 
     async updateAccountRequest(requestId, data) {
@@ -2587,6 +3529,9 @@ function createRepository(pool) {
              assigned_virtual_account = $3,
              rejection_reason = $4,
              export_ready_at = CASE WHEN $2 = 'APPROVED' AND export_ready_at IS NULL THEN now() ELSE export_ready_at END,
+             export_batch_id = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE export_batch_id END,
+             export_row_no = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE export_row_no END,
+             exported_at = CASE WHEN $2 = 'APPROVED' THEN NULL ELSE exported_at END,
              processed_at = now(),
              updated_at = now()
          WHERE request_id = $1
@@ -2598,12 +3543,56 @@ function createRepository(pool) {
           data.rejectionReason || null
         ]
       );
+      const request = toAccountRequest(result.rows[0]);
+      if (!request) return null;
+      const [attached] = await attachPgContracts(pool, [request], 'account_request');
+      return attached || request;
+    },
+
+    async resetAccountRequestVerification(requestId) {
+      const result = await pool.query(
+        `UPDATE account_requests
+         SET status = 'PENDING',
+             assigned_virtual_account = NULL,
+             rejection_reason = NULL,
+             export_ready_at = NULL,
+             export_batch_id = NULL,
+             export_row_no = NULL,
+             exported_at = NULL,
+             txid = NULL,
+             manual_tid = NULL,
+             manual_key = NULL,
+             recurring_tid = NULL,
+             recurring_key = NULL,
+             txid_uploaded_at = NULL,
+             processed_at = NULL,
+             updated_at = now()
+         WHERE request_id = $1
+         RETURNING *`,
+        [requestId]
+      );
       return toAccountRequest(result.rows[0]);
     },
 
     accountApprovalExportFilters(filters = {}) {
       const params = [];
-      const clauses = ["COALESCE(txid, '') = ''"];
+      const clauses = [
+        "(COALESCE(recurring_tid, txid, '') = '' OR COALESCE(recurring_key, '') = '')",
+        `NOT EXISTS (
+          SELECT 1
+          FROM account_pg_contracts apc
+          WHERE apc.account_source = export_rows.source
+            AND apc.account_id = export_rows.id
+            AND apc.active = true
+            AND (
+              apc.credential_type = 'routeup'
+              OR lower(replace(COALESCE(apc.pg_provider_name, ''), ' ', '')) IN ('routeup', '루트업')
+            )
+            AND COALESCE(apc.metadata->>'routeupApiKey', apc.metadata->>'apiKey', '') <> ''
+            AND COALESCE(apc.metadata->>'routeupEncryptionKey', apc.metadata->>'encryptionKey', apc.metadata->>'encryptKey', '') <> ''
+            AND COALESCE(apc.metadata->>'initializationVector', apc.metadata->>'iv', '') <> ''
+        )`
+      ];
       const exportStatus = ['pending', 'exported', 'all'].includes(String(filters.exportStatus || ''))
         ? String(filters.exportStatus)
         : 'pending';
@@ -2621,6 +3610,11 @@ function createRepository(pool) {
       if (agency) {
         params.push(agency);
         clauses.push(`delivery_agency_name = $${params.length}`);
+      }
+      const pgProvider = String(filters.pgProvider || '').trim();
+      if (pgProvider) {
+        params.push(pgProvider);
+        clauses.push(`pg_provider_name = $${params.length}`);
       }
       const q = String(filters.q || '').trim().toLowerCase();
       if (q) {
@@ -2649,6 +3643,7 @@ function createRepository(pool) {
                  users.phone AS owner_phone,
                  users.address AS franchise_address,
                  COALESCE(ar.delivery_agency_name, '') AS delivery_agency_name,
+                 COALESCE(ar.bank_code, '') AS bank_code,
                  COALESCE(ar.bank_name, '') AS bank_name,
                  COALESCE(ar.account_no, ar.assigned_virtual_account->>'accountNumber', '') AS account_no,
                  COALESCE(ar.representative_name, users.name, '') AS account_holder,
@@ -2657,10 +3652,18 @@ function createRepository(pool) {
                  COALESCE(ar.processed_at, ar.export_ready_at) AS approved_at,
                  ar.export_ready_at,
                  ar.exported_at,
-                 ar.txid
+                 ar.txid,
+                 ar.recurring_tid,
+                 ar.recurring_key,
+                 COALESCE(users.login_id, users.email, users.customer_id, users.franchise_id::text, ar.franchise_id, '') AS login_id,
+                 COALESCE(users.email, '') AS email,
+                 COALESCE(users.customer_id, '') AS customer_id,
+                 users.pg_provider_id,
+                 COALESCE(pg_providers.name, '') AS pg_provider_name
           FROM account_requests ar
           LEFT JOIN users ON users.franchise_id = ar.franchise_id
           LEFT JOIN agencies ON agencies.id = users.agency_id
+          LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE ar.status = 'APPROVED'
             AND ar.export_ready_at IS NOT NULL
             AND COALESCE(ar.hidden, false) = false
@@ -2674,6 +3677,7 @@ function createRepository(pool) {
                  users.phone AS owner_phone,
                  users.address AS franchise_address,
                  da.agency_name AS delivery_agency_name,
+                 '' AS bank_code,
                  da.bank_name,
                  da.account_no,
                  da.account_holder,
@@ -2682,10 +3686,18 @@ function createRepository(pool) {
                  COALESCE(da.approved_at, da.export_ready_at, da.updated_at, da.req_date) AS approved_at,
                  da.export_ready_at,
                  da.exported_at,
-                 da.txid
+                 da.txid,
+                 da.recurring_tid,
+                 da.recurring_key,
+                 COALESCE(users.login_id, users.email, users.customer_id, users.franchise_id::text, da.franchise_id, '') AS login_id,
+                 COALESCE(users.email, '') AS email,
+                 COALESCE(users.customer_id, '') AS customer_id,
+                 users.pg_provider_id,
+                 COALESCE(pg_providers.name, '') AS pg_provider_name
           FROM delivery_accounts da
           LEFT JOIN users ON users.franchise_id = da.franchise_id
           LEFT JOIN agencies ON agencies.id = users.agency_id
+          LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE da.account_status = 'APPROVED'
             AND da.export_ready_at IS NOT NULL
             AND COALESCE(da.hidden, false) = false
@@ -2704,6 +3716,7 @@ function createRepository(pool) {
       const result = await pool.query(
         `WITH export_rows AS (
           SELECT ar.request_id::text AS id,
+                 'account_request' AS source,
                  COALESCE(users.franchise_name, ar.franchise_name) AS franchise_name,
                  COALESCE(users.business_number, ar.business_number) AS business_number,
                  users.name AS owner_name,
@@ -2711,14 +3724,20 @@ function createRepository(pool) {
                  COALESCE(ar.account_no, ar.assigned_virtual_account->>'accountNumber', '') AS account_no,
                  ar.export_ready_at,
                  ar.exported_at,
-                 ar.txid
+                 ar.txid,
+                 ar.recurring_tid,
+                 ar.recurring_key,
+                 users.pg_provider_id,
+                 COALESCE(pg_providers.name, '') AS pg_provider_name
           FROM account_requests ar
           LEFT JOIN users ON users.franchise_id = ar.franchise_id
+          LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE ar.status = 'APPROVED'
             AND ar.export_ready_at IS NOT NULL
             AND COALESCE(ar.hidden, false) = false
           UNION ALL
           SELECT da.id::text AS id,
+                 'delivery_account' AS source,
                  users.franchise_name AS franchise_name,
                  users.business_number AS business_number,
                  users.name AS owner_name,
@@ -2726,9 +3745,14 @@ function createRepository(pool) {
                  da.account_no,
                  da.export_ready_at,
                  da.exported_at,
-                 da.txid
+                 da.txid,
+                 da.recurring_tid,
+                 da.recurring_key,
+                 users.pg_provider_id,
+                 COALESCE(pg_providers.name, '') AS pg_provider_name
           FROM delivery_accounts da
           LEFT JOIN users ON users.franchise_id = da.franchise_id
+          LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE da.account_status = 'APPROVED'
             AND da.export_ready_at IS NOT NULL
             AND COALESCE(da.hidden, false) = false
@@ -2746,7 +3770,7 @@ function createRepository(pool) {
       try {
         await client.query('BEGIN');
         for (const [index, item] of items.entries()) {
-          const rowNo = index + 5;
+          const rowNo = index + 3;
           if (item.source === 'account_request') {
             await client.query(
               `UPDATE account_requests
@@ -2780,57 +3804,98 @@ function createRepository(pool) {
       try {
         await client.query('BEGIN');
         for (const item of items) {
-          const txid = String(item.txid || '').trim();
+          const routeupContract = item.routeupContract ? normalizePgContract(item.routeupContract) : null;
+          const manualTid = String(item.manualTid || '').trim();
+          const manualKey = String(item.manualKey || '').trim();
+          const recurringTid = String(item.recurringTid || (routeupContract ? '' : item.txid) || '').trim();
+          const recurringKey = String(item.recurringKey || '').trim();
+          const routeupTid = String(routeupContract?.tid || '').trim();
+          const txid = recurringTid || manualTid || routeupTid;
           const accountNo = normalizeAccountNo(item.accountNo);
           const businessNumber = String(item.businessNumber || '').replace(/[^0-9]/g, '');
           const franchiseName = String(item.franchiseName || '').trim();
-          if (!txid || !accountNo) {
+          if (!manualTid && !recurringTid && !routeupTid) {
             results.push({ ...item, status: 'SKIPPED' });
             continue;
           }
-          if (!isValidAccountApprovalTxid(txid)) {
+          if (!accountNo && !(batchId && Number.isFinite(Number(item.rowNo)))) {
+            results.push({ ...item, status: 'SKIPPED', reason: 'MISSING_ACCOUNT_NO' });
+            continue;
+          }
+          if ((manualTid && !isValidAccountApprovalTxid(manualTid)) || (recurringTid && !isValidAccountApprovalTxid(recurringTid))) {
             results.push({ ...item, status: 'INVALID_TXID' });
             continue;
           }
           let candidates = [];
           if (batchId && Number.isFinite(Number(item.rowNo))) {
             const byRow = await client.query(
-              `SELECT source, id
+              `SELECT *
                FROM (
-                 SELECT 'delivery_account' AS source, id::text AS id
-                 FROM delivery_accounts
-                 WHERE export_batch_id = $1 AND export_row_no = $2
-                   AND account_status = 'APPROVED'
+                 SELECT 'delivery_account' AS source,
+                        da.id::text AS id,
+                        da.franchise_id,
+                        da.account_no,
+                        regexp_replace(COALESCE(users.business_number, ''), '[^0-9]', '', 'g') AS business_number,
+                        users.franchise_name,
+                        da.txid,
+                        da.manual_tid,
+                        da.manual_key,
+                        da.recurring_tid,
+                        da.recurring_key
+                 FROM delivery_accounts da
+                 LEFT JOIN users ON users.franchise_id = da.franchise_id
+                 WHERE da.export_batch_id = $1 AND da.export_row_no = $2
+                   AND da.account_status = 'APPROVED'
+                   AND COALESCE(da.hidden, false) = false
                  UNION ALL
-                 SELECT 'account_request' AS source, request_id AS id
-                 FROM account_requests
-                 WHERE export_batch_id = $1 AND export_row_no = $2
-                   AND status = 'APPROVED'
+                 SELECT 'account_request' AS source,
+                        ar.request_id AS id,
+                        ar.franchise_id,
+                        COALESCE(ar.account_no, ar.assigned_virtual_account->>'accountNumber', '') AS account_no,
+                        regexp_replace(COALESCE(users.business_number, ar.business_number, ''), '[^0-9]', '', 'g') AS business_number,
+                        COALESCE(users.franchise_name, ar.franchise_name) AS franchise_name,
+                        ar.txid,
+                        ar.manual_tid,
+                        ar.manual_key,
+                        ar.recurring_tid,
+                        ar.recurring_key
+                 FROM account_requests ar
+                 LEFT JOIN users ON users.franchise_id = ar.franchise_id
+                 WHERE ar.export_batch_id = $1 AND ar.export_row_no = $2
+                   AND ar.status = 'APPROVED'
+                   AND COALESCE(ar.hidden, false) = false
                ) matched`,
               [batchId, Number(item.rowNo)]
             );
-            candidates = byRow.rows;
+            candidates = byRow.rows.filter(candidate => {
+              const candidateAccountNo = normalizeAccountNo(candidate.account_no);
+              const candidateBusinessNumber = String(candidate.business_number || '').replace(/[^0-9]/g, '');
+              const candidateFranchiseName = String(candidate.franchise_name || '').trim();
+              return (!accountNo || candidateAccountNo === accountNo)
+                && (!businessNumber || candidateBusinessNumber === businessNumber)
+                && (!franchiseName || candidateFranchiseName === franchiseName);
+            });
           }
           if (!candidates.length) {
             const byAccount = await client.query(
-              `SELECT source, id
+              `SELECT *
                FROM (
-                 SELECT 'delivery_account' AS source, da.id::text AS id
+                 SELECT 'delivery_account' AS source, da.id::text AS id, da.franchise_id, da.txid, da.manual_tid, da.manual_key, da.recurring_tid, da.recurring_key
                  FROM delivery_accounts da
                  JOIN users ON users.franchise_id = da.franchise_id
                  WHERE da.account_status = 'APPROVED'
-                   AND COALESCE(da.txid, '') = ''
+                   AND COALESCE(da.hidden, false) = false
                    AND regexp_replace(COALESCE(da.account_no, ''), '[^0-9A-Za-z]', '', 'g') = $1
                    AND ($2::text IS NULL OR regexp_replace(COALESCE(users.business_number, ''), '[^0-9]', '', 'g') = $2)
-                   AND ($3::text IS NULL OR users.franchise_name = $3)
+                   AND ($3::text IS NULL OR btrim(COALESCE(users.franchise_name, '')) = btrim($3))
                  UNION ALL
-                 SELECT 'account_request' AS source, ar.request_id AS id
+                 SELECT 'account_request' AS source, ar.request_id AS id, ar.franchise_id, ar.txid, ar.manual_tid, ar.manual_key, ar.recurring_tid, ar.recurring_key
                  FROM account_requests ar
                  WHERE ar.status = 'APPROVED'
-                   AND COALESCE(ar.txid, '') = ''
+                   AND COALESCE(ar.hidden, false) = false
                    AND regexp_replace(COALESCE(ar.account_no, ar.assigned_virtual_account->>'accountNumber', ''), '[^0-9A-Za-z]', '', 'g') = $1
                    AND ($2::text IS NULL OR regexp_replace(COALESCE(ar.business_number, ''), '[^0-9]', '', 'g') = $2)
-                   AND ($3::text IS NULL OR ar.franchise_name = $3)
+                   AND ($3::text IS NULL OR btrim(COALESCE(ar.franchise_name, '')) = btrim($3))
                ) matched`,
               [accountNo, businessNumber || null, franchiseName || null]
             );
@@ -2841,20 +3906,121 @@ function createRepository(pool) {
             continue;
           }
           const target = candidates[0];
+          let effectiveRouteupContract = routeupContract;
+          if (effectiveRouteupContract) {
+            const existingRouteup = await client.query(
+              `SELECT *
+               FROM account_pg_contracts
+               WHERE account_source = $1
+                 AND account_id = $2
+                 AND active = true
+                 AND (
+                   credential_type = 'routeup'
+                   OR lower(COALESCE(pg_provider_name, '')) IN ('routeup', '루트업')
+                 )
+               ORDER BY is_default DESC, updated_at DESC, id DESC
+               LIMIT 1`,
+              [target.source, String(target.id)]
+            );
+            const existing = existingRouteup.rows[0] || {};
+            effectiveRouteupContract = normalizePgContract({
+              providerId: effectiveRouteupContract.providerId || existing.pg_provider_id || null,
+              providerName: effectiveRouteupContract.providerName || existing.pg_provider_name || '루트업',
+              credentialType: 'routeup',
+              mid: effectiveRouteupContract.mid || existing.mid || '',
+              tid: effectiveRouteupContract.tid || existing.tid || '',
+              paymentKey: effectiveRouteupContract.paymentKey || existing.payment_key || '',
+              signatureKey: effectiveRouteupContract.signatureKey || existing.signature_key || '',
+              contractStartDate: effectiveRouteupContract.contractStartDate || existing.contract_start_date || '',
+              contractEndDate: effectiveRouteupContract.contractEndDate || existing.contract_end_date || '',
+              deviceType: effectiveRouteupContract.deviceType || existing.device_type || '',
+              isDefault: effectiveRouteupContract.isDefault !== false,
+              metadata: {
+                ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+                ...(effectiveRouteupContract.metadata && typeof effectiveRouteupContract.metadata === 'object' ? effectiveRouteupContract.metadata : {})
+              }
+            });
+            if (!effectiveRouteupContract.tid || !effectiveRouteupContract.paymentKey) {
+              results.push({ ...item, status: 'INVALID_ROUTEUP_CONTRACT', reason: 'MISSING_ROUTEUP_KEYS', affected: [target] });
+              continue;
+            }
+          }
+          const hasExistingTid = ['txid', 'manual_tid', 'manual_key', 'recurring_tid', 'recurring_key']
+            .some(key => String(target[key] || '').trim());
+          if (hasExistingTid && !effectiveRouteupContract) {
+            results.push({ ...item, status: 'SKIPPED', reason: 'EXISTING_TID', affected: [target] });
+            continue;
+          }
           if (target.source === 'delivery_account') {
             await client.query(
               `UPDATE delivery_accounts
-               SET txid = $1, txid_uploaded_at = now(), updated_at = now()
-               WHERE id = $2`,
-              [txid, Number(target.id)]
+               SET txid = $1, manual_tid = $2, manual_key = $3, recurring_tid = $4, recurring_key = $5, txid_uploaded_at = now(), updated_at = now()
+               WHERE id = $6`,
+              [txid, manualTid || null, manualKey || null, recurringTid || null, recurringKey || null, Number(target.id)]
             );
           } else {
             await client.query(
               `UPDATE account_requests
-               SET txid = $1, txid_uploaded_at = now(), updated_at = now()
-               WHERE request_id = $2`,
-              [txid, String(target.id)]
+               SET txid = $1, manual_tid = $2, manual_key = $3, recurring_tid = $4, recurring_key = $5, txid_uploaded_at = now(), updated_at = now()
+               WHERE request_id = $6`,
+              [txid, manualTid || null, manualKey || null, recurringTid || null, recurringKey || null, String(target.id)]
             );
+          }
+          const contracts = [
+            ...buildGhPaymentContracts({ manualTid, manualKey, recurringTid, recurringKey }),
+            ...(effectiveRouteupContract ? [effectiveRouteupContract] : [])
+          ];
+          if (contracts.length) {
+            await client.query(
+              `UPDATE account_pg_contracts
+               SET active = false,
+                   updated_at = now()
+               WHERE account_source = $1
+                 AND account_id = $2`,
+              [target.source, String(target.id)]
+            );
+            for (const contract of contracts) {
+              await client.query(
+                `INSERT INTO account_pg_contracts (
+                  account_source, account_id, franchise_id, pg_provider_id, pg_provider_name,
+                  credential_type, mid, tid, payment_key, signature_key, contract_start_date,
+                  contract_end_date, device_type, is_default, active, metadata
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, NULLIF($9, ''), NULLIF($10, ''),
+                        NULLIF($11, '')::date, NULLIF($12, '')::date, NULLIF($13, ''), $14, true, $15::jsonb)
+                ON CONFLICT (account_source, account_id, pg_provider_name, credential_type, tid)
+                DO UPDATE SET
+                  franchise_id = EXCLUDED.franchise_id,
+                  pg_provider_id = EXCLUDED.pg_provider_id,
+                  mid = EXCLUDED.mid,
+                  payment_key = EXCLUDED.payment_key,
+                  signature_key = EXCLUDED.signature_key,
+                  contract_start_date = EXCLUDED.contract_start_date,
+                  contract_end_date = EXCLUDED.contract_end_date,
+                  device_type = EXCLUDED.device_type,
+                  is_default = EXCLUDED.is_default,
+                  active = true,
+                  metadata = EXCLUDED.metadata,
+                  updated_at = now()`,
+                [
+                  target.source,
+                  String(target.id),
+                  target.franchise_id,
+                  contract.providerId || null,
+                  normalizeProviderName(contract.providerName),
+                  contract.credentialType || 'recurring',
+                  contract.mid || '',
+                  contract.tid,
+                  contract.paymentKey || '',
+                  contract.signatureKey || '',
+                  contract.contractStartDate || '',
+                  contract.contractEndDate || '',
+                  contract.deviceType || '',
+                  contract.isDefault !== false,
+                  JSON.stringify(contract.metadata || {})
+                ]
+              );
+            }
           }
           results.push({ ...item, status: 'UPDATED', affected: [target] });
         }
@@ -2879,7 +4045,11 @@ function createRepository(pool) {
                   da.agency_name,
                   da.bank_name,
                   da.account_no,
-                  da.txid
+                  da.txid,
+                  da.manual_tid,
+                  da.manual_key,
+                  da.recurring_tid,
+                  da.recurring_key
            FROM delivery_accounts da
            JOIN users ON users.franchise_id = da.franchise_id
            WHERE da.id = $1`,
@@ -2896,7 +4066,11 @@ function createRepository(pool) {
                   ar.delivery_agency_name AS agency_name,
                   ar.bank_name,
                   COALESCE(ar.account_no, ar.assigned_virtual_account->>'accountNumber') AS account_no,
-                  ar.txid
+                  ar.txid,
+                  ar.manual_tid,
+                  ar.manual_key,
+                  ar.recurring_tid,
+                  ar.recurring_key
            FROM account_requests ar
            JOIN users ON users.franchise_id = ar.franchise_id
            WHERE ar.request_id = $1`,
@@ -2910,22 +4084,81 @@ function createRepository(pool) {
     async findChargeDepositAccount({ franchiseId, accountId, source }) {
       if (source === 'delivery_account' || /^\d+$/.test(String(accountId || ''))) {
         const result = await pool.query(
-          `SELECT 'delivery_account' AS source, id::text AS id, franchise_id, agency_name, bank_name, account_no, account_holder, txid
+          `SELECT 'delivery_account' AS source, id::text AS id, franchise_id, agency_name, bank_name, account_no, account_holder, txid, manual_tid, manual_key, recurring_tid, recurring_key,
+                  'APPROVED' AS status, 'APPROVED' AS account_status
            FROM delivery_accounts
            WHERE id = $1 AND franchise_id = $2 AND account_status = 'APPROVED' AND COALESCE(hidden, false) = false`,
           [Number(accountId), franchiseId]
         );
-        if (result.rows[0]) return result.rows[0];
+        if (result.rows[0]) {
+          const rows = await attachPgContracts(pool, [result.rows[0]], 'delivery_account', { includeRaw: true });
+          return rows[0];
+        }
       }
       const result = await pool.query(
         `SELECT 'account_request' AS source, request_id AS id, franchise_id, delivery_agency_name AS agency_name,
                 bank_name, COALESCE(account_no, assigned_virtual_account->>'accountNumber') AS account_no,
-                representative_name AS account_holder, txid
+                representative_name AS account_holder, txid, manual_tid, manual_key, recurring_tid, recurring_key,
+                'APPROVED' AS status, 'APPROVED' AS account_status
          FROM account_requests
          WHERE request_id = $1 AND franchise_id = $2 AND status = 'APPROVED' AND COALESCE(hidden, false) = false`,
         [String(accountId || ''), franchiseId]
       );
-      return result.rows[0] || null;
+      if (!result.rows[0]) return null;
+      const rows = await attachPgContracts(pool, [result.rows[0]], 'account_request', { includeRaw: true });
+      return rows[0] || null;
+    },
+
+    async findDefaultChargeDepositAccount({ franchiseId, providerName = '' }) {
+      const delivery = await pool.query(
+        `SELECT 'delivery_account' AS source, id::text AS id, franchise_id, agency_name, bank_name, account_no, account_holder, txid, manual_tid, manual_key, recurring_tid, recurring_key
+         FROM delivery_accounts
+         WHERE franchise_id = $1 AND account_status = 'APPROVED' AND COALESCE(hidden, false) = false AND COALESCE(active, true) = true
+         ORDER BY updated_at DESC, req_date DESC, id DESC
+         LIMIT 20`,
+        [franchiseId]
+      );
+      const requests = await pool.query(
+        `SELECT 'account_request' AS source, request_id AS id, franchise_id, delivery_agency_name AS agency_name,
+                bank_name, COALESCE(account_no, assigned_virtual_account->>'accountNumber') AS account_no,
+                representative_name AS account_holder, txid, manual_tid, manual_key, recurring_tid, recurring_key
+         FROM account_requests
+         WHERE franchise_id = $1 AND status = 'APPROVED' AND COALESCE(hidden, false) = false AND COALESCE(active, true) = true
+         ORDER BY updated_at DESC, submitted_at DESC
+         LIMIT 20`,
+        [franchiseId]
+      );
+      const deliveryRows = await attachPgContracts(pool, delivery.rows, 'delivery_account', { includeRaw: true });
+      const requestRows = await attachPgContracts(pool, requests.rows, 'account_request', { includeRaw: true });
+      const rows = [...deliveryRows, ...requestRows];
+      const normalizedProvider = normalizeProviderName(providerName);
+      if (normalizedProvider) {
+        const providerRow = rows.find(row => (row.pgContracts || []).some(contract =>
+          normalizeProviderName(contract.providerName) === normalizedProvider &&
+          contract.active !== false &&
+          contract.tid &&
+          contract.paymentKey
+        ));
+        if (providerRow) return providerRow;
+      }
+      return rows[0] || null;
+    },
+
+    async findDefaultRouteupCardRegistrationContract({ franchiseId, providerName = '루트업' }) {
+      const normalizedProvider = normalizeProviderName(providerName);
+      const result = await pool.query(
+        `SELECT *
+         FROM account_pg_contracts
+         WHERE franchise_id = $1
+           AND pg_provider_name = $2
+           AND active = true
+           AND COALESCE(payment_key, '') <> ''
+         ORDER BY is_default DESC, updated_at DESC, id DESC
+         LIMIT 1`,
+        [franchiseId, normalizedProvider]
+      );
+      const contract = toPgContract(result.rows[0], { includeRaw: true });
+      return contract ? { pgContracts: [contract] } : null;
     },
 
     async findAccountRequest(requestId) {
@@ -3013,6 +4246,14 @@ function createRepository(pool) {
         await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pg TEXT`);
         await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pg_tx_id TEXT`);
         await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS auth_code TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_source TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_id TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_bank_name TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_no TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_account_holder TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_delivery_agency TEXT`);
+        await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deposit_txid TEXT`);
+        await client.query(`ALTER TABLE pg_settlements ADD COLUMN IF NOT EXISTS account_holder TEXT`);
         const updated = await client.query(
           'UPDATE users SET balance = balance + $2, updated_at = now() WHERE id = $1 RETURNING balance',
           [charge.userId, charge.amount]
@@ -3020,9 +4261,11 @@ function createRepository(pool) {
         await client.query(
           `INSERT INTO transactions (
             transaction_id, franchise_id, type, amount, fee, total_amount,
-            method, card_details, pg, pg_tx_id, auth_code, status
+            method, card_details, pg, pg_tx_id, auth_code, status,
+            deposit_account_source, deposit_account_id, deposit_bank_name,
+            deposit_account_no, deposit_account_holder, deposit_delivery_agency, deposit_txid
           )
-          VALUES ($1, $2, 'CHARGE', $3, $4, $5, $6, $7, $8, $9, $10, 'SUCCESS')`,
+          VALUES ($1, $2, 'CHARGE', $3, $4, $5, $6, $7, $8, $9, $10, 'SUCCESS', $11, $12, $13, $14, $15, $16, $17)`,
           [
             charge.transactionId,
             charge.franchiseId,
@@ -3033,7 +4276,14 @@ function createRepository(pool) {
             charge.cardDetails,
             charge.pg || null,
             charge.pgTxId || null,
-            charge.authCode || null
+            charge.authCode || null,
+            charge.depositAccountSource || null,
+            charge.depositAccountId || null,
+            charge.depositBankName || null,
+            charge.depositAccountNo || null,
+            charge.depositAccountHolder || null,
+            charge.depositDeliveryAgency || null,
+            charge.depositTxid || null
           ]
         );
         if (false && charge.pgTxId) {
@@ -3050,7 +4300,7 @@ function createRepository(pool) {
              FROM users u
              LEFT JOIN agencies a ON a.id = u.agency_id
              LEFT JOIN LATERAL (
-               SELECT bank_name, account_no, agency_name
+               SELECT bank_name, account_no, account_holder, agency_name
                FROM delivery_accounts
                WHERE franchise_id = u.franchise_id
                  AND account_status = 'APPROVED'
@@ -3060,7 +4310,7 @@ function createRepository(pool) {
                LIMIT 1
              ) da ON true
              LEFT JOIN LATERAL (
-               SELECT bank_name, account_no, delivery_agency_name, assigned_virtual_account
+               SELECT bank_name, account_no, representative_name, delivery_agency_name, assigned_virtual_account
                FROM account_requests
                WHERE franchise_id = u.franchise_id
                  AND status IN ('APPROVED', '승인완료')
@@ -3076,7 +4326,7 @@ function createRepository(pool) {
             `INSERT INTO pg_settlements (
               settled_at, approval_no, pg, pg_tx_id, franchise_id, franchise_name,
               payment_amt, svc_fee, net_amt, agency_id, agency_name, customer_id,
-              bank_code, account_no, delivery_agency, status
+              bank_code, account_no, account_holder, delivery_agency, status
             )
             VALUES (
               now(), $1, $2, $3, $4, $5,
@@ -3147,17 +4397,29 @@ function createRepository(pool) {
     async listPgSettlements(filters = {}) {
       const whereParts = [];
       const params = [];
+      const agencyIdExpr = filters.currentAgencyScope
+        ? 'COALESCE(u.agency_id, ps.agency_id)'
+        : 'COALESCE(ps.agency_id, u.agency_id)';
+      const agencyNameExpr = filters.currentAgencyScope
+        ? "COALESCE(a.name, NULLIF(ps.agency_name, ''))"
+        : "COALESCE(NULLIF(ps.agency_name, ''), a.name)";
       if (filters.startDate) {
         params.push(filters.startDate);
-        whereParts.push(`COALESCE(ps.settled_at, t.created_at)::date >= $${params.length}::date`);
+        whereParts.push(`COALESCE(tn.received_at, dn.received_at, t.created_at)::date >= $${params.length}::date`);
       }
       if (filters.endDate) {
         params.push(filters.endDate);
-        whereParts.push(`COALESCE(ps.settled_at, t.created_at)::date <= $${params.length}::date`);
+        whereParts.push(`COALESCE(tn.received_at, dn.received_at, t.created_at)::date <= $${params.length}::date`);
       }
-      if (filters.agencyId) {
+      const agencyIds = Array.isArray(filters.agencyIds)
+        ? filters.agencyIds.map(id => Number(id)).filter(Number.isFinite)
+        : [];
+      if (agencyIds.length) {
+        params.push(agencyIds);
+        whereParts.push(`${agencyIdExpr} = ANY($${params.length}::bigint[])`);
+      } else if (filters.agencyId) {
         params.push(filters.agencyId);
-        whereParts.push(`COALESCE(ps.agency_id, u.agency_id) = $${params.length}`);
+        whereParts.push(`${agencyIdExpr} = $${params.length}`);
       }
       if (filters.status) {
         params.push(filters.status);
@@ -3169,14 +4431,109 @@ function createRepository(pool) {
 
       const items = await pool.query(
         `SELECT ps.*,
-                COALESCE(ps.agency_id, u.agency_id) AS resolved_agency_id,
-                COALESCE(NULLIF(ps.agency_name, ''), a.name) AS resolved_agency_name
+                t.created_at AS payment_created_at,
+                t.auth_code AS payment_auth_code,
+                dn.received_at AS deposit_received_at,
+                dn.deposit_txid,
+                dn.deposit_bank_name,
+                dn.deposit_account_no,
+                dn.deposit_account_holder,
+                acct.account_bank_name,
+                acct.account_account_no,
+                acct.account_account_holder,
+                ps.account_holder,
+                tn.received_at AS transfer_received_at,
+                tn.transfer_bank_name,
+                tn.transfer_account_no,
+                tn.transfer_account_holder,
+                tn.transfer_seq,
+                tn.transfer_amount,
+                tn.transfer_fee,
+                tn.transfer_result,
+                tn.transfer_requested_at,
+                tn.transfer_completed_at,
+                COALESCE(tn.received_at, dn.received_at, tn.transfer_completed_at, t.created_at, ps.created_at) AS resolved_sort_at,
+                ${agencyIdExpr} AS resolved_agency_id,
+                ${agencyNameExpr} AS resolved_agency_name
          FROM pg_settlements ps
          LEFT JOIN transactions t ON t.transaction_id = ps.approval_no
+         LEFT JOIN LATERAL (
+           SELECT txid AS deposit_txid,
+                  received_at,
+                  bank_name AS deposit_bank_name,
+                  account_no AS deposit_account_no,
+                  depositor_name AS deposit_account_holder
+           FROM deposit_notifications
+           WHERE txid = ps.pg_tx_id
+              OR (
+                ps.settled_at IS NOT NULL
+                AND abs(extract(epoch from (received_at - ps.settled_at))) <= 120
+                AND regexp_replace(COALESCE(account_no, ''), '[^0-9A-Za-z]', '', 'g') = regexp_replace(COALESCE(ps.account_no, ''), '[^0-9A-Za-z]', '', 'g')
+                AND abs(amount - ps.net_amt) <= 1
+              )
+           ORDER BY CASE WHEN txid = ps.pg_tx_id THEN 0 ELSE 1 END, received_at ASC, id ASC
+           LIMIT 1
+         ) dn ON true
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(da.bank_name, ar.bank_name, ar.assigned_virtual_account->>'bankName') AS account_bank_name,
+                  COALESCE(da.account_no, ar.account_no, ar.assigned_virtual_account->>'accountNumber') AS account_account_no,
+                  COALESCE(da.account_holder, ar.representative_name, ar.assigned_virtual_account->>'accountHolder') AS account_account_holder
+           FROM (SELECT 1) seed
+           LEFT JOIN LATERAL (
+             SELECT bank_name, account_no, account_holder
+             FROM delivery_accounts
+             WHERE franchise_id = ps.franchise_id
+               AND account_status = 'APPROVED'
+               AND COALESCE(hidden, false) = false
+               AND COALESCE(active, true) = true
+             ORDER BY updated_at DESC, req_date DESC
+             LIMIT 1
+           ) da ON true
+           LEFT JOIN LATERAL (
+             SELECT bank_name, account_no, representative_name, assigned_virtual_account
+             FROM account_requests
+             WHERE franchise_id = ps.franchise_id
+               AND status IN ('APPROVED', '승인완료')
+               AND COALESCE(hidden, false) = false
+             ORDER BY updated_at DESC, submitted_at DESC
+             LIMIT 1
+           ) ar ON true
+           LIMIT 1
+         ) acct ON true
+         LEFT JOIN LATERAL (
+           SELECT pn.received_at,
+                  pn.query->>'bankNm' AS transfer_bank_name,
+                  pn.query->>'acctNo' AS transfer_account_no,
+                  pn.query->>'acctNm' AS transfer_account_holder,
+                  pn.query->>'transSeq' AS transfer_seq,
+                  NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric AS transfer_amount,
+                  NULLIF(regexp_replace(COALESCE(pn.query->>'transFee', ''), '[^0-9]', '', 'g'), '')::numeric AS transfer_fee,
+                  pn.query->>'transResult' AS transfer_result,
+                  NULLIF(pn.query->>'transReqDttm', '') AS transfer_requested_at,
+                  pn.received_at AS transfer_completed_at
+           FROM pg_notifications pn
+           WHERE pn.transaction_id IS NULL
+             AND pn.pg_transaction_id IS NULL
+             AND pn.query->>'transResult' LIKE '%성공%'
+             AND NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
+             AND t.created_at IS NOT NULL
+             AND pn.received_at >= t.created_at
+             AND ps.approval_no = (
+               SELECT ps_match.approval_no
+               FROM pg_settlements ps_match
+               JOIN transactions t_match ON t_match.transaction_id = ps_match.approval_no
+               WHERE ps_match.net_amt = NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric
+                 AND t_match.created_at <= pn.received_at
+               ORDER BY t_match.created_at DESC, ps_match.id DESC
+               LIMIT 1
+             )
+           ORDER BY pn.received_at ASC, pn.id ASC
+           LIMIT 1
+         ) tn ON true
          LEFT JOIN users u ON u.franchise_id = ps.franchise_id
-         LEFT JOIN agencies a ON a.id = COALESCE(ps.agency_id, u.agency_id)
+         LEFT JOIN agencies a ON a.id = ${agencyIdExpr}
          ${where}
-         ORDER BY COALESCE(ps.settled_at, t.created_at, ps.created_at) DESC
+         ORDER BY COALESCE(tn.received_at, dn.received_at, t.created_at, ps.created_at) DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, limit, offset]
       );
@@ -3184,6 +4541,60 @@ function createRepository(pool) {
         `SELECT count(*)::int AS count
          FROM pg_settlements ps
          LEFT JOIN transactions t ON t.transaction_id = ps.approval_no
+         LEFT JOIN LATERAL (
+           SELECT received_at
+           FROM deposit_notifications
+           WHERE txid = ps.pg_tx_id
+           ORDER BY received_at ASC, id ASC
+           LIMIT 1
+         ) dn ON true
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(da.bank_name, ar.bank_name, ar.assigned_virtual_account->>'bankName') AS account_bank_name,
+                  COALESCE(da.account_no, ar.account_no, ar.assigned_virtual_account->>'accountNumber') AS account_account_no,
+                  COALESCE(da.account_holder, ar.representative_name, ar.assigned_virtual_account->>'accountHolder') AS account_account_holder
+           FROM (SELECT 1) seed
+           LEFT JOIN LATERAL (
+             SELECT bank_name, account_no, account_holder
+             FROM delivery_accounts
+             WHERE franchise_id = ps.franchise_id
+               AND account_status = 'APPROVED'
+               AND COALESCE(hidden, false) = false
+               AND COALESCE(active, true) = true
+             ORDER BY updated_at DESC, req_date DESC
+             LIMIT 1
+           ) da ON true
+           LEFT JOIN LATERAL (
+             SELECT bank_name, account_no, representative_name, assigned_virtual_account
+             FROM account_requests
+             WHERE franchise_id = ps.franchise_id
+               AND status IN ('APPROVED', '승인완료')
+               AND COALESCE(hidden, false) = false
+             ORDER BY updated_at DESC, submitted_at DESC
+             LIMIT 1
+           ) ar ON true
+           LIMIT 1
+         ) acct ON true
+         LEFT JOIN LATERAL (
+           SELECT pn.received_at
+           FROM pg_notifications pn
+           WHERE pn.transaction_id IS NULL
+             AND pn.pg_transaction_id IS NULL
+             AND pn.query->>'transResult' LIKE '%성공%'
+             AND NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
+             AND t.created_at IS NOT NULL
+             AND pn.received_at >= t.created_at
+             AND ps.approval_no = (
+               SELECT ps_match.approval_no
+               FROM pg_settlements ps_match
+               JOIN transactions t_match ON t_match.transaction_id = ps_match.approval_no
+               WHERE ps_match.net_amt = NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric
+                 AND t_match.created_at <= pn.received_at
+               ORDER BY t_match.created_at DESC, ps_match.id DESC
+               LIMIT 1
+             )
+           ORDER BY pn.received_at ASC, pn.id ASC
+           LIMIT 1
+         ) tn ON true
          LEFT JOIN users u ON u.franchise_id = ps.franchise_id
          ${where}`,
         params
@@ -3210,6 +4621,292 @@ function createRepository(pool) {
       return result.rows.map(toPgProvider);
     },
 
+    async listPgAssignmentRules({ onlyActive = false } = {}) {
+      const result = await pool.query(
+        `SELECT rules.*, pg_providers.name AS pg_provider_name, agencies.name AS agency_name
+         FROM pg_assignment_rules rules
+         LEFT JOIN pg_providers ON pg_providers.id = rules.pg_provider_id
+         LEFT JOIN agencies ON agencies.id = rules.agency_id
+         ${onlyActive ? "WHERE rules.active = true AND pg_providers.status = '활성'" : ''}
+         ORDER BY rules.priority ASC, rules.id ASC`
+      );
+      return result.rows.map(toPgAssignmentRule);
+    },
+
+    async replaceAccountPgContracts({ source, accountId, franchiseId, contracts = [] } = {}) {
+      const normalizedSource = String(source || '').trim();
+      const normalizedAccountId = String(accountId || '').trim();
+      if (!normalizedSource || !normalizedAccountId) {
+        throw Object.assign(new Error('account source and id are required.'), { code: 'INVALID_ACCOUNT_PG_CONTRACT_TARGET' });
+      }
+      const rows = sanitizePgContracts(contracts);
+      return withTransaction(async client => {
+        await client.query(
+          `UPDATE account_pg_contracts
+           SET active = false,
+               updated_at = now()
+           WHERE account_source = $1
+             AND account_id = $2`,
+          [normalizedSource, normalizedAccountId]
+        );
+        const saved = [];
+        for (const contract of rows) {
+          const result = await client.query(
+            `INSERT INTO account_pg_contracts (
+              account_source, account_id, franchise_id, pg_provider_id, pg_provider_name,
+              credential_type, mid, tid, payment_key, signature_key, contract_start_date,
+              contract_end_date, device_type, is_default, active, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, NULLIF($9, ''), NULLIF($10, ''),
+                    NULLIF($11, '')::date, NULLIF($12, '')::date, NULLIF($13, ''), $14, true, $15::jsonb)
+            ON CONFLICT (account_source, account_id, pg_provider_name, credential_type, tid)
+            DO UPDATE SET
+              franchise_id = EXCLUDED.franchise_id,
+              pg_provider_id = EXCLUDED.pg_provider_id,
+              mid = EXCLUDED.mid,
+              payment_key = EXCLUDED.payment_key,
+              signature_key = EXCLUDED.signature_key,
+              contract_start_date = EXCLUDED.contract_start_date,
+              contract_end_date = EXCLUDED.contract_end_date,
+              device_type = EXCLUDED.device_type,
+              is_default = EXCLUDED.is_default,
+              active = true,
+              metadata = EXCLUDED.metadata,
+              updated_at = now()
+            RETURNING *`,
+            [
+              normalizedSource,
+              normalizedAccountId,
+              franchiseId,
+              contract.providerId || null,
+              normalizeProviderName(contract.providerName),
+              contract.credentialType || 'recurring',
+              contract.mid || '',
+              contract.tid,
+              contract.paymentKey || '',
+              contract.signatureKey || '',
+              contract.contractStartDate || '',
+              contract.contractEndDate || '',
+              contract.deviceType || '',
+              contract.isDefault !== false,
+              JSON.stringify(contract.metadata || {})
+            ]
+          );
+          saved.push(toPgContract(result.rows[0]));
+        }
+        return saved;
+      });
+    },
+
+    async updateAccountApprovalPgContracts({ source, id, franchiseId, legacy = {}, contracts = [] } = {}) {
+      const normalizedSource = String(source || '').trim();
+      const normalizedId = String(id || '').trim();
+      const ghContracts = buildGhPaymentContracts(legacy);
+      const allContracts = [...ghContracts, ...sanitizePgContracts(contracts)];
+      const routeupExternalKeysComplete = hasRouteupExternalIntegrationKeys({ pgContracts: allContracts });
+      const savedContracts = await this.replaceAccountPgContracts({
+        source: normalizedSource,
+        accountId: normalizedId,
+        franchiseId,
+        contracts: allContracts
+      });
+      if (normalizedSource === 'delivery_account') {
+        await pool.query(
+          `UPDATE delivery_accounts
+           SET txid = $1,
+               manual_tid = $2,
+               manual_key = $3,
+               recurring_tid = $4,
+               recurring_key = $5,
+               txid_uploaded_at = now(),
+               account_status = CASE WHEN $6 THEN 'APPROVED' ELSE account_status END,
+               approved_at = CASE WHEN $6 AND approved_at IS NULL THEN now() ELSE approved_at END,
+               export_ready_at = CASE WHEN $6 THEN NULL ELSE export_ready_at END,
+               export_batch_id = CASE WHEN $6 THEN NULL ELSE export_batch_id END,
+               export_row_no = CASE WHEN $6 THEN NULL ELSE export_row_no END,
+               exported_at = CASE WHEN $6 THEN NULL ELSE exported_at END,
+               updated_at = now()
+           WHERE id = $7`,
+          [
+            legacy.txid || legacy.recurringTid || legacy.manualTid || null,
+            legacy.manualTid || null,
+            legacy.manualKey || null,
+            legacy.recurringTid || null,
+            legacy.recurringKey || null,
+            routeupExternalKeysComplete,
+            Number(normalizedId)
+          ]
+        );
+      } else if (normalizedSource === 'account_request') {
+        await pool.query(
+          `UPDATE account_requests
+           SET txid = $1,
+               manual_tid = $2,
+               manual_key = $3,
+               recurring_tid = $4,
+               recurring_key = $5,
+               txid_uploaded_at = now(),
+               status = CASE WHEN $6 THEN 'APPROVED' ELSE status END,
+               rejection_reason = CASE WHEN $6 THEN NULL ELSE rejection_reason END,
+               processed_at = CASE WHEN $6 THEN now() ELSE processed_at END,
+               export_ready_at = CASE WHEN $6 THEN NULL ELSE export_ready_at END,
+               export_batch_id = CASE WHEN $6 THEN NULL ELSE export_batch_id END,
+               export_row_no = CASE WHEN $6 THEN NULL ELSE export_row_no END,
+               exported_at = CASE WHEN $6 THEN NULL ELSE exported_at END,
+               updated_at = now()
+           WHERE request_id = $7`,
+          [
+            legacy.txid || legacy.recurringTid || legacy.manualTid || null,
+            legacy.manualTid || null,
+            legacy.manualKey || null,
+            legacy.recurringTid || null,
+            legacy.recurringKey || null,
+            routeupExternalKeysComplete,
+            normalizedId
+          ]
+        );
+      }
+      return savedContracts;
+    },
+
+    async createPgAssignmentRule(rule) {
+      const result = await pool.query(
+        `INSERT INTO pg_assignment_rules (
+          name, pg_provider_id, agency_id, join_code, start_date, end_date, weekdays, priority, active, note
+        )
+        VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::date, NULLIF($6, '')::date, $7::int[], $8, $9, $10)
+        RETURNING *`,
+        [
+          rule.name,
+          rule.pgProviderId,
+          rule.agencyId || null,
+          rule.joinCode || '',
+          rule.startDate || '',
+          rule.endDate || '',
+          Array.isArray(rule.weekdays) ? rule.weekdays : [],
+          Number(rule.priority || 100),
+          rule.active !== false,
+          rule.note || ''
+        ]
+      );
+      return toPgAssignmentRule(result.rows[0]);
+    },
+
+    async updatePgAssignmentRule(id, rule) {
+      const result = await pool.query(
+        `UPDATE pg_assignment_rules
+         SET name = $2,
+             pg_provider_id = $3,
+             agency_id = $4,
+             join_code = NULLIF($5, ''),
+             start_date = NULLIF($6, '')::date,
+             end_date = NULLIF($7, '')::date,
+             weekdays = $8::int[],
+             priority = $9,
+             active = $10,
+             note = $11,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          id,
+          rule.name,
+          rule.pgProviderId,
+          rule.agencyId || null,
+          rule.joinCode || '',
+          rule.startDate || '',
+          rule.endDate || '',
+          Array.isArray(rule.weekdays) ? rule.weekdays : [],
+          Number(rule.priority || 100),
+          rule.active !== false,
+          rule.note || ''
+        ]
+      );
+      return toPgAssignmentRule(result.rows[0]);
+    },
+
+    async deletePgAssignmentRule(id) {
+      const result = await pool.query('DELETE FROM pg_assignment_rules WHERE id = $1 RETURNING *', [id]);
+      return toPgAssignmentRule(result.rows[0]);
+    },
+
+    async listPgNotifications(options = {}) {
+      const limit = Math.min(Math.max(Number(options.limit || 50), 1), 200);
+      const provider = String(options.provider || '').trim();
+      const params = [];
+      const where = provider ? 'WHERE provider = $1' : '';
+      if (provider) params.push(provider);
+      params.push(limit);
+      const result = await pool.query(
+        `SELECT *
+         FROM pg_notifications
+         ${where}
+         ORDER BY received_at DESC, id DESC
+         LIMIT $${params.length}`,
+        params
+      );
+      return result.rows.map(toPgNotification);
+    },
+
+    async listDepositNotifications(options = {}) {
+      const limit = Math.min(Math.max(Number(options.limit || 50), 1), 200);
+      const result = await pool.query(
+        `SELECT *
+         FROM deposit_notifications
+         ORDER BY received_at DESC, id DESC
+         LIMIT $1`,
+        [limit]
+      );
+      return result.rows.map(toDepositNotification);
+    },
+
+    async recordDepositNotification(notification) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query(
+          `INSERT INTO deposit_notifications (
+            provider, event_type, txid, account_no, bank_name, depositor_name,
+            amount, result_code, result_message, payload, query, headers
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb)
+          RETURNING *`,
+          [
+            notification.provider || 'DEPOSIT',
+            notification.eventType || null,
+            notification.txid || null,
+            notification.accountNo || null,
+            notification.bankName || null,
+            notification.depositorName || null,
+            Number.isFinite(Number(notification.amount)) ? Number(notification.amount) : null,
+            notification.resultCode || null,
+            notification.resultMessage || null,
+            JSON.stringify(notification.payload || {}),
+            JSON.stringify(notification.query || {}),
+            JSON.stringify(notification.headers || {})
+          ]
+        );
+        const saved = result.rows[0];
+        if (String(saved?.txid || '').trim()) {
+          await client.query(
+            `UPDATE pg_settlements
+             SET settled_at = COALESCE(settled_at, $2),
+                 status = 'SETTLED',
+                 updated_at = now()
+             WHERE pg_tx_id = $1`,
+            [String(saved.txid).trim(), saved.received_at]
+          );
+        }
+        await client.query('COMMIT');
+        return toDepositNotification(saved);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+
     async recordPgNotification(notification) {
       const client = await pool.connect();
       try {
@@ -3234,7 +4931,43 @@ function createRepository(pool) {
           ]
         );
         const row = result.rows[0];
-        const settlementAt = findProviderSettlementTime(notification.payload || {});
+        if (!notification.transactionId && !notification.pgTransactionId) {
+          const query = notification.query || {};
+          const transferResult = String(query.transResult || '').trim();
+          const transferAmount = String(query.transAmt || '').replace(/[^0-9]/g, '');
+          const transferAccountNo = String(query.acctNo || '').replace(/[^0-9A-Za-z]/g, '');
+          const transferCompanyName = String(query.compNm || '').trim();
+          if (transferResult.includes('성공') && transferAmount && transferAccountNo) {
+            await client.query(
+              `WITH matched AS (
+                 SELECT ps.id
+                 FROM pg_settlements ps
+                 LEFT JOIN transactions t ON t.transaction_id = ps.approval_no
+                 WHERE ps.settled_at IS NULL
+                   AND ps.status IN ('NORMAL_APPROVED', 'PENDING', 'APPROVED')
+                   AND ps.net_amt = $1::numeric
+                   AND regexp_replace(COALESCE(ps.account_no, ''), '[^0-9A-Za-z]', '', 'g') = $2
+                   AND ($3::text = '' OR btrim(COALESCE(ps.franchise_name, '')) = btrim($3))
+                   AND (t.created_at IS NULL OR $4::timestamptz >= t.created_at)
+                 ORDER BY t.created_at DESC NULLS LAST, ps.id DESC
+                 LIMIT 1
+               )
+               UPDATE pg_settlements ps
+               SET settled_at = $4,
+                   status = 'SETTLED',
+                   updated_at = now()
+               FROM matched
+               WHERE ps.id = matched.id`,
+              [Number(transferAmount), transferAccountNo, transferCompanyName, row.received_at]
+            );
+            await client.query(
+              `UPDATE pg_notifications
+               SET processed = true
+               WHERE id = $1`,
+              [row.id]
+            );
+          }
+        }
         if (notification.transactionId && notification.pgTransactionId) {
           await client.query(
             `UPDATE transactions
@@ -3247,19 +4980,24 @@ function createRepository(pool) {
               notification.transactionId,
               notification.provider || 'GH Payments',
               notification.pgTransactionId,
-              notification.payload?.pay?.authCd || notification.payload?.authCd || null
+              notification.approvalNo ||
+                notification.payload?.routeupParsed?.appr_num ||
+                notification.payload?.appr_num ||
+                notification.payload?.pay?.authCd ||
+                notification.payload?.authCd ||
+                null
             ]
           );
           await client.query(
             `INSERT INTO pg_settlements (
               settled_at, approval_no, pg, pg_tx_id, franchise_id, franchise_name,
               payment_amt, svc_fee, net_amt, agency_id, agency_name, customer_id,
-              bank_code, account_no, delivery_agency, status
+              bank_code, account_no, account_holder, delivery_agency, status
             )
             SELECT
-              $3,
+              NULL::timestamptz,
               t.transaction_id,
-              COALESCE(t.pg, $4),
+              COALESCE(t.pg, $3),
               $2,
               t.franchise_id,
               COALESCE(u.franchise_name, '가맹점 ' || t.franchise_id::text),
@@ -3269,34 +5007,41 @@ function createRepository(pool) {
               u.agency_id,
               a.name,
               COALESCE(NULLIF(u.customer_id, ''), u.login_id),
-              COALESCE(da.bank_name, ar.bank_name, ar.assigned_virtual_account->>'bankName'),
-              COALESCE(da.account_no, ar.account_no, ar.assigned_virtual_account->>'accountNumber'),
-              COALESCE(da.agency_name, ar.delivery_agency_name),
-              CASE WHEN $3::timestamptz IS NULL THEN 'NORMAL_APPROVED' ELSE 'SETTLED' END
+              COALESCE(t.deposit_bank_name, da.bank_name, ar.bank_name, ar.assigned_virtual_account->>'bankName'),
+              COALESCE(t.deposit_account_no, da.account_no, ar.account_no, ar.assigned_virtual_account->>'accountNumber'),
+              COALESCE(t.deposit_account_holder, da.account_holder, ar.representative_name, ar.assigned_virtual_account->>'accountHolder'),
+              COALESCE(t.deposit_delivery_agency, da.agency_name, ar.delivery_agency_name),
+              'NORMAL_APPROVED'
             FROM transactions t
             LEFT JOIN users u ON u.franchise_id = t.franchise_id
             LEFT JOIN agencies a ON a.id = u.agency_id
             LEFT JOIN LATERAL (
-              SELECT bank_name, account_no, agency_name
+              SELECT bank_name, account_no, account_holder, agency_name
               FROM delivery_accounts
               WHERE franchise_id = t.franchise_id
                 AND account_status = 'APPROVED'
                 AND COALESCE(hidden, false) = false
                 AND COALESCE(active, true) = true
+                AND COALESCE(recurring_tid, txid, '') <> ''
+                AND COALESCE(recurring_key, '') <> ''
               ORDER BY updated_at DESC, req_date DESC
               LIMIT 1
             ) da ON true
             LEFT JOIN LATERAL (
-              SELECT bank_name, account_no, delivery_agency_name, assigned_virtual_account
+              SELECT bank_name, account_no, representative_name, delivery_agency_name, assigned_virtual_account
               FROM account_requests
               WHERE franchise_id = t.franchise_id
                 AND status IN ('APPROVED', '승인완료')
+                AND COALESCE(hidden, false) = false
+                AND COALESCE(active, true) = true
+                AND COALESCE(recurring_tid, txid, '') <> ''
+                AND COALESCE(recurring_key, '') <> ''
               ORDER BY updated_at DESC, submitted_at DESC
               LIMIT 1
             ) ar ON true
             WHERE t.transaction_id = $1
             ON CONFLICT (approval_no) DO UPDATE SET
-              settled_at = EXCLUDED.settled_at,
+              settled_at = pg_settlements.settled_at,
               pg = EXCLUDED.pg,
               pg_tx_id = EXCLUDED.pg_tx_id,
               payment_amt = EXCLUDED.payment_amt,
@@ -3307,13 +5052,13 @@ function createRepository(pool) {
               customer_id = EXCLUDED.customer_id,
               bank_code = EXCLUDED.bank_code,
               account_no = EXCLUDED.account_no,
+              account_holder = EXCLUDED.account_holder,
               delivery_agency = EXCLUDED.delivery_agency,
-              status = EXCLUDED.status,
+              status = CASE WHEN pg_settlements.settled_at IS NULL THEN EXCLUDED.status ELSE pg_settlements.status END,
               updated_at = now()`,
             [
               notification.transactionId,
               notification.pgTransactionId,
-              settlementAt,
               notification.provider || 'GH Payments'
             ]
           );
@@ -3402,11 +5147,12 @@ function createRepository(pool) {
     async createAgencyInquiry(inquiry) {
       const result = await pool.query(
         `INSERT INTO agency_inquiries (
-          name, phone, delivery_agency, region, handler, status
+          inquiry_type, name, phone, delivery_agency, region, handler, status
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *`,
         [
+          inquiry.inquiryType || '지점/지사 개설',
           inquiry.name,
           inquiry.phone || '',
           inquiry.deliveryAgency || '',
@@ -3421,17 +5167,19 @@ function createRepository(pool) {
     async updateAgencyInquiry(id, inquiry) {
       const result = await pool.query(
         `UPDATE agency_inquiries
-         SET name = $2,
-             phone = $3,
-             delivery_agency = $4,
-             region = $5,
-             handler = $6,
-             status = $7,
+         SET inquiry_type = $2,
+             name = $3,
+             phone = $4,
+             delivery_agency = $5,
+             region = $6,
+             handler = $7,
+             status = $8,
              updated_at = now()
          WHERE id = $1
          RETURNING *`,
         [
           id,
+          inquiry.inquiryType || '지점/지사 개설',
           inquiry.name,
           inquiry.phone || '',
           inquiry.deliveryAgency || '',
@@ -3460,6 +5208,72 @@ function createRepository(pool) {
       return toAgencyInquiry(result.rows[0]);
     },
 
+    async listAdvanceInquiries() {
+      const result = await pool.query(
+        `SELECT * FROM advance_inquiries
+         ORDER BY created_at DESC, id DESC`
+      );
+      return result.rows.map(toAdvanceInquiry);
+    },
+
+    async listAdvanceInquiriesByUser(userId) {
+      const result = await pool.query(
+        `SELECT * FROM advance_inquiries
+         WHERE user_id = $1
+         ORDER BY created_at DESC, id DESC`,
+        [userId]
+      );
+      return result.rows.map(toAdvanceInquiry);
+    },
+
+    async createAdvanceInquiry(inquiry) {
+      const result = await pool.query(
+        `INSERT INTO advance_inquiries (
+          user_id, franchise_id, franchise_name, phone, email,
+          delivery_sales_manwon, delivery_apps, store_sales_manwon, status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          inquiry.userId || null,
+          inquiry.franchiseId || null,
+          inquiry.franchiseName || '',
+          inquiry.phone || '',
+          inquiry.email || '',
+          Number(inquiry.deliverySalesManwon || 0),
+          inquiry.deliveryApps || '',
+          Number(inquiry.storeSalesManwon || 0),
+          inquiry.status || '상담 대기'
+        ]
+      );
+      return toAdvanceInquiry(result.rows[0]);
+    },
+
+    async updateAdvanceInquiryStatus(id, status) {
+      const result = await pool.query(
+        `UPDATE advance_inquiries
+         SET status = $2,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [id, status]
+      );
+      return toAdvanceInquiry(result.rows[0]);
+    },
+
+    async deleteAdvanceInquiry(id) {
+      const result = await pool.query('DELETE FROM advance_inquiries WHERE id = $1 RETURNING *', [id]);
+      return toAdvanceInquiry(result.rows[0]);
+    },
+
+    async deleteAdvanceInquiryByUser(id, userId) {
+      const result = await pool.query(
+        'DELETE FROM advance_inquiries WHERE id = $1 AND user_id = $2 RETURNING *',
+        [id, userId]
+      );
+      return toAdvanceInquiry(result.rows[0]);
+    },
+
     async listBoardPosts(boardType, options = {}) {
       const includeInactive = Boolean(options.includeInactive);
       const limit = Number(options.limit) || 100;
@@ -3467,7 +5281,7 @@ function createRepository(pool) {
         `SELECT * FROM board_posts
          WHERE board_type = $1
            AND ($2::boolean OR active = true)
-         ORDER BY created_at DESC, id DESC
+         ORDER BY display_order ASC, created_at DESC, id DESC
          LIMIT $3`,
         [boardType, includeInactive, limit]
       );
@@ -3476,8 +5290,8 @@ function createRepository(pool) {
 
     async createBoardPost(boardType, post) {
       const result = await pool.query(
-        `INSERT INTO board_posts (board_type, title, author, content, active)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO board_posts (board_type, title, author, content, active, display_order)
+         VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(display_order) + 1 FROM board_posts WHERE board_type = $1), 1))
          RETURNING *`,
         [
           boardType,
@@ -3488,6 +5302,49 @@ function createRepository(pool) {
         ]
       );
       return toBoardPost(result.rows[0]);
+    },
+
+    async reorderBoardPost(boardType, id, direction) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query(
+          `SELECT id, display_order
+           FROM board_posts
+           WHERE board_type = $1
+           ORDER BY display_order ASC, created_at DESC, id DESC
+           FOR UPDATE`,
+          [boardType]
+        );
+        const rows = result.rows;
+        for (let index = 0; index < rows.length; index += 1) {
+          rows[index].display_order = index + 1;
+          await client.query('UPDATE board_posts SET display_order = $2 WHERE id = $1', [rows[index].id, rows[index].display_order]);
+        }
+        const currentIndex = rows.findIndex(row => String(row.id) === String(id));
+        if (currentIndex < 0) {
+          await client.query('ROLLBACK');
+          return null;
+        }
+        const targetIndex = currentIndex + (Number(direction) < 0 ? -1 : 1);
+        if (targetIndex < 0 || targetIndex >= rows.length) {
+          const current = await client.query('SELECT * FROM board_posts WHERE board_type = $1 AND id = $2', [boardType, id]);
+          await client.query('COMMIT');
+          return toBoardPost(current.rows[0]);
+        }
+        const current = rows[currentIndex];
+        const target = rows[targetIndex];
+        await client.query('UPDATE board_posts SET display_order = $2, updated_at = now() WHERE id = $1', [current.id, target.display_order]);
+        await client.query('UPDATE board_posts SET display_order = $2, updated_at = now() WHERE id = $1', [target.id, current.display_order]);
+        const updated = await client.query('SELECT * FROM board_posts WHERE board_type = $1 AND id = $2', [boardType, id]);
+        await client.query('COMMIT');
+        return toBoardPost(updated.rows[0]);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     },
 
     async updateBoardPost(boardType, id, post) {
@@ -3759,6 +5616,34 @@ function createRepository(pool) {
         ]
       );
       return toBanner(result.rows[0]);
+    },
+
+    async updateBannerOrder(ids = []) {
+      const normalized = ids.map(Number).filter(Number.isFinite);
+      if (!normalized.length) return [];
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (let i = 0; i < normalized.length; i += 1) {
+          await client.query(
+            'UPDATE banners SET display_order = $2, updated_at = now() WHERE id = $1',
+            [normalized[i], i + 1]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+      const result = await pool.query(
+        `SELECT * FROM banners
+         WHERE id = ANY($1::int[])
+         ORDER BY display_order ASC, id ASC`,
+        [normalized]
+      );
+      return result.rows.map(toBanner);
     },
 
     async setBannerStatus(id, status) {
