@@ -215,3 +215,15 @@ Expected: all tests PASS. Check production health, deploy the admin HTML, accoun
 - [ ] Call the tooltip from the proof-stage `contextmenu` handler after changing modes.
 - [ ] Change the not-found message to `계좌번호를 인식하지 못했습니다.\n증빙을 직접 확인하세요.` and set `white-space:pre-line` on the result box.
 - [ ] Run the OCR interaction regression tests, verify production health, deploy the admin HTML and CSS, and verify the deployed markers.
+
+### Task 7: Animate matched and mismatched result borders
+
+**Files:**
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `이츠페이_관리자_시스템_10.html`
+- Modify: `admin-assets/css/admin-main.css`
+
+- [ ] Assert matched/mismatched animation classes, green/red keyframes, and reduced-motion override exist.
+- [ ] Restart the result animation whenever `setAccountProofOcrResult` applies a new terminal state by removing and re-adding an `is-result-animated` class across an animation frame.
+- [ ] Animate green or red border glow twice over 1.4 seconds, then retain the existing static state border.
+- [ ] Run regression tests, deploy HTML and CSS after production health check, and verify the deployed animation markers.
