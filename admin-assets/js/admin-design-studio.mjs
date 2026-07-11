@@ -490,6 +490,11 @@ function showAiImageDialog() {
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
       <div class="ds-field-grid"><div class="ds-field"><label>결과 유형</label><select class="ds-select" data-ds-ai-output><option value="image">정지 이미지 4개</option><option value="motion">모션그래픽 MP4</option></select></div><div class="ds-field"><label>모션 길이</label><select class="ds-select" data-ds-ai-duration><option value="4">4초</option><option value="6">6초</option><option value="8">8초</option></select></div></div>
       <div class="ds-field"><label>레퍼런스 URL</label><div class="ds-topbar-group"><input class="ds-input" data-ds-ai-reference-url placeholder="Pinterest 또는 Variant 공개 URL을 붙여 넣어주세요"><button type="button" class="ds-command" data-ds-action="ai-reference-analyze" data-ds-ai-analyze>URL 분석</button></div></div>
+      <section class="ds-variant-workflow" aria-label="Variant 디자인 탐색">
+        <div><b>웹 UI 디자인이 필요하다면</b><span>영상처럼 Variant는 시안 탐색에, Codex는 실제 구현에 사용합니다.</span></div>
+        <ol><li>Variant에서 여러 시안을 탐색</li><li>마음에 드는 시안을 캡처</li><li>캡처 후 이 창에 Ctrl+V</li></ol>
+        <button type="button" class="ds-command" data-ds-action="variant-open">Variant에서 시안 탐색</button>
+      </section>
       <div class="ds-field"><label>AI 분석 프롬프트 <span>분석 후 직접 수정</span></label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt data-ds-ai-analysis-prompt maxlength="2400" placeholder="레퍼런스 이미지 또는 Pinterest URL을 먼저 붙여 넣어주세요"></textarea></div>
       <div class="ds-field-grid"><div class="ds-field"><label>가로 크기</label><input class="ds-input" type="number" min="320" max="4096" data-ds-ai-width value="${AI_IMAGE_PRESETS[suggested].width}"></div><div class="ds-field"><label>세로 크기</label><input class="ds-input" type="number" min="320" max="4096" data-ds-ai-height value="${AI_IMAGE_PRESETS[suggested].height}"></div></div>
       <div class="ds-field-grid"><div class="ds-field"><label>메인 디자인 문구 <span>비우면 AI 추천</span></label><input class="ds-input" data-ds-ai-display-text maxlength="50" placeholder="예: 행운 선물하기"></div><div class="ds-field"><label>보조 문구 <span>선택사항</span></label><input class="ds-input" data-ds-ai-supporting-text maxlength="100" placeholder="예: 오늘의 매출을 빠르게 받아보세요"></div></div>
@@ -1318,6 +1323,10 @@ async function handleClick(event) {
   else if (action === 'ai-image') showAiImageDialog();
   else if (action === 'ai-generate') await startAiImageGeneration();
   else if (action === 'ai-reference-analyze') await analyzeAiReference();
+  else if (action === 'variant-open') {
+    window.open('https://variant.com/', '_blank', 'noopener,noreferrer');
+    showToast('Variant에서 시안을 고른 뒤 캡처하여 이 창에 Ctrl+V로 붙여 넣으세요.');
+  }
   else if (action === 'ai-reference-pick') state.dialog.querySelector('[data-ds-ai-reference-file]')?.click();
   else if (action === 'ai-reference-remove') removeAiReference();
   else if (action === 'ai-logo-pick') state.dialog.querySelector('[data-ds-ai-logo-file]')?.click();

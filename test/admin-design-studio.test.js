@@ -288,3 +288,15 @@ test('generated assets open in an in-studio pan and zoom preview', () => {
   assert.match(css, /\.ds-ai-lightbox/);
   assert.match(css, /\.ds-ai-lightbox-stage/);
 });
+
+test('Variant exploration follows the video workflow without an iframe', () => {
+  const studio = read('admin-assets', 'js', 'admin-design-studio.mjs');
+  const css = read('admin-assets', 'css', 'admin-design-studio.css');
+  assert.match(studio, /Variant에서 시안 탐색/);
+  assert.match(studio, /data-ds-action="variant-open"/);
+  assert.match(studio, /Variant에서 여러 시안을 탐색/);
+  assert.match(studio, /캡처 후 이 창에 Ctrl\+V/);
+  assert.match(studio, /window\.open\('https:\/\/variant\.com\/'/);
+  assert.doesNotMatch(studio, /<iframe[^>]+variant\.com/i);
+  assert.match(css, /\.ds-variant-workflow/);
+});

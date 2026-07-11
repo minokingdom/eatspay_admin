@@ -1,5 +1,5 @@
 (function loadAdminDesignStudio() {
-  const moduleUrl = '/admin-assets/js/admin-design-studio.mjs?v=20260712-ai8';
+  const moduleUrl = '/admin-assets/js/admin-design-studio.mjs?v=20260712-ai9';
   document.documentElement.dataset.designStudioLoader = 'loading';
   window.EatsAdminDesignStudioReady = import(moduleUrl)
     .then((module) => {
