@@ -234,12 +234,12 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(studio, /data-ds-ai-reference-role/);
   assert.match(worker, /First use view_image to inspect/);
   assert.match(server, /INVALID_REFERENCE/);
-  assert.match(studio, /A · 가까운 스타일/);
+  assert.match(studio, /A · 레퍼런스 문법/);
   assert.match(studio, /data-ds-action="ai-result-apply"/);
   assert.match(worker, /Generate exactly four distinct final images/);
   assert.match(server, /imageUrls/);
   assert.match(studio, /data-ds-ai-elapsed/);
-  assert.match(worker, /Pinterest 링크에서 원본 이미지를 불러오고 있습니다/);
+  assert.match(worker, /외부 레퍼런스 URL에서 원본 미디어를 불러오고 있습니다/);
   assert.match(worker, /디자인 시안.*\/4 생성 완료/);
   assert.match(worker, /motion graphic, approximately/);
   assert.match(worker, /main Korean display lettering/);
@@ -251,4 +251,40 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(worker, /hyperframes.*render/);
   assert.match(worker, /디자인 타이포 모션을 렌더링하고 있습니다/);
   assert.match(server, /videoUrl/);
+});
+
+test('reference analysis is visible, editable, size-aware, and supports separate logos', () => {
+  const studio = read('admin-assets', 'js', 'admin-design-studio.mjs');
+  const worker = read('scripts', 'design-studio-imagegen-worker.js');
+  assert.match(server, /\/api\/admin\/design-studio\/reference-analysis/);
+  assert.match(studio, /레퍼런스 이미지 또는 Pinterest URL을 먼저 붙여 넣어주세요/);
+  assert.match(studio, /data-ds-ai-reference-url/);
+  assert.match(studio, /data-ds-ai-analyze/);
+  assert.match(studio, /data-ds-ai-analysis-prompt/);
+  assert.match(studio, /data-ds-ai-width/);
+  assert.match(studio, /data-ds-ai-height/);
+  assert.match(studio, /data-ds-ai-logo-file/);
+  assert.match(studio, /analysisPrompt/);
+  assert.match(studio, /logoUrl/);
+  assert.match(worker, /task === 'analyze'/);
+  assert.match(worker, /mediaType/);
+  assert.match(worker, /originalWidth/);
+  assert.match(worker, /originalHeight/);
+  assert.match(worker, /parseCodexMessage/);
+  assert.match(worker, /copyIntoWorkspace/);
+  assert.match(worker, /image attached to this Codex request directly/);
+  assert.match(worker, /ANALYSIS_FAILED/);
+});
+
+test('generated assets open in an in-studio pan and zoom preview', () => {
+  const studio = read('admin-assets', 'js', 'admin-design-studio.mjs');
+  const css = read('admin-assets', 'css', 'admin-design-studio.css');
+  assert.doesNotMatch(studio, /target="_blank"[^>]*>MP4 열기/);
+  assert.match(studio, /data-ds-action="ai-result-preview"/);
+  assert.match(studio, /data-ds-ai-lightbox/);
+  assert.match(studio, /data-ds-action="ai-preview-fit"/);
+  assert.match(studio, /data-ds-action="ai-preview-original"/);
+  assert.match(studio, /wheel.*aiPreview|aiPreview.*wheel/s);
+  assert.match(css, /\.ds-ai-lightbox/);
+  assert.match(css, /\.ds-ai-lightbox-stage/);
 });

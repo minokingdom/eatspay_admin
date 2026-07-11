@@ -4247,11 +4247,52 @@ function publicDesignStudioAiJob(job) {
     completedAt: job.completedAt || null
     ,outputType: job.outputType || 'image'
     ,videoUrl: job.videoUrl || ''
+    ,task: job.task || 'generate'
+    ,analysisPrompt: job.analysisPrompt || ''
+    ,mediaType: job.mediaType || ''
+    ,originalWidth: Number(job.originalWidth || 0)
+    ,originalHeight: Number(job.originalHeight || 0)
+    ,durationMs: Number(job.durationMs || 0)
   };
 }
 
+async function runDesignStudioReferenceAnalysis(job) {
+  const timeoutMs = Math.max(60000, Math.min(Number(process.env.AVICX_CODEX_IMAGE_TIMEOUT_MS || 600000), 600000));
+  const queueRoot = String(process.env.AVICX_IMAGEGEN_QUEUE_DIR || '/opt/eatspay/.imagegen-queue').trim();
+  const requestDir = path.join(queueRoot, 'requests');
+  const statusDir = path.join(queueRoot, 'status');
+  fs.mkdirSync(requestDir, { recursive: true });
+  fs.mkdirSync(statusDir, { recursive: true });
+  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({
+    id: job.id, task: 'analyze', prompt: job.prompt, referencePath: job.referencePath || '',
+    originalWidth: job.originalWidth || 0, originalHeight: job.originalHeight || 0
+  }), { mode: 0o660 });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const statusPath = path.join(statusDir, `${job.id}.json`);
+    if (fs.existsSync(statusPath)) {
+      const status = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+      job.status = status.status || 'running';
+      job.message = status.message || '레퍼런스를 분석하고 있습니다.';
+      if (status.status === 'failed') throw new Error(status.error || '레퍼런스 분석에 실패했습니다.');
+      if (status.status === 'complete') {
+        job.analysisPrompt = status.analysisPrompt || '';
+        job.mediaType = status.mediaType || 'image';
+        job.originalWidth = Number(status.originalWidth || job.originalWidth || 0);
+        job.originalHeight = Number(status.originalHeight || job.originalHeight || 0);
+        job.durationMs = Number(status.durationMs || 0);
+        job.completedAt = new Date().toISOString();
+        return;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+  throw new Error('레퍼런스 분석 시간이 제한을 초과했습니다.');
+}
+
 async function runDesignStudioAiJob(job) {
-  const preset = DESIGN_STUDIO_AI_PRESETS[job.preset];
+  const basePreset = DESIGN_STUDIO_AI_PRESETS[job.preset];
+  const preset = { ...basePreset, width: job.width || basePreset.width, height: job.height || basePreset.height };
   const timeoutMs = Math.max(60000, Math.min(Number(process.env.AVICX_CODEX_IMAGE_TIMEOUT_MS || 600000), 600000));
   const queueRoot = String(process.env.AVICX_IMAGEGEN_QUEUE_DIR || '/opt/eatspay/.imagegen-queue').trim();
   const requestDir = path.join(queueRoot, 'requests');
@@ -4260,7 +4301,7 @@ async function runDesignStudioAiJob(job) {
   fs.mkdirSync(requestDir, { recursive: true });
   fs.mkdirSync(statusDir, { recursive: true });
   fs.mkdirSync(outputDir, { recursive: true });
-  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, outputType: job.outputType || 'image', duration: job.duration || 4, referencePath: job.referencePath || '', referenceRole: job.referenceRole || 'style', displayText: job.displayText || '', supportingText: job.supportingText || '', ...preset }), { mode: 0o660 });
+  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, analysisPrompt: job.analysisPrompt || '', preset: job.preset, outputType: job.outputType || 'image', duration: job.duration || 4, referencePath: job.referencePath || '', logoPath: job.logoPath || '', referenceRole: job.referenceRole || 'style', displayText: job.displayText || '', supportingText: job.supportingText || '', ...preset }), { mode: 0o660 });
   job.status = 'queued';
   job.message = 'ImageGen 작업 순서를 기다리고 있습니다.';
 
@@ -11668,6 +11709,36 @@ app.get('/api/admin/design-documents', authenticateAdmin, asyncHandler(async (re
   return res.status(200).json({ success: true, data: documents });
 }));
 
+app.post('/api/admin/design-studio/reference-analysis', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const pinterestUrl = String(req.body?.pinterestUrl || '').trim();
+  const referenceUrl = String(req.body?.referenceUrl || '').trim();
+  if (!referenceUrl && !/^https?:\/\/(?:pin\.it\/|(?:[a-z]+\.)?pinterest\.|(?:www\.)?variant\.com\/)/i.test(pinterestUrl)) {
+    return sendError(res, 400, 'REFERENCE_REQUIRED', '레퍼런스 이미지 또는 Pinterest/Variant 공개 URL을 먼저 붙여 넣어주세요.');
+  }
+  let referencePath = '';
+  if (referenceUrl) {
+    const match = referenceUrl.match(/^\/uploads\/([A-Za-z0-9._-]+)$/);
+    if (!match) return sendError(res, 400, 'INVALID_REFERENCE', '레퍼런스 이미지 경로가 올바르지 않습니다.');
+    referencePath = path.join(uploadDir, match[1]);
+    if (!fs.existsSync(referencePath)) return sendError(res, 404, 'REFERENCE_NOT_FOUND', '레퍼런스 이미지를 찾을 수 없습니다.');
+  }
+  const activeJob = [...designStudioAiJobs.values()].find(job => job.status === 'queued' || job.status === 'running');
+  if (activeJob) return sendError(res, 409, 'IMAGE_JOB_BUSY', '다른 분석 또는 이미지 작업이 진행 중입니다.');
+  const id = crypto.randomUUID();
+  const job = {
+    id, task: 'analyze', prompt: pinterestUrl, referencePath,
+    originalWidth: Math.max(0, Math.min(Number(req.body?.originalWidth || 0), 10000)),
+    originalHeight: Math.max(0, Math.min(Number(req.body?.originalHeight || 0), 10000)),
+    status: 'queued', message: '레퍼런스 분석 순서를 기다리고 있습니다.', createdAt: new Date().toISOString()
+  };
+  designStudioAiJobs.set(id, job);
+  runDesignStudioReferenceAnalysis(job).catch(error => {
+    job.status = 'failed'; job.error = String(error?.message || error).slice(0, 700);
+    job.message = '레퍼런스 분석이 중단되었습니다.'; job.completedAt = new Date().toISOString();
+  });
+  return res.status(202).json({ success: true, data: publicDesignStudioAiJob(job) });
+}));
+
 app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const prompt = String(req.body?.prompt || '').trim();
   const preset = String(req.body?.preset || 'banner').trim();
@@ -11677,21 +11748,32 @@ app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemA
   const duration = Math.max(2, Math.min(Number(req.body?.duration || 4), 8));
   const displayText = String(req.body?.displayText || '').trim().slice(0, 50);
   const supportingText = String(req.body?.supportingText || '').trim().slice(0, 100);
+  const analysisPrompt = String(req.body?.analysisPrompt || prompt).trim().slice(0, 2400);
+  const width = Math.max(320, Math.min(Number(req.body?.width || DESIGN_STUDIO_AI_PRESETS[preset]?.width || 1024), 4096));
+  const height = Math.max(320, Math.min(Number(req.body?.height || DESIGN_STUDIO_AI_PRESETS[preset]?.height || 1024), 4096));
   if (prompt.length < 10) return sendError(res, 400, 'PROMPT_TOO_SHORT', '이미지 설명을 10자 이상 입력해 주세요.');
   if (prompt.length > 1200) return sendError(res, 400, 'PROMPT_TOO_LONG', '이미지 설명은 1200자 이내로 입력해 주세요.');
   if (!DESIGN_STUDIO_AI_PRESETS[preset]) return sendError(res, 400, 'INVALID_PRESET', '지원하지 않는 이미지 유형입니다.');
   let referencePath = '';
+  let logoPath = '';
   if (referenceUrl) {
     const match = referenceUrl.match(/^\/uploads\/([A-Za-z0-9._-]+)$/);
     if (!match) return sendError(res, 400, 'INVALID_REFERENCE', '레퍼런스 이미지 경로가 올바르지 않습니다.');
     referencePath = path.join(uploadDir, match[1]);
     if (!fs.existsSync(referencePath) || !/\.(png|jpe?g|webp)$/i.test(referencePath)) return sendError(res, 400, 'REFERENCE_NOT_FOUND', '레퍼런스 이미지를 찾을 수 없습니다.');
   }
+  const logoUrl = String(req.body?.logoUrl || '').trim();
+  if (logoUrl) {
+    const match = logoUrl.match(/^\/uploads\/([A-Za-z0-9._-]+)$/);
+    if (!match) return sendError(res, 400, 'INVALID_LOGO', '로고 이미지 경로가 올바르지 않습니다.');
+    logoPath = path.join(uploadDir, match[1]);
+    if (!fs.existsSync(logoPath) || !/\.(png|jpe?g|webp)$/i.test(logoPath)) return sendError(res, 404, 'LOGO_NOT_FOUND', '로고 이미지를 찾을 수 없습니다.');
+  }
   const activeJob = [...designStudioAiJobs.values()].find(job => job.status === 'queued' || job.status === 'running');
   if (activeJob) return sendError(res, 409, 'IMAGE_JOB_BUSY', '다른 이미지를 만들고 있습니다. 완료 후 다시 시도해 주세요.');
 
   const id = crypto.randomUUID();
-  const job = { id, prompt, preset, outputType, duration, referencePath, referenceRole, displayText, supportingText, status: 'queued', message: outputType === 'motion' ? '모션그래픽 렌더링을 준비하고 있습니다.' : '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
+  const job = { id, task: 'generate', prompt, analysisPrompt, preset, width, height, outputType, duration, referencePath, logoPath, referenceRole, displayText, supportingText, status: 'queued', message: outputType === 'motion' ? '모션그래픽 렌더링을 준비하고 있습니다.' : '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
   designStudioAiJobs.set(id, job);
   runDesignStudioAiJob(job).catch(error => {
     job.status = 'failed';

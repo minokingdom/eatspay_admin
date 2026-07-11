@@ -61,7 +61,11 @@ const state = {
   aiPollTimer: null,
   aiReferenceUrl: '',
   aiReferenceName: '',
+  aiLogoUrl: '',
+  aiLogoName: '',
+  aiAnalysisJobId: '',
   aiResults: [],
+  aiPreview: { index: 0, zoom: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 },
   aiStartedAt: 0,
   aiElapsedTimer: null,
 };
@@ -475,6 +479,9 @@ function showAiImageDialog() {
   state.aiJobId = '';
   state.aiReferenceUrl = '';
   state.aiReferenceName = '';
+  state.aiLogoUrl = '';
+  state.aiLogoName = '';
+  state.aiAnalysisJobId = '';
   state.aiResults = [];
   const suggested = state.currentDraft?.kind === 'popup' ? 'popup' : 'banner';
   state.dialog.innerHTML = `<section class="ds-dialog ds-ai-dialog" role="dialog" aria-modal="true" aria-label="AI 이미지 만들기">
@@ -482,16 +489,20 @@ function showAiImageDialog() {
     <div class="ds-dialog-body"><div class="ds-ai-grid">
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
       <div class="ds-field-grid"><div class="ds-field"><label>결과 유형</label><select class="ds-select" data-ds-ai-output><option value="image">정지 이미지 4개</option><option value="motion">모션그래픽 MP4</option></select></div><div class="ds-field"><label>모션 길이</label><select class="ds-select" data-ds-ai-duration><option value="4">4초</option><option value="6">6초</option><option value="8">8초</option></select></div></div>
-      <div class="ds-field"><label>프롬프트</label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt maxlength="1200" placeholder="예: 빠른 정산 서비스를 표현하는 프리미엄 녹색 배너. 오른쪽에 음식점 사장님, 왼쪽은 문구를 넣을 여백. 이미지 안에는 글자와 로고 없음."></textarea></div>
+      <div class="ds-field"><label>레퍼런스 URL</label><div class="ds-topbar-group"><input class="ds-input" data-ds-ai-reference-url placeholder="Pinterest 또는 Variant 공개 URL을 붙여 넣어주세요"><button type="button" class="ds-command" data-ds-action="ai-reference-analyze" data-ds-ai-analyze>URL 분석</button></div></div>
+      <div class="ds-field"><label>AI 분석 프롬프트 <span>분석 후 직접 수정</span></label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt data-ds-ai-analysis-prompt maxlength="2400" placeholder="레퍼런스 이미지 또는 Pinterest URL을 먼저 붙여 넣어주세요"></textarea></div>
+      <div class="ds-field-grid"><div class="ds-field"><label>가로 크기</label><input class="ds-input" type="number" min="320" max="4096" data-ds-ai-width value="${AI_IMAGE_PRESETS[suggested].width}"></div><div class="ds-field"><label>세로 크기</label><input class="ds-input" type="number" min="320" max="4096" data-ds-ai-height value="${AI_IMAGE_PRESETS[suggested].height}"></div></div>
       <div class="ds-field-grid"><div class="ds-field"><label>메인 디자인 문구 <span>비우면 AI 추천</span></label><input class="ds-input" data-ds-ai-display-text maxlength="50" placeholder="예: 행운 선물하기"></div><div class="ds-field"><label>보조 문구 <span>선택사항</span></label><input class="ds-input" data-ds-ai-supporting-text maxlength="100" placeholder="예: 오늘의 매출을 빠르게 받아보세요"></div></div>
       <div class="ds-field"><label>레퍼런스 이미지 <span>선택사항</span></label>
         <button type="button" class="ds-ai-reference-drop" data-ds-action="ai-reference-pick"><b>이미지를 선택하거나 캡처 후 Ctrl+V</b><span>PNG · JPG · WebP</span></button>
         <input type="file" accept="image/png,image/jpeg,image/webp" data-ds-ai-reference-file hidden>
         <div class="ds-ai-reference-preview" data-ds-ai-reference-preview hidden><img data-ds-ai-reference-image alt="레퍼런스 이미지"><div><b data-ds-ai-reference-name></b><select class="ds-select" data-ds-ai-reference-role><option value="style">스타일 참고</option><option value="composition">구도 참고</option><option value="edit">이 이미지를 수정</option></select></div><button type="button" class="ds-command is-icon" data-ds-action="ai-reference-remove" aria-label="레퍼런스 삭제">×</button></div>
       </div>
+      <div class="ds-field"><label>추가 로고 <span>모양·글자·색상 보존</span></label><button type="button" class="ds-ai-reference-drop is-logo" data-ds-action="ai-logo-pick"><b>로고 이미지를 선택하거나 붙여 넣으세요</b><span>PNG · JPG · WebP</span></button><input type="file" accept="image/png,image/jpeg,image/webp" data-ds-ai-logo-file hidden><div class="ds-ai-reference-preview" data-ds-ai-logo-preview hidden><img data-ds-ai-logo-image alt="추가 로고"><div><b data-ds-ai-logo-name></b><span>생성 이미지에 정확히 적용</span></div><button type="button" class="ds-command is-icon" data-ds-action="ai-logo-remove" aria-label="로고 삭제">×</button></div></div>
       <p class="ds-ai-help">한글 문구와 로고는 생성 후 편집기에서 추가하면 더 선명합니다.</p>
       <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다 <em data-ds-ai-elapsed>00:00</em></b><p data-ds-ai-status-text>네 가지 방향을 만들기 때문에 보통 2~6분 정도 걸립니다.</p></div></div>
       <div class="ds-ai-preview" data-ds-ai-preview hidden><div class="ds-ai-results" data-ds-ai-results></div><p>원하는 시안을 눌러 캔버스에 적용하세요.</p></div>
+      <div class="ds-ai-lightbox" data-ds-ai-lightbox hidden><div class="ds-ai-lightbox-head"><b>큰 미리보기</b><div><button type="button" class="ds-command" data-ds-action="ai-preview-fit">화면 맞춤</button><button type="button" class="ds-command" data-ds-action="ai-preview-original">원본 크기</button><button type="button" class="ds-command is-icon" data-ds-action="ai-preview-close">×</button></div></div><div class="ds-ai-lightbox-stage" data-ds-ai-lightbox-stage></div><div class="ds-ai-lightbox-foot"><button type="button" class="ds-command is-primary" data-ds-action="ai-preview-apply">이 시안 적용</button></div></div>
     </div></div>
     <footer class="ds-dialog-foot"><button type="button" class="ds-command" data-ds-action="dialog-close">닫기</button><button type="button" class="ds-command is-primary" data-ds-action="ai-generate">AI 이미지 만들기</button></footer>
   </section>`;
@@ -530,10 +541,85 @@ async function setAiReference(file) {
     preview.querySelector('[data-ds-ai-reference-image]').src = uploaded.imageUrl;
     preview.querySelector('[data-ds-ai-reference-name]').textContent = state.aiReferenceName;
     if (drop) drop.hidden = true;
+    const dimensions = await new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => resolve({ width: 0, height: 0 });
+      image.src = uploaded.imageUrl;
+    });
+    await analyzeAiReference({ originalWidth: dimensions.width, originalHeight: dimensions.height });
   } catch (error) {
     if (drop) { drop.disabled = false; drop.querySelector('b').textContent = '이미지를 선택하거나 캡처 후 Ctrl+V'; }
     throw error;
   }
+}
+
+async function setAiLogo(file) {
+  if (!file) return;
+  const uploaded = await uploadAsset(file);
+  state.aiLogoUrl = uploaded.imageUrl;
+  state.aiLogoName = file.name || '붙여넣은 로고';
+  const preview = state.dialog.querySelector('[data-ds-ai-logo-preview]');
+  preview.hidden = false;
+  preview.querySelector('[data-ds-ai-logo-image]').src = uploaded.imageUrl;
+  preview.querySelector('[data-ds-ai-logo-name]').textContent = state.aiLogoName;
+  const pick = state.dialog.querySelector('[data-ds-action="ai-logo-pick"]');
+  if (pick) pick.hidden = true;
+}
+
+function removeAiLogo() {
+  state.aiLogoUrl = '';
+  state.aiLogoName = '';
+  const preview = state.dialog.querySelector('[data-ds-ai-logo-preview]');
+  if (preview) preview.hidden = true;
+  const pick = state.dialog.querySelector('[data-ds-action="ai-logo-pick"]');
+  if (pick) pick.hidden = false;
+}
+
+async function analyzeAiReference(dimensions = {}) {
+  const pinterestUrl = state.dialog.querySelector('[data-ds-ai-reference-url]')?.value.trim() || '';
+  if (!state.aiReferenceUrl && !pinterestUrl) throw new Error('레퍼런스 이미지 또는 Pinterest URL을 먼저 붙여 넣어주세요.');
+  const button = state.dialog.querySelector('[data-ds-ai-analyze]');
+  if (button) { button.disabled = true; button.textContent = '분석 중'; }
+  setAiStatus('레퍼런스를 분석하고 있습니다', '구도·색상·타이포·피사체·원본 크기와 미디어 유형을 확인합니다.');
+  const job = await api('/api/admin/design-studio/reference-analysis', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pinterestUrl, referenceUrl: state.aiReferenceUrl, originalWidth: dimensions.originalWidth || 0, originalHeight: dimensions.originalHeight || 0 }),
+  });
+  state.aiAnalysisJobId = job.id;
+  const poll = async () => {
+    const result = await api(`/api/admin/design-studio/ai-images/${encodeURIComponent(state.aiAnalysisJobId)}`);
+    if (result.status === 'failed') throw new Error(result.error || '레퍼런스 분석에 실패했습니다.');
+    if (result.status !== 'complete') { setAiStatus('레퍼런스를 분석하고 있습니다', result.message || 'AI가 디자인 문법을 읽고 있습니다.'); await new Promise(resolve => setTimeout(resolve, 1600)); return poll(); }
+    const prompt = state.dialog.querySelector('[data-ds-ai-analysis-prompt]');
+    if (prompt) prompt.value = result.analysisPrompt || '';
+    const width = state.dialog.querySelector('[data-ds-ai-width]');
+    const height = state.dialog.querySelector('[data-ds-ai-height]');
+    if (width && result.originalWidth) width.value = result.originalWidth;
+    if (height && result.originalHeight) height.value = result.originalHeight;
+    setAiStatus('레퍼런스 분석 완료', `${result.mediaType || 'image'}${result.durationMs ? ` · ${(result.durationMs / 1000).toFixed(1)}초` : ''} · ${result.originalWidth || '-'}×${result.originalHeight || '-'}. 분석 프롬프트와 크기를 수정한 뒤 생성하세요.`);
+  };
+  try { await poll(); }
+  finally { if (button) { button.disabled = false; button.textContent = '다시 분석'; } }
+}
+
+function renderAiPreviewTransform() {
+  const media = state.dialog.querySelector('[data-ds-ai-preview-media]');
+  if (!media) return;
+  const view = state.aiPreview;
+  media.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.zoom})`;
+}
+
+function showAiResultPreview(index, fit = true) {
+  const url = state.aiResults[index];
+  if (!url) return;
+  state.aiPreview = { index, zoom: fit ? 0.9 : 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 };
+  const box = state.dialog.querySelector('[data-ds-ai-lightbox]');
+  const stage = state.dialog.querySelector('[data-ds-ai-lightbox-stage]');
+  const isVideo = /\.mp4(?:\?|$)/i.test(url);
+  stage.innerHTML = isVideo ? `<video data-ds-ai-preview-media src="${esc(url)}" controls autoplay loop muted playsinline></video>` : `<img data-ds-ai-preview-media src="${esc(url)}" alt="생성 결과 큰 미리보기">`;
+  box.hidden = false;
+  renderAiPreviewTransform();
 }
 
 function removeAiReference() {
@@ -566,7 +652,7 @@ async function startAiImageGeneration() {
   startAiElapsed();
   try {
     const job = await api('/api/admin/design-studio/ai-images', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, outputType: state.dialog.querySelector('[data-ds-ai-output]')?.value || 'image', duration: Number(state.dialog.querySelector('[data-ds-ai-duration]')?.value || 4), referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style', displayText: state.dialog.querySelector('[data-ds-ai-display-text]')?.value.trim() || '', supportingText: state.dialog.querySelector('[data-ds-ai-supporting-text]')?.value.trim() || '' }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, analysisPrompt: prompt, preset: presetKey, width: Number(state.dialog.querySelector('[data-ds-ai-width]')?.value || 0), height: Number(state.dialog.querySelector('[data-ds-ai-height]')?.value || 0), outputType: state.dialog.querySelector('[data-ds-ai-output]')?.value || 'image', duration: Number(state.dialog.querySelector('[data-ds-ai-duration]')?.value || 4), referenceUrl: state.aiReferenceUrl, logoUrl: state.aiLogoUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style', displayText: state.dialog.querySelector('[data-ds-ai-display-text]')?.value.trim() || '', supportingText: state.dialog.querySelector('[data-ds-ai-supporting-text]')?.value.trim() || '' }),
     });
     state.aiJobId = job.id;
     pollAiImageJob();
@@ -587,13 +673,13 @@ async function pollAiImageJob() {
       preview.hidden = false;
       if (job.outputType === 'motion' || job.videoUrl) {
         state.aiResults = [job.videoUrl || job.imageUrl].filter(Boolean);
-        preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map(url => `<div class="ds-ai-motion-result"><video src="${esc(url)}" controls autoplay loop muted playsinline></video><a class="ds-command is-primary" href="${esc(url)}" target="_blank" rel="noopener">MP4 열기</a></div>`).join('');
+        preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map((url, index) => `<div class="ds-ai-motion-result"><video src="${esc(url)}" controls autoplay loop muted playsinline></video><button type="button" class="ds-command is-primary" data-ds-action="ai-result-preview" data-ds-result-index="${index}">크게 보기</button></div>`).join('');
         setAiStatus('모션그래픽이 완성되었습니다', '디자인 타이포와 오브젝트 움직임을 확인하세요.');
         return;
       }
       state.aiResults = (Array.isArray(job.imageUrls) && job.imageUrls.length ? job.imageUrls : [job.imageUrl]).filter(Boolean);
-      const directionLabels = ['A · 가까운 스타일', 'B · 프리미엄', 'C · 강한 광고', 'D · 친근한 입체'];
-      preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map((url, index) => `<button type="button" class="ds-ai-result" data-ds-action="ai-result-apply" data-ds-result-index="${index}"><img src="${esc(url)}" alt="${esc(directionLabels[index] || `시안 ${index + 1}`)}"><b>${esc(directionLabels[index] || `시안 ${index + 1}`)}</b><span>캔버스에 적용</span></button>`).join('');
+      const directionLabels = ['A · 레퍼런스 문법', 'B · 프리미엄 편집', 'C · 강한 광고', 'D · 친근한 입체'];
+      preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map((url, index) => `<div class="ds-ai-result"><button type="button" class="ds-ai-result-preview" data-ds-action="ai-result-preview" data-ds-result-index="${index}"><img src="${esc(url)}" alt="${esc(directionLabels[index] || `시안 ${index + 1}`)}"></button><b>${esc(directionLabels[index] || `시안 ${index + 1}`)}</b><div><button type="button" class="ds-command" data-ds-action="ai-result-preview" data-ds-result-index="${index}">크게 보기</button><button type="button" class="ds-command is-primary" data-ds-action="ai-result-apply" data-ds-result-index="${index}">캔버스 적용</button></div></div>`).join('');
       setAiStatus(`${state.aiResults.length}개 시안이 완성되었습니다`, '서로 다른 방향을 비교한 뒤 하나를 선택하세요.');
       const button = state.dialog.querySelector('[data-ds-action="ai-generate"]');
       if (button) { button.disabled = false; button.textContent = '다른 이미지 만들기'; }
@@ -1231,8 +1317,24 @@ async function handleClick(event) {
   else if (action === 'image-pick') state.root.querySelector('[data-ds-image-file]')?.click();
   else if (action === 'ai-image') showAiImageDialog();
   else if (action === 'ai-generate') await startAiImageGeneration();
+  else if (action === 'ai-reference-analyze') await analyzeAiReference();
   else if (action === 'ai-reference-pick') state.dialog.querySelector('[data-ds-ai-reference-file]')?.click();
   else if (action === 'ai-reference-remove') removeAiReference();
+  else if (action === 'ai-logo-pick') state.dialog.querySelector('[data-ds-ai-logo-file]')?.click();
+  else if (action === 'ai-logo-remove') removeAiLogo();
+  else if (action === 'ai-result-preview') showAiResultPreview(Number(trigger.dataset.dsResultIndex), true);
+  else if (action === 'ai-preview-close') state.dialog.querySelector('[data-ds-ai-lightbox]').hidden = true;
+  else if (action === 'ai-preview-fit') { state.aiPreview.zoom = .9; state.aiPreview.x = 0; state.aiPreview.y = 0; renderAiPreviewTransform(); }
+  else if (action === 'ai-preview-original') { state.aiPreview.zoom = 1; state.aiPreview.x = 0; state.aiPreview.y = 0; renderAiPreviewTransform(); }
+  else if (action === 'ai-preview-apply') {
+    const index = state.aiPreview.index;
+    state.dialog.querySelector('[data-ds-ai-lightbox]').hidden = true;
+    const url = state.aiResults[index];
+    if (url && !/\.mp4(?:\?|$)/i.test(url)) {
+      await addImageFromUrl(url, { left: 0, top: 0, maxWidth: state.currentDraft.width, maxHeight: state.currentDraft.height, name: 'AI 생성 이미지', select: true });
+      markChanged();
+    }
+  }
   else if (action === 'ai-result-apply') {
     const url = state.aiResults[Number(trigger.dataset.dsResultIndex)];
     if (url) {
@@ -1319,6 +1421,7 @@ async function handleChange(event) {
   if (target.matches('[data-ds-brand-select]')) await changeBrand(target.value);
   else if (target.matches('[data-ds-image-file]') && target.files?.[0]) { await addUploadedImage(target.files[0]); target.value = ''; }
   else if (target.matches('[data-ds-ai-reference-file]') && target.files?.[0]) { await setAiReference(target.files[0]); target.value = ''; }
+  else if (target.matches('[data-ds-ai-logo-file]') && target.files?.[0]) { await setAiLogo(target.files[0]); target.value = ''; }
   else if (target.matches('[data-ds-brand-logo-file]') && target.files?.[0]) {
     setBusy(true);
     try {
@@ -1346,6 +1449,30 @@ async function handlePaste(event) {
   event.preventDefault();
   await addUploadedImage(file);
 }
+
+function handleAiPreviewWheel(event) {
+  const stage = event.target.closest?.('[data-ds-ai-lightbox-stage]');
+  if (!stage) return;
+  event.preventDefault();
+  state.aiPreview.zoom = Math.max(.2, Math.min(4, state.aiPreview.zoom * (event.deltaY < 0 ? 1.12 : .89)));
+  renderAiPreviewTransform();
+}
+
+function handleAiPreviewPointerDown(event) {
+  if (!event.target.closest?.('[data-ds-ai-lightbox-stage]')) return;
+  state.aiPreview.dragging = true;
+  state.aiPreview.startX = event.clientX - state.aiPreview.x;
+  state.aiPreview.startY = event.clientY - state.aiPreview.y;
+}
+
+function handleAiPreviewPointerMove(event) {
+  if (!state.aiPreview.dragging) return;
+  state.aiPreview.x = event.clientX - state.aiPreview.startX;
+  state.aiPreview.y = event.clientY - state.aiPreview.startY;
+  renderAiPreviewTransform();
+}
+
+function handleAiPreviewPointerUp() { state.aiPreview.dragging = false; }
 
 async function handleKeyboard(event) {
   if (state.root?.hidden || !state.canvas || state.dialog?.hidden === false) return;
@@ -1422,5 +1549,9 @@ document.addEventListener('click', (event) => {
   const title = document.getElementById('bnt')?.value || '';
   openStudio({ kind, designDocumentId, title }).catch((error) => showToast(error.message || '디자인 스튜디오를 열지 못했습니다.', true));
 }, true);
+document.addEventListener('wheel', handleAiPreviewWheel, { passive: false });
+document.addEventListener('pointerdown', handleAiPreviewPointerDown);
+document.addEventListener('pointermove', handleAiPreviewPointerMove);
+document.addEventListener('pointerup', handleAiPreviewPointerUp);
 
 window.EatsAdminDesignStudio = { open: openStudio, close: closeStudio };
