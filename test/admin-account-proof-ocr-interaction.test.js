@@ -21,6 +21,7 @@ test('reference card replaces redundant proof zoom with OCR beside copy', () => 
   assert.doesNotMatch(modal.body, /증빙 크게 보기/);
   assert.match(modal.body, /계좌번호 복사/);
   assert.match(modal.body, /계좌번호 자동 인식/);
+  assert.match(modal.body, /data-account-proof-crop-preview/);
   assert.match(css, /account-proof-reference-actions\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 });
 
@@ -34,5 +35,8 @@ test('proof OCR uses explicit navigation, selection, and pinch states', () => {
   assert.match(html, /proofInteractionMode==='select'/);
   assert.match(html, /proofTouchPointers/);
   assert.match(html, /function updateProofPinchZoom/);
+  assert.match(html, /function renderAccountProofCropPreview/);
+  assert.match(html, /addEventListener\('contextmenu'/);
+  assert.match(html, /drawImage\(/);
   assert.match(css, /proof-zoom-stage\.is-selecting/);
 });

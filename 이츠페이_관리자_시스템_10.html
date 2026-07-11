@@ -11,7 +11,7 @@
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260709-agency-safe-fields"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-modes"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-crop-preview"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-modes">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-crop-preview">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -7156,6 +7156,14 @@ document.addEventListener('wheel',ev=>{
   ev.preventDefault();
   setProofImageZoom(proofZoomScale+(ev.deltaY<0?.25:-.25));
 },{passive:false});
+document.addEventListener('contextmenu',ev=>{
+  const stage=ev.target.closest?.('[data-proof-zoom-stage]');
+  if(!stage||stage.closest('.admin-hidden')||!proofOcrSelectionState)return;
+  ev.preventDefault();
+  const nextMode=proofInteractionMode==='select'?'navigate':'select';
+  if(nextMode==='select')resetProofOcrSelection();
+  setProofInteractionMode(nextMode);
+});
 document.addEventListener('pointerdown',ev=>{
   if(ev.pointerType==='touch'&&ev.target.closest?.('[data-proof-zoom-stage]')){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
   if(ev.target.closest?.('[data-da-logo-crop-pan]'))startDeliveryAgencyLogoCropPan(ev);
@@ -10552,9 +10560,21 @@ function moveProofOcrSelection(ev){
   state.region={x:(left-rect.left)/rect.width,y:(top-rect.top)/rect.height,width:width/rect.width,height:height/rect.height};ev.preventDefault();
 }
 function endProofOcrSelection(ev){if(proofOcrSelectionState?.dragging){proofOcrSelectionState.dragging=false;ev.preventDefault();}}
+function renderAccountProofCropPreview(state){
+  const region=state?.region,image=proofZoomParts().image,reference=state?.resultBox?.closest('.account-proof-reference');
+  const preview=reference?.querySelector('[data-account-proof-crop-preview]'),canvas=preview?.querySelector('[data-account-proof-crop-canvas]');
+  if(!region||!image?.naturalWidth||!image?.naturalHeight||!canvas)return false;
+  const sx=Math.max(0,Math.round(region.x*image.naturalWidth)),sy=Math.max(0,Math.round(region.y*image.naturalHeight));
+  const sw=Math.max(1,Math.min(image.naturalWidth-sx,Math.round(region.width*image.naturalWidth)));
+  const sh=Math.max(1,Math.min(image.naturalHeight-sy,Math.round(region.height*image.naturalHeight)));
+  const scale=Math.min(1,800/sw);canvas.width=Math.max(1,Math.round(sw*scale));canvas.height=Math.max(1,Math.round(sh*scale));
+  const context=canvas.getContext('2d');context.clearRect(0,0,canvas.width,canvas.height);context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';
+  context.drawImage(image,sx,sy,sw,sh,0,0,canvas.width,canvas.height);preview.hidden=false;return true;
+}
 async function confirmProofOcrSelection(){
   const state=proofOcrSelectionState;
   if(!state?.region||state.region.width<.01||state.region.height<.003){await adminAlert('계좌번호가 포함되도록 사각형 영역을 선택해주세요.');return;}
+  renderAccountProofCropPreview(state);
   const {button,region}=state;closeProofImageZoom();await runAccountProofOcr(button,region);
 }
 async function runAccountProofOcr(button,region){

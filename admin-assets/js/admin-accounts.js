@@ -291,6 +291,10 @@
           <strong class="account-proof-reference-bank">${esc(bankName || '은행 미입력')}</strong>
           <code>${esc(accountNo || '미입력')}</code>
           <p>증빙 이미지의 계좌번호와 위 번호가 같은지 확인하세요.</p>
+          <div class="account-proof-crop-preview" data-account-proof-crop-preview hidden>
+            <span>선택한 계좌 영역</span>
+            <canvas data-account-proof-crop-canvas aria-label="선택한 계좌번호 영역 미리보기"></canvas>
+          </div>
           <div class="account-proof-reference-actions">
             ${accountNo ? `<button type="button" class="btn bo" data-copy-text="${esc(accountNo)}">계좌번호 복사</button>` : ''}
             ${documentUrl && isImage && accountNo ? `<button type="button" class="btn bg2 account-proof-ocr-button" data-admin-action="account-proof-ocr" data-proof-document-url="${esc(documentUrl)}" data-proof-account-no="${esc(accountNo)}">계좌번호 자동 인식</button>` : ''}
