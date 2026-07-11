@@ -42,7 +42,7 @@ function newestImages(threadId, startedAt) {
     .map(item => item.fullPath);
 }
 
-function runCodex(instruction) {
+function runCodex(instruction, onThread = () => {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(codexBin, ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', workspace, instruction], {
       cwd: workspace,
@@ -52,14 +52,49 @@ function runCodex(instruction) {
       if (error) return reject(new Error(String(stderr || stdout || error.message).trim().slice(0, 700)));
       resolve(String(stdout || ''));
     });
+    child.stdout?.on('data', chunk => {
+      const match = String(chunk).match(/"type":"thread\.started","thread_id":"([^"]+)"/);
+      if (match) onThread(match[1]);
+    });
     child.stdin?.end();
   });
+}
+
+function htmlAttribute(tag, name) {
+  const match = String(tag).match(new RegExp(`${name}=["']([^"']+)["']`, 'i'));
+  return match?.[1] || '';
+}
+
+async function resolvePinterestReference(request) {
+  if (request.referencePath) return request.referencePath;
+  const pinUrl = String(request.prompt || '').match(/https?:\/\/(?:pin\.it\/[^\s]+|(?:[a-z]+\.)?pinterest\.[^\s/]+\/pin\/[^\s]+)/i)?.[0] || '';
+  if (!pinUrl) return '';
+  writeStatus(request.id, { status: 'running', message: 'Pinterest 링크에서 원본 이미지를 불러오고 있습니다.' });
+  const page = await fetch(pinUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EatsPayDesignDirector/1.0)', Accept: 'text/html' } });
+  if (!page.ok) throw new Error(`Pinterest 링크를 열지 못했습니다. (${page.status})`);
+  const html = await page.text();
+  const meta = (html.match(/<meta\b[^>]*>/gi) || []).find(tag => /(?:name|property)=["']og:image["']/i.test(tag));
+  const imageUrl = htmlAttribute(meta, 'content').replace(/&amp;/g, '&');
+  if (!/^https:\/\/i\.pinimg\.com\//i.test(imageUrl)) throw new Error('Pinterest 핀의 원본 이미지를 찾지 못했습니다.');
+  const image = await fetch(imageUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EatsPayDesignDirector/1.0)' } });
+  if (!image.ok) throw new Error(`Pinterest 이미지를 내려받지 못했습니다. (${image.status})`);
+  const contentType = String(image.headers.get('content-type') || '').toLowerCase();
+  if (!/^image\/(jpeg|png|webp)/.test(contentType)) throw new Error('Pinterest 링크가 이미지 파일을 반환하지 않았습니다.');
+  const bytes = Buffer.from(await image.arrayBuffer());
+  if (!bytes.length || bytes.length > 15 * 1024 * 1024) throw new Error('Pinterest 레퍼런스 이미지 크기가 올바르지 않습니다.');
+  const extension = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg';
+  const referenceDir = path.join(queueRoot, 'references');
+  fs.mkdirSync(referenceDir, { recursive: true });
+  const target = path.join(referenceDir, `${request.id}${extension}`);
+  fs.writeFileSync(target, bytes, { mode: 0o660 });
+  return target;
 }
 
 async function processRequest(filePath) {
   const request = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   const startedAt = Date.now();
-  writeStatus(request.id, { status: 'running', message: '장면을 구성하고 이미지를 생성하고 있습니다.' });
+  request.referencePath = await resolvePinterestReference(request);
+  writeStatus(request.id, { status: 'running', message: request.referencePath ? '레퍼런스 이미지를 분석하고 있습니다.' : '디자인 방향을 구성하고 있습니다.' });
   const referenceRole = ({ style: 'Use its visual style, color language, lighting, and material treatment as reference.', composition: 'Use its framing, subject placement, balance, and negative-space composition as reference.', edit: 'Treat it as the edit target. Preserve its recognizable subjects and layout unless the user asks for a change.' })[request.referenceRole] || '';
   const referenceInstruction = request.referencePath
     ? `First use view_image to inspect this local reference image: ${request.referencePath}\nReference role: ${referenceRole}`
@@ -76,7 +111,17 @@ async function processRequest(filePath) {
     'Each result must change at least three design dimensions; do not merely recolor one composition.',
     'Make one image generation call per direction. Return only the four generated image paths after all are complete.'
   ].join('\n');
-  const output = await runCodex(instruction);
+  let monitor = null;
+  let lastCount = -1;
+  const output = await runCodex(instruction, threadId => {
+    if (monitor) return;
+    monitor = setInterval(() => {
+      const count = newestImages(threadId, startedAt).length;
+      if (count === lastCount) return;
+      lastCount = count;
+      writeStatus(request.id, { status: 'running', message: count > 0 ? `디자인 시안 ${Math.min(count, 4)}/4 생성 완료 · 다음 시안을 만드는 중입니다.` : '레퍼런스의 색감·구도·질감을 분석하고 있습니다.' });
+    }, 1500);
+  }).finally(() => { if (monitor) clearInterval(monitor); });
   const sources = newestImages(parseThreadId(output), startedAt).slice(-4);
   if (!sources.length) throw new Error('Codex 결과 이미지 파일을 찾지 못했습니다.');
   const filenames = sources.map((source, index) => {

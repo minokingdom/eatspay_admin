@@ -238,4 +238,7 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(studio, /data-ds-action="ai-result-apply"/);
   assert.match(worker, /Generate exactly four distinct final images/);
   assert.match(server, /imageUrls/);
+  assert.match(studio, /data-ds-ai-elapsed/);
+  assert.match(worker, /Pinterest 링크에서 원본 이미지를 불러오고 있습니다/);
+  assert.match(worker, /디자인 시안.*\/4 생성 완료/);
 });

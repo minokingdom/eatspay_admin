@@ -62,6 +62,8 @@ const state = {
   aiReferenceUrl: '',
   aiReferenceName: '',
   aiResults: [],
+  aiStartedAt: 0,
+  aiElapsedTimer: null,
 };
 
 function esc(value) {
@@ -486,13 +488,31 @@ function showAiImageDialog() {
         <div class="ds-ai-reference-preview" data-ds-ai-reference-preview hidden><img data-ds-ai-reference-image alt="레퍼런스 이미지"><div><b data-ds-ai-reference-name></b><select class="ds-select" data-ds-ai-reference-role><option value="style">스타일 참고</option><option value="composition">구도 참고</option><option value="edit">이 이미지를 수정</option></select></div><button type="button" class="ds-command is-icon" data-ds-action="ai-reference-remove" aria-label="레퍼런스 삭제">×</button></div>
       </div>
       <p class="ds-ai-help">한글 문구와 로고는 생성 후 편집기에서 추가하면 더 선명합니다.</p>
-      <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다</b><p data-ds-ai-status-text>네 가지 방향을 만들기 때문에 보통 2~6분 정도 걸립니다.</p></div></div>
+      <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다 <em data-ds-ai-elapsed>00:00</em></b><p data-ds-ai-status-text>네 가지 방향을 만들기 때문에 보통 2~6분 정도 걸립니다.</p></div></div>
       <div class="ds-ai-preview" data-ds-ai-preview hidden><div class="ds-ai-results" data-ds-ai-results></div><p>원하는 시안을 눌러 캔버스에 적용하세요.</p></div>
     </div></div>
     <footer class="ds-dialog-foot"><button type="button" class="ds-command" data-ds-action="dialog-close">닫기</button><button type="button" class="ds-command is-primary" data-ds-action="ai-generate">AI 이미지 만들기</button></footer>
   </section>`;
   state.dialog.hidden = false;
   requestAnimationFrame(() => state.dialog.querySelector('[data-ds-ai-prompt]')?.focus());
+}
+
+function startAiElapsed() {
+  clearInterval(state.aiElapsedTimer);
+  state.aiStartedAt = Date.now();
+  const update = () => {
+    const target = state.dialog.querySelector('[data-ds-ai-elapsed]');
+    if (!target || !state.aiStartedAt) return;
+    const seconds = Math.floor((Date.now() - state.aiStartedAt) / 1000);
+    target.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  };
+  update();
+  state.aiElapsedTimer = setInterval(update, 1000);
+}
+
+function stopAiElapsed() {
+  clearInterval(state.aiElapsedTimer);
+  state.aiElapsedTimer = null;
 }
 
 async function setAiReference(file) {
@@ -541,6 +561,7 @@ async function startAiImageGeneration() {
   const button = state.dialog.querySelector('[data-ds-action="ai-generate"]');
   if (button) { button.disabled = true; button.textContent = '생성 요청 중'; }
   setAiStatus('이미지 생성을 시작합니다', 'Codex ImageGen에 장면과 구도를 전달하고 있습니다.');
+  startAiElapsed();
   try {
     const job = await api('/api/admin/design-studio/ai-images', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style' }),
@@ -548,6 +569,7 @@ async function startAiImageGeneration() {
     state.aiJobId = job.id;
     pollAiImageJob();
   } catch (error) {
+    stopAiElapsed();
     if (button) { button.disabled = false; button.textContent = '다시 만들기'; }
     setAiStatus('생성을 시작하지 못했습니다', error.message, true);
   }
@@ -558,6 +580,7 @@ async function pollAiImageJob() {
   try {
     const job = await api(`/api/admin/design-studio/ai-images/${encodeURIComponent(state.aiJobId)}`);
     if (job.status === 'complete') {
+      stopAiElapsed();
       const preview = state.dialog.querySelector('[data-ds-ai-preview]');
       preview.hidden = false;
       state.aiResults = (Array.isArray(job.imageUrls) && job.imageUrls.length ? job.imageUrls : [job.imageUrl]).filter(Boolean);
@@ -569,6 +592,7 @@ async function pollAiImageJob() {
       return;
     }
     if (job.status === 'failed') {
+      stopAiElapsed();
       setAiStatus('이미지 생성에 실패했습니다', job.error || '잠시 후 다시 시도해 주세요.', true);
       const button = state.dialog.querySelector('[data-ds-action="ai-generate"]');
       if (button) { button.disabled = false; button.textContent = '다시 만들기'; }
