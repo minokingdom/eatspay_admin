@@ -60,6 +60,49 @@ function runCodex(instruction, onThread = () => {}) {
   });
 }
 
+function runFile(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = execFile(command, args, { ...options, timeout: options.timeout || 600000, maxBuffer: 3 * 1024 * 1024 }, (error, stdout = '', stderr = '') => {
+      if (error) return reject(new Error(String(stderr || stdout || error.message).trim().slice(0, 1000)));
+      resolve(String(stdout || ''));
+    });
+    child.stdin?.end();
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+async function renderMotion(request, pinterest) {
+  const width = Number(request.width || 1080);
+  const height = Number(request.height || 1080);
+  const duration = Math.max(2, Math.min(Number(request.duration || 4), 8));
+  const title = request.displayText || String(pinterest.title || '빠른 입금의 시작').split('|')[0].trim();
+  const supporting = request.supportingText || '결제부터 입금까지, 이츠페이';
+  const project = path.join(workspace, 'motion-jobs', request.id);
+  const assets = path.join(project, 'assets');
+  fs.mkdirSync(assets, { recursive: true });
+  let referenceName = '';
+  if (request.referencePath && fs.existsSync(request.referencePath)) {
+    referenceName = `reference${path.extname(request.referencePath).toLowerCase() || '.jpg'}`;
+    fs.copyFileSync(request.referencePath, path.join(assets, referenceName));
+  }
+  const backgroundImage = referenceName ? `url('./assets/${referenceName}')` : 'none';
+  const html = `<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=${width}, height=${height}"><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:#03c75a;font-family:Arial,sans-serif}#root{position:relative;width:${width}px;height:${height}px;overflow:hidden}.bg{position:absolute;inset:-5%;background-image:linear-gradient(135deg,rgba(3,199,90,.2),rgba(0,110,55,.58)),${backgroundImage};background-size:cover;background-position:center;filter:saturate(1.15)}.orb{position:absolute;border-radius:50%;filter:blur(1px)}.o1{width:28%;aspect-ratio:1;right:-5%;top:-9%;background:#ffe53b}.o2{width:18%;aspect-ratio:1;left:5%;bottom:6%;background:#66e4ff}.copy{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8%;text-align:center}.hero{display:block;max-width:90%;color:#ffe33e;font-size:${Math.round(Math.min(width,height)*.13)}px;font-weight:1000;line-height:.92;letter-spacing:-.08em;-webkit-text-stroke:${Math.max(2,Math.round(Math.min(width,height)*.006))}px #0d7039;text-shadow:0 ${Math.round(Math.min(width,height)*.018)}px 0 #ff8a35,0 ${Math.round(Math.min(width,height)*.032)}px ${Math.round(Math.min(width,height)*.04)}px rgba(0,60,30,.28);transform:rotate(-4deg)}.sub{margin-top:7%;padding:1.8% 3.8%;border-radius:999px;background:rgba(255,255,255,.92);color:#086b35;font-size:${Math.round(Math.min(width,height)*.035)}px;font-weight:900}.spark{position:absolute;color:#fff;font-size:${Math.round(Math.min(width,height)*.06)}px;font-weight:1000}</style></head><body><div id="root" data-composition-id="main" data-start="0" data-duration="${duration}" data-width="${width}" data-height="${height}"><div id="bg" class="clip bg" data-start="0" data-duration="${duration}" data-track-index="0"></div><div id="o1" class="clip orb o1" data-start="0" data-duration="${duration}" data-track-index="1"></div><div id="o2" class="clip orb o2" data-start="0" data-duration="${duration}" data-track-index="2"></div><div class="copy"><div id="hero" class="clip hero" data-start="0" data-duration="${duration}" data-track-index="3">${escapeHtml(title)}</div><div id="sub" class="clip sub" data-start="0" data-duration="${duration}" data-track-index="4">${escapeHtml(supporting)}</div></div><div id="s1" class="clip spark" data-start="0" data-duration="${duration}" data-track-index="5" style="left:12%;top:16%">✦</div><div id="s2" class="clip spark" data-start="0" data-duration="${duration}" data-track-index="6" style="right:13%;bottom:15%">●</div></div><script>window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});tl.from('#bg',{scale:1.12,opacity:.2,duration:.7,ease:'power2.out'},0).from('#hero',{scale:.3,rotation:-16,opacity:0,duration:.8,ease:'back.out(1.8)'},.22).from('#sub',{y:70,opacity:0,duration:.55,ease:'power3.out'},.8).from('#o1',{x:180,y:-120,scale:.2,duration:.8,ease:'back.out(1.6)'},.35).from('#o2',{x:-150,y:110,scale:.2,duration:.8,ease:'back.out(1.6)'},.5).from('#s1',{scale:0,rotation:-220,duration:.7,ease:'back.out(2)'},.7).from('#s2',{scale:0,rotation:180,duration:.7,ease:'back.out(2)'},.9).to('#hero',{scale:1.045,duration:.3,yoyo:true,repeat:3,ease:'sine.inOut'},1.35).to('#s1',{rotation:180,y:-18,duration:${Math.max(.8,duration-1.4)},ease:'sine.inOut'},1.2).to('#s2',{rotation:-160,y:14,duration:${Math.max(.8,duration-1.5)},ease:'sine.inOut'},1.3);window.__timelines.main=tl;</script></body></html>`;
+  fs.writeFileSync(path.join(project, 'index.html'), html);
+  fs.writeFileSync(path.join(project, 'hyperframes.json'), JSON.stringify({ compositions: [{ id: 'main', file: 'index.html', width, height, duration, fps: 30 }] }, null, 2));
+  fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ private: true, type: 'module' }, null, 2));
+  const output = path.join(outputDir, `${request.id}.mp4`);
+  writeStatus(request.id, { status: 'running', message: '디자인 타이포 모션을 렌더링하고 있습니다.' });
+  await runFile('npx', ['--yes', 'hyperframes', 'lint', project], { cwd: project });
+  await runFile('npx', ['--yes', 'hyperframes', 'validate', project], { cwd: project });
+  await runFile('npx', ['--yes', 'hyperframes', 'render', project, '--skill=motion-graphics', '--quality', 'draft', '--output', output], { cwd: project });
+  if (!fs.existsSync(output) || fs.statSync(output).size < 10000) throw new Error('모션그래픽 렌더 파일이 생성되지 않았습니다.');
+  writeStatus(request.id, { status: 'complete', message: `${duration}초 모션그래픽이 완성되었습니다.`, filenames: [`${request.id}.mp4`], filename: `${request.id}.mp4`, mediaType: 'motion' });
+  fs.unlinkSync(path.join(requestDir, `${request.id}.json`));
+}
+
 function htmlAttribute(tag, name) {
   const match = String(tag).match(new RegExp(`${name}=["']([^"']+)["']`, 'i'));
   return match?.[1] || '';
@@ -99,6 +142,7 @@ async function processRequest(filePath) {
   const startedAt = Date.now();
   const pinterest = await resolvePinterestReference(request);
   request.referencePath = pinterest.path;
+  if (request.outputType === 'motion') return renderMotion(request, pinterest);
   writeStatus(request.id, { status: 'running', message: pinterest.isMotion ? `모션그래픽 핀${pinterest.durationMs ? ` · ${(pinterest.durationMs / 1000).toFixed(1)}초` : ''}의 타이포와 움직임을 분석하고 있습니다.` : request.referencePath ? '레퍼런스 이미지의 타이포와 구도를 분석하고 있습니다.' : '디자인 방향을 구성하고 있습니다.' });
   const referenceRole = ({ style: 'Use its visual style, color language, lighting, and material treatment as reference.', composition: 'Use its framing, subject placement, balance, and negative-space composition as reference.', edit: 'Treat it as the edit target. Preserve its recognizable subjects and layout unless the user asks for a change.' })[request.referenceRole] || '';
   const referenceInstruction = request.referencePath

@@ -246,4 +246,9 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(worker, /expressive hand lettering/);
   assert.match(studio, /메인 디자인 문구/);
   assert.match(studio, /data-ds-ai-display-text/);
+  assert.match(studio, /모션그래픽 MP4/);
+  assert.match(studio, /data-ds-ai-output/);
+  assert.match(worker, /hyperframes.*render/);
+  assert.match(worker, /디자인 타이포 모션을 렌더링하고 있습니다/);
+  assert.match(server, /videoUrl/);
 });

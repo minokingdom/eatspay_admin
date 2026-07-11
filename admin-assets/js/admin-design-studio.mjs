@@ -481,6 +481,7 @@ function showAiImageDialog() {
     <header class="ds-dialog-head"><div><b>AI 이미지 만들기</b><small>이츠비의 Codex ImageGen이 제작합니다.</small></div><button type="button" class="ds-command is-icon" data-ds-action="dialog-close" aria-label="닫기">×</button></header>
     <div class="ds-dialog-body"><div class="ds-ai-grid">
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
+      <div class="ds-field-grid"><div class="ds-field"><label>결과 유형</label><select class="ds-select" data-ds-ai-output><option value="image">정지 이미지 4개</option><option value="motion">모션그래픽 MP4</option></select></div><div class="ds-field"><label>모션 길이</label><select class="ds-select" data-ds-ai-duration><option value="4">4초</option><option value="6">6초</option><option value="8">8초</option></select></div></div>
       <div class="ds-field"><label>프롬프트</label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt maxlength="1200" placeholder="예: 빠른 정산 서비스를 표현하는 프리미엄 녹색 배너. 오른쪽에 음식점 사장님, 왼쪽은 문구를 넣을 여백. 이미지 안에는 글자와 로고 없음."></textarea></div>
       <div class="ds-field-grid"><div class="ds-field"><label>메인 디자인 문구 <span>비우면 AI 추천</span></label><input class="ds-input" data-ds-ai-display-text maxlength="50" placeholder="예: 행운 선물하기"></div><div class="ds-field"><label>보조 문구 <span>선택사항</span></label><input class="ds-input" data-ds-ai-supporting-text maxlength="100" placeholder="예: 오늘의 매출을 빠르게 받아보세요"></div></div>
       <div class="ds-field"><label>레퍼런스 이미지 <span>선택사항</span></label>
@@ -565,7 +566,7 @@ async function startAiImageGeneration() {
   startAiElapsed();
   try {
     const job = await api('/api/admin/design-studio/ai-images', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style', displayText: state.dialog.querySelector('[data-ds-ai-display-text]')?.value.trim() || '', supportingText: state.dialog.querySelector('[data-ds-ai-supporting-text]')?.value.trim() || '' }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, outputType: state.dialog.querySelector('[data-ds-ai-output]')?.value || 'image', duration: Number(state.dialog.querySelector('[data-ds-ai-duration]')?.value || 4), referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style', displayText: state.dialog.querySelector('[data-ds-ai-display-text]')?.value.trim() || '', supportingText: state.dialog.querySelector('[data-ds-ai-supporting-text]')?.value.trim() || '' }),
     });
     state.aiJobId = job.id;
     pollAiImageJob();
@@ -584,6 +585,12 @@ async function pollAiImageJob() {
       stopAiElapsed();
       const preview = state.dialog.querySelector('[data-ds-ai-preview]');
       preview.hidden = false;
+      if (job.outputType === 'motion' || job.videoUrl) {
+        state.aiResults = [job.videoUrl || job.imageUrl].filter(Boolean);
+        preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map(url => `<div class="ds-ai-motion-result"><video src="${esc(url)}" controls autoplay loop muted playsinline></video><a class="ds-command is-primary" href="${esc(url)}" target="_blank" rel="noopener">MP4 열기</a></div>`).join('');
+        setAiStatus('모션그래픽이 완성되었습니다', '디자인 타이포와 오브젝트 움직임을 확인하세요.');
+        return;
+      }
       state.aiResults = (Array.isArray(job.imageUrls) && job.imageUrls.length ? job.imageUrls : [job.imageUrl]).filter(Boolean);
       const directionLabels = ['A · 가까운 스타일', 'B · 프리미엄', 'C · 강한 광고', 'D · 친근한 입체'];
       preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map((url, index) => `<button type="button" class="ds-ai-result" data-ds-action="ai-result-apply" data-ds-result-index="${index}"><img src="${esc(url)}" alt="${esc(directionLabels[index] || `시안 ${index + 1}`)}"><b>${esc(directionLabels[index] || `시안 ${index + 1}`)}</b><span>캔버스에 적용</span></button>`).join('');

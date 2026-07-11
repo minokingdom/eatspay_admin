@@ -4221,6 +4221,8 @@ function publicDesignStudioAiJob(job) {
     error: job.error || '',
     createdAt: job.createdAt,
     completedAt: job.completedAt || null
+    ,outputType: job.outputType || 'image'
+    ,videoUrl: job.videoUrl || ''
   };
 }
 
@@ -4234,7 +4236,7 @@ async function runDesignStudioAiJob(job) {
   fs.mkdirSync(requestDir, { recursive: true });
   fs.mkdirSync(statusDir, { recursive: true });
   fs.mkdirSync(outputDir, { recursive: true });
-  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, referencePath: job.referencePath || '', referenceRole: job.referenceRole || 'style', displayText: job.displayText || '', supportingText: job.supportingText || '', ...preset }), { mode: 0o660 });
+  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, outputType: job.outputType || 'image', duration: job.duration || 4, referencePath: job.referencePath || '', referenceRole: job.referenceRole || 'style', displayText: job.displayText || '', supportingText: job.supportingText || '', ...preset }), { mode: 0o660 });
   job.status = 'queued';
   job.message = 'ImageGen 작업 순서를 기다리고 있습니다.';
 
@@ -4266,6 +4268,7 @@ async function runDesignStudioAiJob(job) {
   job.message = '이미지가 완성되었습니다.';
   job.imageUrls = imageUrls;
   job.imageUrl = imageUrls[0] || '';
+  if (job.outputType === 'motion') job.videoUrl = imageUrls[0] || '';
   job.completedAt = new Date().toISOString();
 }
 
@@ -11646,6 +11649,8 @@ app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemA
   const preset = String(req.body?.preset || 'banner').trim();
   const referenceUrl = String(req.body?.referenceUrl || '').trim();
   const referenceRole = ['style', 'composition', 'edit'].includes(String(req.body?.referenceRole || '')) ? String(req.body.referenceRole) : 'style';
+  const outputType = String(req.body?.outputType || 'image') === 'motion' ? 'motion' : 'image';
+  const duration = Math.max(2, Math.min(Number(req.body?.duration || 4), 8));
   const displayText = String(req.body?.displayText || '').trim().slice(0, 50);
   const supportingText = String(req.body?.supportingText || '').trim().slice(0, 100);
   if (prompt.length < 10) return sendError(res, 400, 'PROMPT_TOO_SHORT', '이미지 설명을 10자 이상 입력해 주세요.');
@@ -11662,7 +11667,7 @@ app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemA
   if (activeJob) return sendError(res, 409, 'IMAGE_JOB_BUSY', '다른 이미지를 만들고 있습니다. 완료 후 다시 시도해 주세요.');
 
   const id = crypto.randomUUID();
-  const job = { id, prompt, preset, referencePath, referenceRole, displayText, supportingText, status: 'queued', message: '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
+  const job = { id, prompt, preset, outputType, duration, referencePath, referenceRole, displayText, supportingText, status: 'queued', message: outputType === 'motion' ? '모션그래픽 렌더링을 준비하고 있습니다.' : '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
   designStudioAiJobs.set(id, job);
   runDesignStudioAiJob(job).catch(error => {
     job.status = 'failed';
