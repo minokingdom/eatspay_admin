@@ -1,0 +1,4 @@
+interface:
+  display_name: "EatsPay Design Director"
+  short_description: "레퍼런스에서 브랜드 디자인 문법을 추출해 다중 시안을 만듭니다"
+  default_prompt: "Use -design-director to analyze this reference and produce several distinct Eatspay design directions."

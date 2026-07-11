@@ -61,6 +61,7 @@ const state = {
   aiPollTimer: null,
   aiReferenceUrl: '',
   aiReferenceName: '',
+  aiResults: [],
 };
 
 function esc(value) {
@@ -472,6 +473,7 @@ function showAiImageDialog() {
   state.aiJobId = '';
   state.aiReferenceUrl = '';
   state.aiReferenceName = '';
+  state.aiResults = [];
   const suggested = state.currentDraft?.kind === 'popup' ? 'popup' : 'banner';
   state.dialog.innerHTML = `<section class="ds-dialog ds-ai-dialog" role="dialog" aria-modal="true" aria-label="AI 이미지 만들기">
     <header class="ds-dialog-head"><div><b>AI 이미지 만들기</b><small>이츠비의 Codex ImageGen이 제작합니다.</small></div><button type="button" class="ds-command is-icon" data-ds-action="dialog-close" aria-label="닫기">×</button></header>
@@ -484,8 +486,8 @@ function showAiImageDialog() {
         <div class="ds-ai-reference-preview" data-ds-ai-reference-preview hidden><img data-ds-ai-reference-image alt="레퍼런스 이미지"><div><b data-ds-ai-reference-name></b><select class="ds-select" data-ds-ai-reference-role><option value="style">스타일 참고</option><option value="composition">구도 참고</option><option value="edit">이 이미지를 수정</option></select></div><button type="button" class="ds-command is-icon" data-ds-action="ai-reference-remove" aria-label="레퍼런스 삭제">×</button></div>
       </div>
       <p class="ds-ai-help">한글 문구와 로고는 생성 후 편집기에서 추가하면 더 선명합니다.</p>
-      <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다</b><p data-ds-ai-status-text>보통 1~3분 정도 걸립니다.</p></div></div>
-      <div class="ds-ai-preview" data-ds-ai-preview hidden><img data-ds-ai-preview-image alt="생성된 AI 이미지"><div><b>이미지가 완성되었습니다.</b><span>캔버스에 자동으로 추가했습니다.</span></div></div>
+      <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다</b><p data-ds-ai-status-text>네 가지 방향을 만들기 때문에 보통 2~6분 정도 걸립니다.</p></div></div>
+      <div class="ds-ai-preview" data-ds-ai-preview hidden><div class="ds-ai-results" data-ds-ai-results></div><p>원하는 시안을 눌러 캔버스에 적용하세요.</p></div>
     </div></div>
     <footer class="ds-dialog-foot"><button type="button" class="ds-command" data-ds-action="dialog-close">닫기</button><button type="button" class="ds-command is-primary" data-ds-action="ai-generate">AI 이미지 만들기</button></footer>
   </section>`;
@@ -558,11 +560,10 @@ async function pollAiImageJob() {
     if (job.status === 'complete') {
       const preview = state.dialog.querySelector('[data-ds-ai-preview]');
       preview.hidden = false;
-      preview.querySelector('[data-ds-ai-preview-image]').src = job.imageUrl;
-      setAiStatus('완성되었습니다', '생성 이미지를 캔버스에 추가했습니다.');
-      const preset = resolveAiImagePreset(job.preset);
-      await addImageFromUrl(job.imageUrl, { left: 0, top: 0, maxWidth: state.currentDraft.width, maxHeight: state.currentDraft.height, name: `AI ${preset.label}`, select: true });
-      markChanged();
+      state.aiResults = (Array.isArray(job.imageUrls) && job.imageUrls.length ? job.imageUrls : [job.imageUrl]).filter(Boolean);
+      const directionLabels = ['A · 가까운 스타일', 'B · 프리미엄', 'C · 강한 광고', 'D · 친근한 입체'];
+      preview.querySelector('[data-ds-ai-results]').innerHTML = state.aiResults.map((url, index) => `<button type="button" class="ds-ai-result" data-ds-action="ai-result-apply" data-ds-result-index="${index}"><img src="${esc(url)}" alt="${esc(directionLabels[index] || `시안 ${index + 1}`)}"><b>${esc(directionLabels[index] || `시안 ${index + 1}`)}</b><span>캔버스에 적용</span></button>`).join('');
+      setAiStatus(`${state.aiResults.length}개 시안이 완성되었습니다`, '서로 다른 방향을 비교한 뒤 하나를 선택하세요.');
       const button = state.dialog.querySelector('[data-ds-action="ai-generate"]');
       if (button) { button.disabled = false; button.textContent = '다른 이미지 만들기'; }
       return;
@@ -1200,6 +1201,15 @@ async function handleClick(event) {
   else if (action === 'ai-generate') await startAiImageGeneration();
   else if (action === 'ai-reference-pick') state.dialog.querySelector('[data-ds-ai-reference-file]')?.click();
   else if (action === 'ai-reference-remove') removeAiReference();
+  else if (action === 'ai-result-apply') {
+    const url = state.aiResults[Number(trigger.dataset.dsResultIndex)];
+    if (url) {
+      const preset = resolveAiImagePreset(state.dialog.querySelector('[data-ds-ai-preset]')?.value || 'banner');
+      await addImageFromUrl(url, { left: 0, top: 0, maxWidth: state.currentDraft.width, maxHeight: state.currentDraft.height, name: `AI ${preset.label}`, select: true });
+      markChanged();
+      showToast('선택한 시안을 캔버스에 적용했습니다.');
+    }
+  }
   else if (action === 'add-rect') addRect();
   else if (action === 'add-circle') addCircle();
   else if (action === 'add-line') addLine();

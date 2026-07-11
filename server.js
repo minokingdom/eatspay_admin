@@ -4217,6 +4217,7 @@ function publicDesignStudioAiJob(job) {
     preset: job.preset,
     message: job.message || '',
     imageUrl: job.imageUrl || '',
+    imageUrls: Array.isArray(job.imageUrls) ? job.imageUrls : [],
     error: job.error || '',
     createdAt: job.createdAt,
     completedAt: job.completedAt || null
@@ -4225,7 +4226,7 @@ function publicDesignStudioAiJob(job) {
 
 async function runDesignStudioAiJob(job) {
   const preset = DESIGN_STUDIO_AI_PRESETS[job.preset];
-  const timeoutMs = Math.max(60000, Math.min(Number(process.env.AVICX_CODEX_IMAGE_TIMEOUT_MS || 300000), 600000));
+  const timeoutMs = Math.max(60000, Math.min(Number(process.env.AVICX_CODEX_IMAGE_TIMEOUT_MS || 600000), 600000));
   const queueRoot = String(process.env.AVICX_IMAGEGEN_QUEUE_DIR || '/opt/eatspay/.imagegen-queue').trim();
   const requestDir = path.join(queueRoot, 'requests');
   const statusDir = path.join(queueRoot, 'status');
@@ -4251,14 +4252,20 @@ async function runDesignStudioAiJob(job) {
     await new Promise(resolve => setTimeout(resolve, 1200));
   }
   if (!workerStatus || workerStatus.status !== 'complete') throw new Error('이미지 생성 시간이 제한을 초과했습니다.');
-  const generatedPath = path.join(outputDir, path.basename(String(workerStatus.filename || '')));
-  if (!workerStatus.filename || !fs.existsSync(generatedPath)) throw new Error('완성된 이미지 파일을 찾지 못했습니다.');
-  const extension = path.extname(generatedPath).toLowerCase() || '.png';
-  const filename = `design-studio-ai-${job.id}${extension}`;
-  fs.copyFileSync(generatedPath, path.join(uploadDir, filename));
+  const workerFilenames = Array.isArray(workerStatus.filenames) ? workerStatus.filenames : [workerStatus.filename].filter(Boolean);
+  if (!workerFilenames.length) throw new Error('완성된 이미지 파일을 찾지 못했습니다.');
+  const imageUrls = workerFilenames.map((workerFilename, index) => {
+    const generatedPath = path.join(outputDir, path.basename(String(workerFilename)));
+    if (!fs.existsSync(generatedPath)) throw new Error('완성된 이미지 파일을 찾지 못했습니다.');
+    const extension = path.extname(generatedPath).toLowerCase() || '.png';
+    const filename = `design-studio-ai-${job.id}-${index + 1}${extension}`;
+    fs.copyFileSync(generatedPath, path.join(uploadDir, filename));
+    return `/uploads/${encodeURIComponent(filename)}`;
+  });
   job.status = 'complete';
   job.message = '이미지가 완성되었습니다.';
-  job.imageUrl = `/uploads/${encodeURIComponent(filename)}`;
+  job.imageUrls = imageUrls;
+  job.imageUrl = imageUrls[0] || '';
   job.completedAt = new Date().toISOString();
 }
 

@@ -224,7 +224,7 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   const worker = read('scripts', 'design-studio-imagegen-worker.js');
   assert.match(server, /\/api\/admin\/design-studio\/ai-images/);
   assert.match(server, /requireSystemAdminOnly/);
-  assert.match(worker, /Use the installed imagegen skill/);
+  assert.match(worker, /eatspay-design-director skill/);
   assert.match(worker, /codex-image-workspace/);
   assert.match(studio, /data-ds-action="ai-image"/);
   assert.match(studio, /data-ds-action="new-ai-image"/);
@@ -234,4 +234,8 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(studio, /data-ds-ai-reference-role/);
   assert.match(worker, /First use view_image to inspect/);
   assert.match(server, /INVALID_REFERENCE/);
+  assert.match(studio, /A · 가까운 스타일/);
+  assert.match(studio, /data-ds-action="ai-result-apply"/);
+  assert.match(worker, /Generate exactly four distinct final images/);
+  assert.match(server, /imageUrls/);
 });
