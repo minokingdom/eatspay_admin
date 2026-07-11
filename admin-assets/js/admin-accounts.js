@@ -293,7 +293,10 @@
           <p>증빙 이미지의 계좌번호와 위 번호가 같은지 확인하세요.</p>
           <div class="account-proof-crop-preview" data-account-proof-crop-preview hidden>
             <span>선택한 계좌 영역</span>
-            <canvas data-account-proof-crop-canvas aria-label="선택한 계좌번호 영역 미리보기"></canvas>
+            <div class="account-proof-crop-frame">
+              <canvas data-account-proof-crop-canvas aria-label="선택한 계좌번호 영역 미리보기"></canvas>
+              <div class="account-proof-crop-ocr" data-account-proof-crop-ocr hidden></div>
+            </div>
           </div>
           <div class="account-proof-reference-actions">
             ${accountNo ? `<button type="button" class="btn bo" data-copy-text="${esc(accountNo)}">계좌번호 복사</button>` : ''}

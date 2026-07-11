@@ -11,7 +11,7 @@
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260709-agency-safe-fields"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-crop-preview"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-number-overlay"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-mobile-gestures">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-number-overlay">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -10574,9 +10574,20 @@ function setAccountProofOcrResult(box,state,message,html=''){
   if(!box)return;box.hidden=false;box.className=`account-proof-ocr-result is-${state}`;if(html)box.innerHTML=html;else box.textContent=message;
   if(state==='matched'||state==='mismatched')requestAnimationFrame(()=>box.classList.add('is-result-animated'));
 }
+function setAccountProofCropOcrOverlay(button,state,recognizedAccountNo=''){
+  const overlay=button?.closest('.account-proof-reference')?.querySelector('[data-account-proof-crop-ocr]');
+  if(!overlay)return;
+  if(state==='idle'){overlay.hidden=true;overlay.className='account-proof-crop-ocr';overlay.textContent='';return;}
+  const digits=String(recognizedAccountNo||'').replace(/\D/g,'');overlay.hidden=false;overlay.className=`account-proof-crop-ocr is-${state}`;
+  if(state==='loading')overlay.textContent='숫자 인식 중…';
+  else if(state==='matched'||state==='mismatched')overlay.textContent=digits?`인식번호 ${digits}`:'번호 인식 실패';
+  else if(state==='not_found')overlay.textContent='번호 인식 실패';
+  else overlay.textContent='OCR 처리 실패';
+}
 function startAccountProofOcrSelection(button){
   const resultBox=button?.closest('.account-proof-reference')?.querySelector('[data-account-proof-ocr-result]');
   if(!button||!resultBox)return;
+  setAccountProofCropOcrOverlay(button,'idle');
   openProofImageZoom(button.dataset.proofDocumentUrl||'','계좌번호 영역 선택',button.dataset.proofAccountNo||'');
   const parts=proofZoomParts();
   parts.selectionConfirm?.classList.add('admin-hidden');parts.selectionConfirm?.classList.remove('is-floating');
@@ -10629,15 +10640,16 @@ async function runAccountProofOcr(button,region){
   if(!button||!box)return;
   button.disabled=true;
   setAccountProofOcrResult(box,'loading','증빙에서 계좌번호를 읽는 중…');
+  setAccountProofCropOcrOverlay(button,'loading');
   try{
     const res=await fetch('/api/admin/accounts/proof-ocr',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({documentUrl:button.dataset.proofDocumentUrl||'',accountNo:button.dataset.proofAccountNo||'',region})});
     const json=await res.json().catch(()=>({}));
     if(!res.ok)throw new Error(json.error?.message||json.message||'계좌번호를 인식하지 못했습니다.');
     const result=json.data||{};
-    if(result.status==='matched')setAccountProofOcrResult(box,'matched','계좌번호가 일치합니다.');
-    else if(result.status==='mismatched')setAccountProofOcrResult(box,'mismatched','',`<strong>계좌번호가 일치하지 않습니다.</strong>${accountProofOcrDiffHtml(result.registeredAccountNo,result.recognizedAccountNo)}`);
-    else setAccountProofOcrResult(box,'not_found','계좌번호를 인식하지 못했습니다.\n증빙을 직접 확인하세요.');
-  }catch(error){setAccountProofOcrResult(box,'error',error?.message||'OCR 처리에 실패했습니다. 다시 시도해주세요.');}
+    if(result.status==='matched'){setAccountProofOcrResult(box,'matched','계좌번호가 일치합니다.');setAccountProofCropOcrOverlay(button,'matched',result.recognizedAccountNo);}
+    else if(result.status==='mismatched'){setAccountProofOcrResult(box,'mismatched','',`<strong>계좌번호가 일치하지 않습니다.</strong>${accountProofOcrDiffHtml(result.registeredAccountNo,result.recognizedAccountNo)}`);setAccountProofCropOcrOverlay(button,'mismatched',result.recognizedAccountNo);}
+    else{setAccountProofOcrResult(box,'not_found','계좌번호를 인식하지 못했습니다.\n증빙을 직접 확인하세요.');setAccountProofCropOcrOverlay(button,'not_found');}
+  }catch(error){setAccountProofOcrResult(box,'error',error?.message||'OCR 처리에 실패했습니다. 다시 시도해주세요.');setAccountProofCropOcrOverlay(button,'error');}
   finally{button.disabled=false;}
 }
 
