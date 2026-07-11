@@ -1,0 +1,16 @@
+[Unit]
+Description=Eats Pay Design Studio ImageGen Worker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/eatspay/.codex-image-workspace
+ExecStart=/usr/bin/node /opt/eatspay/scripts/design-studio-imagegen-worker.js
+Restart=always
+RestartSec=5
+User=ubuntu
+Group=www-data
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

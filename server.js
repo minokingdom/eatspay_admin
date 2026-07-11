@@ -4201,6 +4201,67 @@ async function ensureAdminSsoTables() {
   adminSsoTablesReady = true;
 }
 
+const designStudioAiJobs = new Map();
+const DESIGN_STUDIO_AI_PRESETS = Object.freeze({
+  banner: { width: 1536, height: 1024, label: '배너', composition: 'wide landscape banner with generous copy-safe negative space' },
+  popup: { width: 1024, height: 1536, label: '팝업', composition: 'vertical promotional popup with clear visual hierarchy' },
+  square: { width: 1024, height: 1024, label: '일반 정사각형', composition: 'balanced square marketing image' },
+  landscape: { width: 1536, height: 1024, label: '일반 가로형', composition: 'wide landscape marketing image' },
+  portrait: { width: 1024, height: 1536, label: '일반 세로형', composition: 'vertical portrait marketing image' }
+});
+
+function publicDesignStudioAiJob(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    preset: job.preset,
+    message: job.message || '',
+    imageUrl: job.imageUrl || '',
+    error: job.error || '',
+    createdAt: job.createdAt,
+    completedAt: job.completedAt || null
+  };
+}
+
+async function runDesignStudioAiJob(job) {
+  const preset = DESIGN_STUDIO_AI_PRESETS[job.preset];
+  const timeoutMs = Math.max(60000, Math.min(Number(process.env.AVICX_CODEX_IMAGE_TIMEOUT_MS || 300000), 600000));
+  const queueRoot = String(process.env.AVICX_IMAGEGEN_QUEUE_DIR || '/opt/eatspay/.imagegen-queue').trim();
+  const requestDir = path.join(queueRoot, 'requests');
+  const statusDir = path.join(queueRoot, 'status');
+  const outputDir = path.join(queueRoot, 'output');
+  fs.mkdirSync(requestDir, { recursive: true });
+  fs.mkdirSync(statusDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, ...preset }), { mode: 0o660 });
+  job.status = 'queued';
+  job.message = 'ImageGen 작업 순서를 기다리고 있습니다.';
+
+  const deadline = Date.now() + timeoutMs;
+  let workerStatus = null;
+  while (Date.now() < deadline) {
+    const statusPath = path.join(statusDir, `${job.id}.json`);
+    if (fs.existsSync(statusPath)) {
+      workerStatus = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+      job.status = workerStatus.status || 'running';
+      job.message = workerStatus.message || '이미지를 만들고 있습니다.';
+      if (workerStatus.status === 'failed') throw new Error(workerStatus.error || 'ImageGen 워커가 작업을 완료하지 못했습니다.');
+      if (workerStatus.status === 'complete') break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+  if (!workerStatus || workerStatus.status !== 'complete') throw new Error('이미지 생성 시간이 제한을 초과했습니다.');
+  const generatedPath = path.join(outputDir, path.basename(String(workerStatus.filename || '')));
+  if (!workerStatus.filename || !fs.existsSync(generatedPath)) throw new Error('완성된 이미지 파일을 찾지 못했습니다.');
+  const extension = path.extname(generatedPath).toLowerCase() || '.png';
+  const filename = `design-studio-ai-${job.id}${extension}`;
+  fs.copyFileSync(generatedPath, path.join(uploadDir, filename));
+  job.status = 'complete';
+  job.message = '이미지가 완성되었습니다.';
+  job.imageUrl = `/uploads/${encodeURIComponent(filename)}`;
+  job.completedAt = new Date().toISOString();
+}
+
 function createAdminSsoCodeValue() {
   return crypto.randomBytes(32).toString('base64url');
 }
@@ -11571,6 +11632,33 @@ app.delete('/api/admin/brand-kits/:id', authenticateAdmin, asyncHandler(async (r
 app.get('/api/admin/design-documents', authenticateAdmin, asyncHandler(async (req, res) => {
   const documents = await repo.listDesignDocuments({ kind: String(req.query.kind || '').trim(), brandKitId: Number(req.query.brandKitId) || null, includeArchived: String(req.query.includeArchived || '').toLowerCase() === 'true' });
   return res.status(200).json({ success: true, data: documents });
+}));
+
+app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const prompt = String(req.body?.prompt || '').trim();
+  const preset = String(req.body?.preset || 'banner').trim();
+  if (prompt.length < 10) return sendError(res, 400, 'PROMPT_TOO_SHORT', '이미지 설명을 10자 이상 입력해 주세요.');
+  if (prompt.length > 1200) return sendError(res, 400, 'PROMPT_TOO_LONG', '이미지 설명은 1200자 이내로 입력해 주세요.');
+  if (!DESIGN_STUDIO_AI_PRESETS[preset]) return sendError(res, 400, 'INVALID_PRESET', '지원하지 않는 이미지 유형입니다.');
+  const activeJob = [...designStudioAiJobs.values()].find(job => job.status === 'queued' || job.status === 'running');
+  if (activeJob) return sendError(res, 409, 'IMAGE_JOB_BUSY', '다른 이미지를 만들고 있습니다. 완료 후 다시 시도해 주세요.');
+
+  const id = crypto.randomUUID();
+  const job = { id, prompt, preset, status: 'queued', message: '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
+  designStudioAiJobs.set(id, job);
+  runDesignStudioAiJob(job).catch(error => {
+    job.status = 'failed';
+    job.error = String(error?.message || '이미지 생성에 실패했습니다.').slice(0, 700);
+    job.message = '이미지 생성이 중단되었습니다.';
+    job.completedAt = new Date().toISOString();
+  });
+  return res.status(202).json({ success: true, data: publicDesignStudioAiJob(job) });
+}));
+
+app.get('/api/admin/design-studio/ai-images/:jobId', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const job = designStudioAiJobs.get(String(req.params.jobId || ''));
+  if (!job) return sendError(res, 404, 'IMAGE_JOB_NOT_FOUND', '이미지 생성 작업을 찾을 수 없습니다.');
+  return res.status(200).json({ success: true, data: publicDesignStudioAiJob(job) });
 }));
 
 app.get('/api/admin/design-documents/:id', authenticateAdmin, asyncHandler(async (req, res) => {
