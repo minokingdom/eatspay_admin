@@ -773,8 +773,8 @@ tr:hover td{background:#FAFFFE}
 .account-proof-reference-bank{font-size:14px;color:#123412}
 .account-proof-reference code{display:block;width:100%;padding:10px 11px;border:1px solid #78C98D;border-radius:8px;background:#fff;color:#092B16;font-family:ui-monospace,Consolas,monospace;font-size:17px;font-weight:900;line-height:1.2;letter-spacing:.35px;word-break:break-all}
 .account-proof-reference p{margin:1px 0 3px;color:#657166;font-size:11px;font-weight:700;line-height:1.45}
-.account-proof-reference-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:auto}
-.account-proof-reference-actions .btn{min-height:34px}
+.account-proof-reference-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;width:100%;margin-top:auto}
+.account-proof-reference-actions .btn{width:100%;min-height:34px}
 .account-proof-ocr-button{flex-basis:100%}
 .account-proof-ocr-result{width:100%;box-sizing:border-box;margin-top:3px;padding:10px 11px;border:1px solid #DDE6DE;border-radius:8px;background:#fff;color:#344438;font-size:11px;font-weight:800;line-height:1.45}
 .account-proof-ocr-result[hidden]{display:none}
@@ -815,6 +815,8 @@ tr:hover td{background:#FAFFFE}
 .proof-zoom-controls{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .proof-zoom-value{min-width:46px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #D1E8D1;border-radius:6px;background:#fff;color:#14532D;font-size:11px;font-weight:900}
 .proof-zoom-stage{flex:1;overflow:auto;padding:18px;background:#F8FFF8;outline:none;cursor:grab;touch-action:none}
+.proof-zoom-stage.is-selecting{cursor:crosshair}
+.proof-zoom-stage.is-panning{cursor:grabbing}
 .proof-ocr-selection-box{position:fixed;z-index:3;pointer-events:none;border:3px solid #03C75A;border-radius:5px;background:rgba(3,199,90,.16);box-shadow:0 0 0 9999px rgba(15,23,42,.26),0 0 0 2px #fff}
 .proof-ocr-selection-box.admin-hidden{display:none}
 [data-proof-ocr-selection-confirm].is-floating{position:fixed;z-index:7005;min-width:150px;min-height:40px;padding:9px 16px;border-radius:10px;box-shadow:0 10px 28px rgba(3,199,90,.32)}

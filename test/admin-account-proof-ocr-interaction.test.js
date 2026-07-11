@@ -1,0 +1,38 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const vm = require('node:vm');
+
+const root = path.resolve(__dirname, '..');
+
+test('reference card replaces redundant proof zoom with OCR beside copy', () => {
+  const code = fs.readFileSync(path.join(root, 'admin-assets/js/admin-accounts.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'admin-assets/css/admin-main.css'), 'utf8');
+  const context = { window: { EatsAdminAccounts: {}, EatsAdminAccountUtils: { proofZoomButton: () => '<button>proof</button>' } } };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+  const modal = context.window.EatsAdminAccounts.renderAccountDetailModal({
+    franchise: { id: 1, name: '테스트 가맹점' },
+    account: { accountNo: '56216975432139', bankName: '신한은행', documentUrl: '/uploads/proof.jpg', fileName: 'proof.jpg' },
+    fid: 1,
+    idx: 0
+  }, { role: 'hq' });
+  assert.doesNotMatch(modal.body, /증빙 크게 보기/);
+  assert.match(modal.body, /계좌번호 복사/);
+  assert.match(modal.body, /계좌번호 자동 인식/);
+  assert.match(css, /account-proof-reference-actions\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+});
+
+test('proof OCR uses explicit navigation, selection, and pinch states', () => {
+  const html = fs.readFileSync(path.join(root, '이츠페이_관리자_시스템_10.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'admin-assets/css/admin-main.css'), 'utf8');
+  assert.match(html, /data-proof-mode="navigate"/);
+  assert.match(html, /data-proof-mode="select"/);
+  assert.match(html, /function setProofInteractionMode/);
+  assert.match(html, /function resetProofOcrSelection/);
+  assert.match(html, /proofInteractionMode==='select'/);
+  assert.match(html, /proofTouchPointers/);
+  assert.match(html, /function updateProofPinchZoom/);
+  assert.match(css, /proof-zoom-stage\.is-selecting/);
+});

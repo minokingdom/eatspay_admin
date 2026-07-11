@@ -293,7 +293,6 @@
           <p>증빙 이미지의 계좌번호와 위 번호가 같은지 확인하세요.</p>
           <div class="account-proof-reference-actions">
             ${accountNo ? `<button type="button" class="btn bo" data-copy-text="${esc(accountNo)}">계좌번호 복사</button>` : ''}
-            ${documentUrl && isImage ? `<button type="button" class="btn bg2" data-proof-zoom-open="1" data-proof-zoom-url="${esc(documentUrl)}" data-proof-zoom-name="${esc(da.fileName || '증빙 이미지')}" data-proof-zoom-reference="${esc(accountNo)}">증빙 크게 보기</button>` : ''}
             ${documentUrl && isImage && accountNo ? `<button type="button" class="btn bg2 account-proof-ocr-button" data-admin-action="account-proof-ocr" data-proof-document-url="${esc(documentUrl)}" data-proof-account-no="${esc(accountNo)}">계좌번호 자동 인식</button>` : ''}
           </div>
           <div class="account-proof-ocr-result" data-account-proof-ocr-result aria-live="polite" hidden></div>

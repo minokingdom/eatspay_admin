@@ -11,7 +11,7 @@
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260709-agency-safe-fields"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-ocr-region"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-modes"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-ocr-floating-action">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-modes">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -795,6 +795,9 @@ function adminModalFooter(...buttons){
   return`<div class="admin-modal-footer-actions">${buttons.join('')}</div>`;
 }
 let proofZoomScale=1;
+let proofInteractionMode='navigate';
+const proofTouchPointers=new Map();
+let proofPinchState=null;
 let proofPanState=null;
 let proofOcrSelectionState=null;
 function proofZoomThumb(url,name='증빙 이미지',imageClass='account-proof-img',altText='증빙 이미지',referenceText=''){
@@ -823,6 +826,8 @@ function ensureProofImageZoomOverlay(){
           </div>
         </div>
         <div class="proof-zoom-controls">
+          <button type="button" class="btn bg2 xs" data-proof-mode="navigate">이동·확대</button>
+          <button type="button" class="btn bo xs" data-proof-mode="select">계좌 영역 선택</button>
           <button type="button" class="btn bo xs" data-proof-zoom-out="1" aria-label="축소">-</button>
           <span class="proof-zoom-value" data-proof-zoom-value>100%</span>
           <button type="button" class="btn bo xs" data-proof-zoom-in="1" aria-label="확대">+</button>
@@ -861,8 +866,33 @@ function setProofImageZoom(nextScale){
   if(parts.image)parts.image.style.width=`${pct}%`;
   if(parts.value)parts.value.textContent=`${pct}%`;
 }
+function setProofInteractionMode(mode){
+  proofInteractionMode=mode==='select'?'select':'navigate';
+  const parts=proofZoomParts();
+  parts.stage?.classList.toggle('is-selecting',proofInteractionMode==='select');
+  parts.overlay.querySelectorAll('[data-proof-mode]').forEach(button=>{
+    const active=button.dataset.proofMode===proofInteractionMode;
+    button.classList.toggle('bg2',active);button.classList.toggle('bo',!active);
+    button.setAttribute('aria-pressed',String(active));
+  });
+  if(parts.title&&proofOcrSelectionState)parts.title.textContent=proofInteractionMode==='select'?'계좌번호 부분을 사각형으로 드래그하세요.':'사진을 확대하거나 드래그해 계좌번호가 잘 보이게 맞추세요.';
+}
+function resetProofOcrSelection(){
+  const parts=proofZoomParts();
+  if(proofOcrSelectionState){proofOcrSelectionState.region=null;proofOcrSelectionState.start=null;proofOcrSelectionState.dragging=false;}
+  parts.selectionBox?.classList.add('admin-hidden');
+  parts.selectionConfirm?.classList.add('admin-hidden');
+  parts.selectionConfirm?.classList.remove('is-floating');
+}
+function updateProofPinchZoom(){
+  if(proofInteractionMode!=='navigate'||proofTouchPointers.size<2){proofPinchState=null;return;}
+  const points=[...proofTouchPointers.values()].slice(0,2);
+  const distance=Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y);
+  if(!proofPinchState){proofPinchState={distance,scale:proofZoomScale};return;}
+  if(proofPinchState.distance>0)setProofImageZoom(proofPinchState.scale*(distance/proofPinchState.distance));
+}
 function startProofImagePan(ev){
-  if(proofOcrSelectionState)return;
+  if(proofInteractionMode!=='navigate'||proofTouchPointers.size>1)return;
   const stage=ev.target.closest?.('[data-proof-zoom-pan]');
   if(!stage||ev.button!==0||ev.target.closest?.('button,a,input,select,textarea'))return;
   proofPanState={
@@ -910,6 +940,7 @@ function openProofImageZoom(url,name='증빙 이미지',reference=''){
   parts.overlay.classList.remove('admin-hidden');
   document.body.classList.add('proof-zoom-open');
   setProofImageZoom(1);
+  setProofInteractionMode('navigate');
   setTimeout(()=>parts.stage?.focus(),20);
 }
 function closeProofImageZoom(){
@@ -7126,21 +7157,25 @@ document.addEventListener('wheel',ev=>{
   setProofImageZoom(proofZoomScale+(ev.deltaY<0?.25:-.25));
 },{passive:false});
 document.addEventListener('pointerdown',ev=>{
+  if(ev.pointerType==='touch'&&ev.target.closest?.('[data-proof-zoom-stage]')){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
   if(ev.target.closest?.('[data-da-logo-crop-pan]'))startDeliveryAgencyLogoCropPan(ev);
   if(ev.target.closest?.('[data-proof-zoom-image]')&&beginProofOcrSelection(ev))return;
   if(ev.target.closest?.('[data-proof-zoom-pan]'))startProofImagePan(ev);
 });
 document.addEventListener('pointermove',ev=>{
+  if(proofTouchPointers.has(ev.pointerId)){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
   moveProofOcrSelection(ev);
   moveDeliveryAgencyLogoCropPan(ev);
   moveProofImagePan(ev);
 });
 document.addEventListener('pointerup',ev=>{
+  if(proofTouchPointers.delete(ev.pointerId))updateProofPinchZoom();
   endProofOcrSelection(ev);
   endDeliveryAgencyLogoCropPan(ev);
   endProofImagePan(ev);
 });
 document.addEventListener('pointercancel',ev=>{
+  if(proofTouchPointers.delete(ev.pointerId))updateProofPinchZoom();
   endProofOcrSelection(ev);
   endDeliveryAgencyLogoCropPan(ev);
   endProofImagePan(ev);
@@ -10493,10 +10528,10 @@ function startAccountProofOcrSelection(button){
   parts.selectionConfirm?.style.removeProperty('left');parts.selectionConfirm?.style.removeProperty('top');
   parts.selectionBox?.classList.add('admin-hidden');
   proofOcrSelectionState={button,resultBox,region:null,start:null,dragging:false};
-  if(parts.title)parts.title.textContent='계좌번호가 있는 부분을 사각형으로 드래그하세요.';
+  setProofInteractionMode('navigate');
 }
 function beginProofOcrSelection(ev){
-  if(!proofOcrSelectionState||!ev.target.matches?.('[data-proof-zoom-image]'))return false;
+  if(proofInteractionMode!=='select'||!proofOcrSelectionState||!ev.target.matches?.('[data-proof-zoom-image]'))return false;
   const rect=ev.target.getBoundingClientRect();proofOcrSelectionState.imageRect=rect;
   proofOcrSelectionState.start={x:Math.max(rect.left,Math.min(ev.clientX,rect.right)),y:Math.max(rect.top,Math.min(ev.clientY,rect.bottom))};
   proofOcrSelectionState.dragging=true;ev.preventDefault();return true;
@@ -10852,6 +10887,13 @@ document.addEventListener('click',function(ev){
       return;
     }
     nav(navId);
+    return;
+  }
+  const proofModeTarget=ev.target.closest?.('[data-proof-mode]');
+  if(proofModeTarget){
+    ev.preventDefault();ev.stopPropagation();
+    if(proofModeTarget.dataset.proofMode==='select')resetProofOcrSelection();
+    setProofInteractionMode(proofModeTarget.dataset.proofMode||'navigate');
     return;
   }
   const accountExportFilterClear=ev.target.closest('[data-account-export-filter-clear]');
