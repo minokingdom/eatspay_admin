@@ -10505,7 +10505,7 @@ function moveProofOcrSelection(ev){
 function endProofOcrSelection(ev){if(proofOcrSelectionState?.dragging){proofOcrSelectionState.dragging=false;ev.preventDefault();}}
 async function confirmProofOcrSelection(){
   const state=proofOcrSelectionState;
-  if(!state?.region||state.region.width<.03||state.region.height<.02){await adminAlert('계좌번호가 포함되도록 사각형 영역을 조금 더 크게 선택해주세요.');return;}
+  if(!state?.region||state.region.width<.01||state.region.height<.003){await adminAlert('계좌번호가 포함되도록 사각형 영역을 선택해주세요.');return;}
   const {button,region}=state;closeProofImageZoom();await runAccountProofOcr(button,region);
 }
 async function runAccountProofOcr(button,region){
