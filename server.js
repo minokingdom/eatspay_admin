@@ -13531,8 +13531,9 @@ app.post('/api/admin/accounts/proof-ocr', authenticateAdmin, asyncHandler(async 
   }
   accountProofOcrBusy = true;
   try {
-    const result = await recognizeAccountProof(imagePath, accountNo, { region });
-    return res.status(200).json({ success: true, data: { status: result.status, registeredAccountNo: accountNo, recognizedAccountNo: result.recognizedAccountNo || '', candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 5) : [] } });
+    const result = await recognizeAccountProof(imagePath, accountNo, { region, includeCharacterBoxes: true });
+    const characterBoxes=(Array.isArray(result.characterBoxes)?result.characterBoxes:[]).slice(0,20).filter(box=>/^\d$/.test(String(box?.digit||''))&&['x','y','width','height'].every(key=>Number.isFinite(Number(box?.[key]))&&Number(box[key])>=0&&Number(box[key])<=1));
+    return res.status(200).json({ success: true, data: { status: result.status, registeredAccountNo: accountNo, recognizedAccountNo: result.recognizedAccountNo || '', candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 5) : [], characterBoxes } });
   } catch (error) {
     const unavailable = /설치되어 있지/.test(String(error?.message || ''));
     return sendError(res, unavailable ? 503 : 422, unavailable ? 'OCR_UNAVAILABLE' : 'OCR_FAILED', error?.message || '증빙 이미지를 인식하지 못했습니다.');

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
-const { normalizeAccountNo, extractAccountCandidates, compareAccountText, normalizeOcrRegion, resolveProofImagePath, recognizeAccountProof } = require('../lib/account-proof-ocr');
+const { normalizeAccountNo, extractAccountCandidates, compareAccountText, normalizeOcrRegion, resolveProofImagePath, recognizeAccountProof, parseTesseractBoxes, mapCharacterBoxesToSelection } = require('../lib/account-proof-ocr');
 
 test('normalizes separators and compares the exact account candidate', () => {
   assert.equal(normalizeAccountNo('562-169754-32139'), '56216975432139');
@@ -16,3 +16,5 @@ test('runs tesseract with timeout and a numeric whitelist', async () => { const 
 test('auto-orients, pads, and runs multiple selected-region preprocessing passes', async () => { const imageCalls = [], ocrCalls = []; await recognizeAccountProof('/tmp/proof.jpg', '12345678', { region: { x: .2, y: .3, width: .6, height: .2 }, imageRunner: async (...args) => { imageCalls.push(args); if(args[1].includes('info:'))return '1000 2000'; return ''; }, runner: async (...args) => { ocrCalls.push(args); return '12345678'; } }); assert.ok(imageCalls.some(call => call[0] === 'convert' && call[1].includes('-auto-orient') && call[1].includes('-crop') && call[1].includes('620x440+190+580'))); assert.equal(ocrCalls.length, 2); assert.ok(ocrCalls.every(call => call[1].includes('11'))); });
 test('joins OCR line breaks only inside a selected region', async () => { const result = await recognizeAccountProof('/tmp/proof.jpg', '56216975432139', { region: { x: .2, y: .3, width: .6, height: .2 }, imageRunner: async (...args) => args[1].includes('info:') ? '1000 2000' : '', runner: async () => '5621\n6975432139' }); assert.equal(result.status, 'matched'); });
 test('accepts a narrow single-line selection', () => { assert.deepEqual(normalizeOcrRegion({ x: .4, y: .4, width: .2, height: .006 }), { x: .4, y: .4, width: .2, height: .006 }); });
+test('parses tesseract bottom-left character boxes into normalized top-left boxes', () => { const boxes=parseTesseractBoxes('5 10 20 30 60 0\n6 32 20 52 60 0',100,100); assert.deepEqual(boxes,[{digit:'5',x:.1,y:.4,width:.2,height:.4},{digit:'6',x:.32,y:.4,width:.2,height:.4}]); });
+test('maps padded OCR boxes back to the exact selected region', () => { const mapped=mapCharacterBoxesToSelection([{digit:'5',x:.25,y:.25,width:.5,height:.5}],{x:.2,y:.3,width:.6,height:.2},{x:.19,y:.29,width:.62,height:.22}); assert.equal(mapped[0].digit,'5'); assert.ok(Math.abs(mapped[0].x-.2416666667)<1e-6); assert.ok(Math.abs(mapped[0].y-.225)<1e-6); });

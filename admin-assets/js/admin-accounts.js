@@ -296,6 +296,7 @@
             <div class="account-proof-crop-frame">
               <canvas data-account-proof-crop-canvas aria-label="선택한 계좌번호 영역 미리보기"></canvas>
               <div class="account-proof-crop-ocr" data-account-proof-crop-ocr hidden></div>
+              <div class="account-proof-character-layer" data-account-proof-character-layer aria-hidden="true"></div>
             </div>
           </div>
           <div class="account-proof-reference-actions">

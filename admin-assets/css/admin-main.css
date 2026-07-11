@@ -784,6 +784,10 @@ tr:hover td{background:#FAFFFE}
 .account-proof-crop-ocr.is-mismatched{background:rgba(220,38,38,.92)}
 .account-proof-crop-ocr.is-not_found{background:rgba(217,119,6,.94)}
 .account-proof-crop-ocr.is-error{background:rgba(185,28,28,.94)}
+.account-proof-character-layer{position:absolute;inset:0;z-index:3;pointer-events:none}
+.account-proof-character-layer:empty{display:none}
+.account-proof-character-digit{position:absolute;display:flex;align-items:center;justify-content:center;min-width:15px;height:18px;padding:0 2px;border:1px solid currentColor;border-radius:4px;background:rgba(255,255,255,.94);font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:1000;line-height:1;color:#DC2626;box-shadow:0 2px 6px rgba(15,23,42,.22);transform:translate(-50%,-100%)}
+.account-proof-character-digit.is-correct{color:#07883F}
 .account-proof-reference-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;width:100%;margin-top:auto}
 .account-proof-reference-actions .btn{width:100%;min-height:34px}
 .account-proof-ocr-button{flex-basis:100%}
