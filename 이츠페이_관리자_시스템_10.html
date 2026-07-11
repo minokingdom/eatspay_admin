@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-digit-overlay">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-digit-gutter">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -10581,7 +10581,8 @@ function setAccountProofCropOcrOverlay(button,state,recognizedAccountNo='',chara
   const digits=String(recognizedAccountNo||'').replace(/\D/g,''),registered=String(button.dataset.proofAccountNo||'').replace(/\D/g,''),boxes=Array.isArray(characterBoxes)?characterBoxes:[];
   if((state==='matched'||state==='mismatched')&&digits&&boxes.length===digits.length){
     overlay.hidden=true;
-    boxes.forEach((box,index)=>{const digit=digits[index],node=document.createElement('span');node.className=`account-proof-character-digit${digit===registered[index]?' is-correct':''}`;node.textContent=digit;node.style.left=`${Math.max(2,Math.min(98,(Number(box.x)+Number(box.width)/2)*100))}%`;node.style.top=`${Math.max(10,Math.min(98,Number(box.y)*100))}%`;layer.appendChild(node);});
+    const canvas=reference.querySelector('[data-account-proof-crop-canvas]'),canvasLeft=canvas.offsetLeft,canvasTop=canvas.offsetTop,canvasWidth=canvas.clientWidth,canvasHeight=canvas.clientHeight;
+    boxes.forEach((box,index)=>{const digit=digits[index],node=document.createElement('span'),centerX=Number(box.x)+Number(box.width)/2;node.className=`account-proof-character-digit${digit===registered[index]?' is-correct':''}`;node.textContent=digit;node.style.left=`${canvasLeft+Math.max(.02,Math.min(.98,centerX))*canvasWidth}px`;node.style.top=`${canvasTop+Math.max(0,Math.min(.98,Number(box.y)))*canvasHeight}px`;layer.appendChild(node);});
     return;
   }
   overlay.hidden=false;overlay.className=`account-proof-crop-ocr is-${state}`;

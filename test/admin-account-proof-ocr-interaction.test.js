@@ -64,6 +64,10 @@ test('proof OCR uses explicit navigation, selection, and pinch states', () => {
   assert.match(html, /숫자 인식 중…/);
   assert.match(html, /번호 인식 실패/);
   assert.match(css, /account-proof-crop-ocr/);
+  assert.match(css, /account-proof-crop-frame\{[^}]*padding-top:24px/);
+  assert.match(css, /account-proof-crop-ocr\{[^}]*top:0[^}]*height:24px/);
+  assert.match(html, /canvas\.offsetTop/);
+  assert.match(html, /canvas\.clientHeight/);
   assert.match(html, /characterBoxes/);
   assert.match(html, /is-correct/);
   assert.match(html, /위치 인식 실패/);
