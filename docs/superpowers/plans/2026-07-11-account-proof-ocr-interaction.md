@@ -255,3 +255,23 @@ Expected: all tests PASS. Check production health, deploy the admin HTML, accoun
 - [ ] Show `숫자 인식 중…` before the request, actual recognized digits for matched/mismatched, and `번호 인식 실패` when no candidate exists.
 - [ ] Clear the prior overlay when a new selection starts and preserve the new result until the next selection or modal close.
 - [ ] Run regression tests, verify production health, deploy HTML/account module/CSS, restart, and verify overlay markers.
+
+### Task 10: Replace the fixed bar with per-digit OCR coordinates
+
+**Files:**
+- Modify: `test/account-proof-ocr.test.js`
+- Modify: `test/admin-account-proof-ocr-api.test.js`
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `lib/account-proof-ocr.js`
+- Modify: `server.js`
+- Modify: `admin-assets/js/admin-accounts.js`
+- Modify: `admin-assets/css/admin-main.css`
+- Modify: `이츠페이_관리자_시스템_10.html`
+
+- [ ] Test parsing Tesseract `makebox` rows, converting bottom-left coordinates to normalized top-left coordinates, selecting boxes for the recognized number, and mapping padded crop coordinates back to the exact selected region.
+- [ ] Extend selected-region preprocessing metadata with padded crop geometry and processed width/height, and request `makebox` only for the best OCR pass when character boxes are requested.
+- [ ] Return `characterBoxes` containing `{ digit, x, y, width, height }` in selected-region normalized coordinates; return an empty array when coordinates are incomplete.
+- [ ] Forward a bounded character-box array from the authenticated OCR endpoint.
+- [ ] Add a crop character layer and position each recognized digit directly above its source digit, green when it equals the registered digit at that index and red otherwise.
+- [ ] Show `위치 인식 실패` instead of guessing when the returned coordinate count does not match the recognized number.
+- [ ] Run server/UI regression tests, check production health, deploy server/admin files, restart, and verify coordinate markers.
