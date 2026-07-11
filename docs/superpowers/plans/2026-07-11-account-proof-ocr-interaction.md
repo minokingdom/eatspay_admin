@@ -241,3 +241,17 @@ Expected: all tests PASS. Check production health, deploy the admin HTML, accoun
 - [ ] On the second pointer, cancel pan/selection, capture the stage-local midpoint and content anchor, scale by distance ratio, and update scroll offsets so the anchor remains under the midpoint.
 - [ ] Keep one-finger gestures locked until all pinch pointers are released, then restore normal pan/selection behavior.
 - [ ] Run regression tests, verify production health, deploy admin HTML/CSS, restart, and verify mobile markers.
+
+### Task 9: Overlay the recognized number on the selected crop
+
+**Files:**
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `admin-assets/js/admin-accounts.js`
+- Modify: `admin-assets/css/admin-main.css`
+- Modify: `이츠페이_관리자_시스템_10.html`
+
+- [ ] Assert the crop frame contains `data-account-proof-crop-ocr`, and HTML defines `setAccountProofCropOcrOverlay` using `recognizedAccountNo` for matched/mismatched results.
+- [ ] Wrap the crop canvas in a relative frame and add a hidden full-width top overlay with loading, matched, mismatched, not-found, and error states.
+- [ ] Show `숫자 인식 중…` before the request, actual recognized digits for matched/mismatched, and `번호 인식 실패` when no candidate exists.
+- [ ] Clear the prior overlay when a new selection starts and preserve the new result until the next selection or modal close.
+- [ ] Run regression tests, verify production health, deploy HTML/account module/CSS, restart, and verify overlay markers.
