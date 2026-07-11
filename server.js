@@ -4233,7 +4233,7 @@ async function runDesignStudioAiJob(job) {
   fs.mkdirSync(requestDir, { recursive: true });
   fs.mkdirSync(statusDir, { recursive: true });
   fs.mkdirSync(outputDir, { recursive: true });
-  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, ...preset }), { mode: 0o660 });
+  fs.writeFileSync(path.join(requestDir, `${job.id}.json`), JSON.stringify({ id: job.id, prompt: job.prompt, preset: job.preset, referencePath: job.referencePath || '', referenceRole: job.referenceRole || 'style', ...preset }), { mode: 0o660 });
   job.status = 'queued';
   job.message = 'ImageGen 작업 순서를 기다리고 있습니다.';
 
@@ -11637,14 +11637,23 @@ app.get('/api/admin/design-documents', authenticateAdmin, asyncHandler(async (re
 app.post('/api/admin/design-studio/ai-images', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
   const prompt = String(req.body?.prompt || '').trim();
   const preset = String(req.body?.preset || 'banner').trim();
+  const referenceUrl = String(req.body?.referenceUrl || '').trim();
+  const referenceRole = ['style', 'composition', 'edit'].includes(String(req.body?.referenceRole || '')) ? String(req.body.referenceRole) : 'style';
   if (prompt.length < 10) return sendError(res, 400, 'PROMPT_TOO_SHORT', '이미지 설명을 10자 이상 입력해 주세요.');
   if (prompt.length > 1200) return sendError(res, 400, 'PROMPT_TOO_LONG', '이미지 설명은 1200자 이내로 입력해 주세요.');
   if (!DESIGN_STUDIO_AI_PRESETS[preset]) return sendError(res, 400, 'INVALID_PRESET', '지원하지 않는 이미지 유형입니다.');
+  let referencePath = '';
+  if (referenceUrl) {
+    const match = referenceUrl.match(/^\/uploads\/([A-Za-z0-9._-]+)$/);
+    if (!match) return sendError(res, 400, 'INVALID_REFERENCE', '레퍼런스 이미지 경로가 올바르지 않습니다.');
+    referencePath = path.join(uploadDir, match[1]);
+    if (!fs.existsSync(referencePath) || !/\.(png|jpe?g|webp)$/i.test(referencePath)) return sendError(res, 400, 'REFERENCE_NOT_FOUND', '레퍼런스 이미지를 찾을 수 없습니다.');
+  }
   const activeJob = [...designStudioAiJobs.values()].find(job => job.status === 'queued' || job.status === 'running');
   if (activeJob) return sendError(res, 409, 'IMAGE_JOB_BUSY', '다른 이미지를 만들고 있습니다. 완료 후 다시 시도해 주세요.');
 
   const id = crypto.randomUUID();
-  const job = { id, prompt, preset, status: 'queued', message: '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
+  const job = { id, prompt, preset, referencePath, referenceRole, status: 'queued', message: '이미지 생성 순서를 준비하고 있습니다.', createdAt: new Date().toISOString() };
   designStudioAiJobs.set(id, job);
   runDesignStudioAiJob(job).catch(error => {
     job.status = 'failed';

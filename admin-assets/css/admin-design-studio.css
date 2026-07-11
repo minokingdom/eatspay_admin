@@ -228,6 +228,9 @@ body.ds-open .itzbi-widget{display:none}
 .ds-ai-grid{display:grid;gap:12px}
 .ds-ai-prompt{min-height:150px;font-size:13px;line-height:1.6}
 .ds-ai-help{margin:0;padding:9px 11px;border-radius:6px;background:#F2F8F4;color:#55705E;font-size:11px;font-weight:800}
+.ds-field>label span{color:#8A968E;font-size:9px}
+.ds-ai-reference-drop{display:grid;width:100%;min-height:86px;place-items:center;gap:4px;padding:14px;border:1px dashed #8BC99A;border-radius:8px;background:#F5FCF7;color:#27613A;font:inherit;cursor:pointer}.ds-ai-reference-drop:hover{border-color:#03C75A;background:#EEFAF1}.ds-ai-reference-drop b{font-size:12px}.ds-ai-reference-drop span{font-size:10px;font-weight:800;color:#708078}
+.ds-ai-reference-preview{display:grid;grid-template-columns:86px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px;border:1px solid #CFE1D4;border-radius:8px;background:#F8FBF9}.ds-ai-reference-preview[hidden]{display:none}.ds-ai-reference-preview img{width:86px;height:64px;border-radius:5px;object-fit:cover}.ds-ai-reference-preview>div{display:grid;gap:6px;min-width:0}.ds-ai-reference-preview b{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
 .ds-ai-status{display:flex;align-items:center;gap:12px;padding:13px;border:1px solid #A7DDB3;border-radius:8px;background:#F1FBF4;color:#1A4828}
 .ds-ai-status[hidden],.ds-ai-preview[hidden]{display:none}
 .ds-ai-status.is-error{border-color:#F0B4B4;background:#FFF3F3;color:#A52F2F}

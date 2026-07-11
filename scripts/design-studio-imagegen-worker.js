@@ -59,8 +59,13 @@ async function processRequest(filePath) {
   const request = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   const startedAt = Date.now();
   writeStatus(request.id, { status: 'running', message: '장면을 구성하고 이미지를 생성하고 있습니다.' });
+  const referenceRole = ({ style: 'Use its visual style, color language, lighting, and material treatment as reference.', composition: 'Use its framing, subject placement, balance, and negative-space composition as reference.', edit: 'Treat it as the edit target. Preserve its recognizable subjects and layout unless the user asks for a change.' })[request.referenceRole] || '';
+  const referenceInstruction = request.referencePath
+    ? `First use view_image to inspect this local reference image: ${request.referencePath}\nReference role: ${referenceRole}`
+    : 'There is no reference image.';
   const instruction = [
     'Use the installed imagegen skill and the built-in image generation tool.',
+    referenceInstruction,
     `Create exactly one ${request.width}x${request.height} ${request.label} bitmap for the Eatspay Design Studio.`,
     `Composition: ${request.composition}.`,
     `User prompt: ${request.prompt}`,

@@ -59,6 +59,8 @@ const state = {
   libraryBrandId: '',
   aiJobId: '',
   aiPollTimer: null,
+  aiReferenceUrl: '',
+  aiReferenceName: '',
 };
 
 function esc(value) {
@@ -468,12 +470,19 @@ async function addImageFromUrl(url, options = {}) {
 function showAiImageDialog() {
   clearTimeout(state.aiPollTimer);
   state.aiJobId = '';
+  state.aiReferenceUrl = '';
+  state.aiReferenceName = '';
   const suggested = state.currentDraft?.kind === 'popup' ? 'popup' : 'banner';
   state.dialog.innerHTML = `<section class="ds-dialog ds-ai-dialog" role="dialog" aria-modal="true" aria-label="AI 이미지 만들기">
     <header class="ds-dialog-head"><div><b>AI 이미지 만들기</b><small>이츠비의 Codex ImageGen이 제작합니다.</small></div><button type="button" class="ds-command is-icon" data-ds-action="dialog-close" aria-label="닫기">×</button></header>
     <div class="ds-dialog-body"><div class="ds-ai-grid">
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
       <div class="ds-field"><label>프롬프트</label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt maxlength="1200" placeholder="예: 빠른 정산 서비스를 표현하는 프리미엄 녹색 배너. 오른쪽에 음식점 사장님, 왼쪽은 문구를 넣을 여백. 이미지 안에는 글자와 로고 없음."></textarea></div>
+      <div class="ds-field"><label>레퍼런스 이미지 <span>선택사항</span></label>
+        <button type="button" class="ds-ai-reference-drop" data-ds-action="ai-reference-pick"><b>이미지를 선택하거나 캡처 후 Ctrl+V</b><span>PNG · JPG · WebP</span></button>
+        <input type="file" accept="image/png,image/jpeg,image/webp" data-ds-ai-reference-file hidden>
+        <div class="ds-ai-reference-preview" data-ds-ai-reference-preview hidden><img data-ds-ai-reference-image alt="레퍼런스 이미지"><div><b data-ds-ai-reference-name></b><select class="ds-select" data-ds-ai-reference-role><option value="style">스타일 참고</option><option value="composition">구도 참고</option><option value="edit">이 이미지를 수정</option></select></div><button type="button" class="ds-command is-icon" data-ds-action="ai-reference-remove" aria-label="레퍼런스 삭제">×</button></div>
+      </div>
       <p class="ds-ai-help">한글 문구와 로고는 생성 후 편집기에서 추가하면 더 선명합니다.</p>
       <div class="ds-ai-status" data-ds-ai-status hidden><span class="ds-ai-spinner" aria-hidden="true"></span><div><b data-ds-ai-status-title>이미지를 만들고 있습니다</b><p data-ds-ai-status-text>보통 1~3분 정도 걸립니다.</p></div></div>
       <div class="ds-ai-preview" data-ds-ai-preview hidden><img data-ds-ai-preview-image alt="생성된 AI 이미지"><div><b>이미지가 완성되었습니다.</b><span>캔버스에 자동으로 추가했습니다.</span></div></div>
@@ -482,6 +491,36 @@ function showAiImageDialog() {
   </section>`;
   state.dialog.hidden = false;
   requestAnimationFrame(() => state.dialog.querySelector('[data-ds-ai-prompt]')?.focus());
+}
+
+async function setAiReference(file) {
+  if (!file) return;
+  const drop = state.dialog.querySelector('[data-ds-action="ai-reference-pick"]');
+  if (drop) { drop.disabled = true; drop.querySelector('b').textContent = '이미지 업로드 중'; }
+  try {
+    const uploaded = await uploadAsset(file);
+    state.aiReferenceUrl = uploaded.imageUrl;
+    state.aiReferenceName = file.name || '붙여넣은 캡처 이미지';
+    const preview = state.dialog.querySelector('[data-ds-ai-reference-preview]');
+    preview.hidden = false;
+    preview.querySelector('[data-ds-ai-reference-image]').src = uploaded.imageUrl;
+    preview.querySelector('[data-ds-ai-reference-name]').textContent = state.aiReferenceName;
+    if (drop) drop.hidden = true;
+  } catch (error) {
+    if (drop) { drop.disabled = false; drop.querySelector('b').textContent = '이미지를 선택하거나 캡처 후 Ctrl+V'; }
+    throw error;
+  }
+}
+
+function removeAiReference() {
+  state.aiReferenceUrl = '';
+  state.aiReferenceName = '';
+  const preview = state.dialog.querySelector('[data-ds-ai-reference-preview]');
+  if (preview) preview.hidden = true;
+  const drop = state.dialog.querySelector('[data-ds-action="ai-reference-pick"]');
+  if (drop) { drop.hidden = false; drop.disabled = false; drop.querySelector('b').textContent = '이미지를 선택하거나 캡처 후 Ctrl+V'; }
+  const input = state.dialog.querySelector('[data-ds-ai-reference-file]');
+  if (input) input.value = '';
 }
 
 function setAiStatus(title, text, failed = false) {
@@ -502,7 +541,7 @@ async function startAiImageGeneration() {
   setAiStatus('이미지 생성을 시작합니다', 'Codex ImageGen에 장면과 구도를 전달하고 있습니다.');
   try {
     const job = await api('/api/admin/design-studio/ai-images', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style' }),
     });
     state.aiJobId = job.id;
     pollAiImageJob();
@@ -1159,6 +1198,8 @@ async function handleClick(event) {
   else if (action === 'image-pick') state.root.querySelector('[data-ds-image-file]')?.click();
   else if (action === 'ai-image') showAiImageDialog();
   else if (action === 'ai-generate') await startAiImageGeneration();
+  else if (action === 'ai-reference-pick') state.dialog.querySelector('[data-ds-ai-reference-file]')?.click();
+  else if (action === 'ai-reference-remove') removeAiReference();
   else if (action === 'add-rect') addRect();
   else if (action === 'add-circle') addCircle();
   else if (action === 'add-line') addLine();
@@ -1235,6 +1276,7 @@ async function handleChange(event) {
   const target = event.target;
   if (target.matches('[data-ds-brand-select]')) await changeBrand(target.value);
   else if (target.matches('[data-ds-image-file]') && target.files?.[0]) { await addUploadedImage(target.files[0]); target.value = ''; }
+  else if (target.matches('[data-ds-ai-reference-file]') && target.files?.[0]) { await setAiReference(target.files[0]); target.value = ''; }
   else if (target.matches('[data-ds-brand-logo-file]') && target.files?.[0]) {
     setBusy(true);
     try {
@@ -1249,8 +1291,15 @@ async function handleChange(event) {
 
 async function handlePaste(event) {
   if (state.root?.hidden || !state.canvas) return;
+  const pastedImage = Array.from(event.clipboardData?.items || []).find((item) => item.type.startsWith('image/'))?.getAsFile();
+  if (state.dialog?.hidden === false && state.dialog.querySelector('[data-ds-ai-prompt]') && pastedImage) {
+    event.preventDefault();
+    await setAiReference(pastedImage);
+    showToast('캡처 이미지를 레퍼런스로 추가했습니다.');
+    return;
+  }
   if (isTextObject(activeObject()) && activeObject().isEditing) return;
-  const file = Array.from(event.clipboardData?.items || []).find((item) => item.type.startsWith('image/'))?.getAsFile();
+  const file = pastedImage;
   if (!file) return;
   event.preventDefault();
   await addUploadedImage(file);

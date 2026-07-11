@@ -230,4 +230,8 @@ test('design studio exposes authenticated Codex ImageGen jobs and AI editor cont
   assert.match(studio, /data-ds-action="new-ai-image"/);
   assert.match(studio, /AI 이미지 만들기/);
   assert.match(studio, /pollAiImageJob/);
+  assert.match(studio, /Ctrl\+V/);
+  assert.match(studio, /data-ds-ai-reference-role/);
+  assert.match(worker, /First use view_image to inspect/);
+  assert.match(server, /INVALID_REFERENCE/);
 });
