@@ -1,0 +1,16 @@
+[Unit]
+Description=EatsPay durable message queue worker
+After=network.target postgresql.service eatspay.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/eatspay
+EnvironmentFile=/opt/eatspay/.env
+ExecStart=/usr/bin/node /opt/eatspay/scripts/message-queue-worker.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

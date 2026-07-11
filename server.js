@@ -3543,6 +3543,30 @@ const dbBootstrapPromise = (async () => {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at, created_at DESC)');
+  await pool.query('ALTER TABLE notifications ADD COLUMN IF NOT EXISTS message_job_delivery_id BIGINT');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_message_delivery ON notifications(message_job_delivery_id) WHERE message_job_delivery_id IS NOT NULL');
+  await pool.query(`CREATE TABLE IF NOT EXISTS message_jobs (
+    id UUID PRIMARY KEY, type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','retry_wait','completed','failed','cancelled')),
+    requested_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    title TEXT NOT NULL, body TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    total_count INTEGER NOT NULL DEFAULT 0, processed_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0, failed_count INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0, next_run_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    lease_expires_at TIMESTAMPTZ, last_error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS message_job_deliveries (
+    id BIGSERIAL PRIMARY KEY, job_id UUID NOT NULL REFERENCES message_jobs(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','completed','failed')),
+    attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+    completed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (job_id, user_id, channel)
+  )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_message_jobs_runnable ON message_jobs(status, next_run_at, created_at)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_message_job_deliveries_pending ON message_job_deliveries(job_id, status, id)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id, enabled)');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS financial_institutions (
@@ -12681,37 +12705,17 @@ app.post('/api/admin/push/broadcast', authenticateAdmin, requireSystemAdminOnly,
     targetType,
     targetValue
   };
-  let stored = 0;
-  let fcmSent = 0;
-  let fcmFailed = 0;
-  let webSubscriptions = 0;
-  const failures = [];
-  for (const target of targets) {
-    try {
-      if (channel === 'both' || channel === 'inapp') {
-        await repo.createNotification({
-          userId: target.id,
-          type: 'ADMIN_ANNOUNCEMENT',
-          title,
-          body,
-          data: {
-            ...data,
-            franchiseId: target.franchiseId || '',
-            franchiseName: target.franchiseName || ''
-          }
-        });
-        stored += 1;
-      }
-      if (channel === 'both' || channel === 'push') {
-        const push = await sendUserPushNotification(target.id, { title, body, data });
-        fcmSent += Number(push?.fcm?.sent || 0);
-        fcmFailed += Number(push?.fcm?.failed || 0);
-        webSubscriptions += Number(push?.web?.failed || 0);
-      }
-    } catch (err) {
-      failures.push({ userId: target.id, franchiseName: target.franchiseName || target.name || '', message: err?.message || String(err) });
-    }
-  }
+  const jobId = crypto.randomUUID();
+  await repo.createMessageJob({
+    id: jobId,
+    type: 'ADMIN_PUSH_BROADCAST',
+    requestedBy: req.user.id,
+    title,
+    body,
+    payload: data,
+    targets,
+    channel
+  });
   await repo.createAuditLog({
     actorUserId: req.user.id,
     actorRole: req.user.role,
@@ -12719,25 +12723,69 @@ app.post('/api/admin/push/broadcast', authenticateAdmin, requireSystemAdminOnly,
     actorName: req.user.name,
     action: 'PUSH_BROADCAST',
     entityType: 'notifications',
-    entityId: targetType,
+    entityId: jobId,
     entityName: title,
     beforeData: {},
     changedFields: ['title', 'body', 'targetType', 'targetValue', 'channel'],
-    afterData: { title, body, targetType, targetValue, channel, targetCount: targets.length, stored, fcmSent, fcmFailed, webSubscriptions, failureCount: failures.length },
+    afterData: { title, targetType, targetValue, channel, targetCount: targets.length, jobId, status: 'queued' },
     requestMethod: req.method,
     requestPath: req.originalUrl,
     ipAddress: req.ip,
     userAgent: req.get('user-agent') || ''
   }).catch(err => console.warn('[PUSH_BROADCAST_AUDIT_FAILED]', err?.message || err));
-  return res.status(200).json({
+  return res.status(202).json({
     success: true,
     data: {
-      targetCount: targets.length,
-      stored,
-      push: { fcm: { sent: fcmSent, failed: fcmFailed }, web: { storedSubscriptions: webSubscriptions } },
-      failures: failures.slice(0, 20)
+      jobId,
+      status: 'queued',
+      targetCount: targets.length
     }
   });
+}));
+
+app.get('/api/admin/message-jobs/summary', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (_req, res) => {
+  return res.status(200).json({ success: true, data: await repo.getMessageJobSummary() });
+}));
+
+app.get('/api/admin/message-jobs', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const data = await repo.listMessageJobs({ limit: req.query.limit, offset: req.query.offset });
+  return res.status(200).json({ success: true, data });
+}));
+
+app.get('/api/admin/message-jobs/:id', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const job = await repo.getMessageJob(req.params.id);
+  if (!job) return sendError(res, 404, 'MESSAGE_JOB_NOT_FOUND', '메시지 작업을 찾을 수 없습니다.');
+  return res.status(200).json({ success: true, data: job });
+}));
+
+app.post('/api/admin/message-jobs/:id/retry', authenticateAdmin, requireSystemAdminOnly, asyncHandler(async (req, res) => {
+  const job = await repo.retryMessageJob(req.params.id);
+  if (!job) return sendError(res, 409, 'MESSAGE_JOB_NOT_RETRYABLE', '실패한 작업만 재시도할 수 있습니다.');
+  await recordAuditLog(req, { action: 'MESSAGE_JOB_RETRY', entityType: 'message_job', entityId: job.id, entityName: job.title, beforeData: { status: 'failed' }, afterData: { status: 'queued' }, force: true });
+  return res.status(202).json({ success: true, data: job });
+}));
+
+app.post('/api/internal/message-jobs/deliver', asyncHandler(async (req, res) => {
+  const expected = String(process.env.MESSAGE_QUEUE_WORKER_SECRET || '');
+  const actual = String(req.get('x-message-worker-secret') || '');
+  if (!expected || actual !== expected) return sendError(res, 401, 'UNAUTHORIZED', 'Worker authentication failed.');
+  const job = await repo.getMessageJob(req.body?.jobId);
+  const delivery = job?.deliveries?.find(item => Number(item.id) === Number(req.body?.deliveryId));
+  if (!job || !delivery) return sendError(res, 404, 'MESSAGE_DELIVERY_NOT_FOUND', 'Message delivery was not found.');
+  if (delivery.status === 'completed') return res.status(200).json({ success: true, data: { duplicate: true } });
+  const data = { ...(job.payload || {}), source: 'admin_push_broadcast', messageJobId: job.id };
+  if (delivery.channel === 'both' || delivery.channel === 'inapp') {
+    await pool.query(
+      `INSERT INTO notifications (user_id,type,title,body,data,message_job_delivery_id)
+       VALUES ($1,'ADMIN_ANNOUNCEMENT',$2,$3,$4::jsonb,$5)
+       ON CONFLICT (message_job_delivery_id) WHERE message_job_delivery_id IS NOT NULL DO NOTHING`,
+      [delivery.user_id, job.title, job.body, JSON.stringify(data), delivery.id]
+    );
+  }
+  let push = null;
+  if (delivery.channel === 'both' || delivery.channel === 'push') push = await sendUserPushNotification(delivery.user_id, { title: job.title, body: job.body, data });
+  await repo.completeMessageDelivery(delivery.id);
+  return res.status(200).json({ success: true, data: { push } });
 }));
 
 app.get('/api/delivery-agencies', asyncHandler(async (req, res) => {

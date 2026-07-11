@@ -16,6 +16,7 @@
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
 <script src="/admin-assets/js/admin-push.js?v=20260702-push-org-targets"></script>
+<script src="/admin-assets/js/admin-message-queue.js?v=20260711-message-queue"></script>
 <script src="/admin-assets/js/admin-banners.js?v=20260711-popup-preview2"></script>
 <link rel="modulepreload" href="/admin-assets/vendor/fabric.min.mjs?v=7.4.0">
 <script defer src="/admin-assets/js/admin-design-studio-loader.js?v=20260711-ai7"></script>
@@ -44,7 +45,7 @@ try{
     dashboard:"대시보드", payments:"결제 내역", pgsettle:"PG 정산 확인",
     settlements:"대리점 정산", franchises:"가맹점 목록", franchiseDetail:"가맹점 상세", accounts:"출금계좌 목록",
     agencies:"대리점 관리", agencyDetail:"대리점 상세", ag_detail:"대리점 상세", deliveryMgmt:"배달대행사 관리", inquiries:"가맹점/지점 문의", advanceInquiries:"선정산 문의",
-    banners:"배너 관리", homepageAnalytics:"홈페이지 분석", legalDocs:"개인정보/약관", faqs:"FAQ 관리", installments:"무이자 할부", auditLogs:"변경 기록", push:"푸시알림",
+    banners:"배너 관리", homepageAnalytics:"홈페이지 분석", legalDocs:"개인정보/약관", faqs:"FAQ 관리", installments:"무이자 할부", auditLogs:"변경 기록", push:"푸시알림", messageQueue:"메시지 큐",
     pg:"PG사 관리", admins:"관리자 계정", eatsgoAdmin:"이츠고",
     notices:"공지사항", guides:"이용가이드", announcements:"이츠페이 알림장", talk:"이츠톡 관리",
     urlMgmt:"가입 URL 관리", myUrl:"내 가입 URL",
@@ -624,7 +625,7 @@ const HQ_NAV=[
   {s:'결제'},{id:'payments',sub:1},{id:'pgsettle',sub:1},{id:'settlements',sub:1},
   {s:'가맹점'},{id:'franchises',sub:1},{id:'accounts',sub:1},
   {s:'대리점'},{id:'agencies'},
-  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'advanceInquiries',sub:1},{id:'banners',sub:1},{id:'homepageAnalytics',sub:1},{id:'legalDocs',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'auditLogs',sub:1},{id:'push',sub:1},{id:'pg',sub:1},{id:'admins',sub:1},
+  {s:'운영'},{id:'deliveryMgmt',sub:1},{id:'inquiries',sub:1},{id:'advanceInquiries',sub:1},{id:'banners',sub:1},{id:'homepageAnalytics',sub:1},{id:'legalDocs',sub:1},{id:'faqs',sub:1},{id:'installments',sub:1},{id:'auditLogs',sub:1},{id:'push',sub:1},{id:'messageQueue',sub:1},{id:'pg',sub:1},{id:'admins',sub:1},
   {s:'게시판'},{id:'notices',sub:1},{id:'guides',sub:1},{id:'announcements',sub:1},{id:'talk',sub:1},
   {s:'바로가기'},{id:'eatsgoAdmin'},
 ];
@@ -8222,6 +8223,7 @@ async function copyPreviousInstallments(){
 
 // ═══ 푸시알림 ═══
 function pgPush(){return window.EatsAdminPush.pgPush();}
+function pgMessageQueue(){return window.EatsAdminMessageQueue.pgMessageQueue();}
 async function fetchPushStatus(email=''){
   const qs=email?`?email=${encodeURIComponent(email)}`:'';
   const res=await fetch(`/api/admin/push/status${qs}`,{headers:adminAuthHeaders(),cache:'no-store'});
@@ -8318,18 +8320,16 @@ async function sendPushBroadcast(){
   const targetLabel=targetType==='all'?'전체 가맹점':targetType==='bonbu'?`본부 ${targetValue} 산하`:targetType==='jisa'?`지사 ${targetValue} 산하`:targetType==='jijum'?`지점 ${targetValue} 산하`:targetType==='agency'?`대리점 ${targetValue} 산하`:`가맹점 ${targetValue}`;
   const ok=await adminConfirm(`${targetLabel} 대상으로 공지/푸시를 발송할까요?\n\n${title}`,'가맹점 공지 발송');
   if(!ok)return;
-  if(result)result.innerHTML='<div class="aw aw-b admin-alert-tight">발송 중입니다...</div>';
+  if(result)result.innerHTML='<div class="aw aw-b admin-alert-tight">메시지 큐에 접수 중입니다...</div>';
   try{
     const res=await fetch('/api/admin/push/broadcast',{method:'POST',headers:adminAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({targetType,targetValue,channel,targetScreen,title,body})});
     if(await handleAdminUnauthorized(res))return sendPushBroadcast();
     const json=await res.json().catch(()=>({}));
     if(!res.ok)throw new Error(json.error?.message||json.message||'공지/푸시 발송에 실패했습니다.');
     const data=json.data||{};
-    const push=data.push||{};
-    const msg=`대상 ${data.targetCount||0}명 · 앱내 저장 ${data.stored||0}건 · FCM 성공 ${push.fcm?.sent||0}건 / 실패 ${push.fcm?.failed||0}건`;
+    const msg=`작업이 접수되었습니다. 대상 ${data.targetCount||0}명 · 작업 ID ${data.jobId||'-'}`;
     if(result)result.innerHTML=`<div class="aw aw-g admin-alert-tight">${esc(msg)}</div>`;
-    await adminAlert(msg,'공지/푸시 발송 완료');
-    await loadPushStatus();
+    await adminAlert(`${msg}\n\n메시지 큐 화면에서 진행 상태를 확인할 수 있습니다.`,'공지/푸시 접수 완료');
   }catch(e){
     if(result)result.innerHTML=`<div class="aw aw-w admin-alert-tight">${esc(e.message||'발송에 실패했습니다.')}</div>`;
     await adminAlert(e.message||'공지/푸시 발송에 실패했습니다.');
@@ -10334,7 +10334,8 @@ async function saveAuditNotificationPreference(category,enabled){
 
 // ═══ 렌더 ═══
 function renderPage(){
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,legalDocs:pgLegalDocs,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,announcements:pgAnnouncements,talk:pgTalk,admins:pgAdmins,pg:pgPG,installments:pgInst,auditLogs:pgAuditLogs,push:pgPush,inquiries:pgInquiries,advanceInquiries:pgAdvanceInquiries,banners:pgBanners,homepageAnalytics:pgHomepageAnalytics,eatsgoAdmin:pgEatsgoAdmin,myUrl:pgMyUrl};
+  window.EatsAdminMessageQueue?.stopMessageQueueMonitor();
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,legalDocs:pgLegalDocs,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,announcements:pgAnnouncements,talk:pgTalk,admins:pgAdmins,pg:pgPG,installments:pgInst,auditLogs:pgAuditLogs,push:pgPush,messageQueue:pgMessageQueue,inquiries:pgInquiries,advanceInquiries:pgAdvanceInquiries,banners:pgBanners,homepageAnalytics:pgHomepageAnalytics,eatsgoAdmin:pgEatsgoAdmin,myUrl:pgMyUrl};
   if(page==='franchiseDetail'){
     const hasDetail=frDetailId&&(D.franchises||[]).some(f=>String(f.id)===String(frDetailId));
     if(!hasDetail){
@@ -10360,6 +10361,7 @@ function renderPage(){
   if(page==='agencies')   setTimeout(rAg,30);
   if(page==='faqs')       setTimeout(rFAQ,30);
   if(page==='push')       setTimeout(loadPushStatus,30);
+  if(page==='messageQueue') setTimeout(()=>window.EatsAdminMessageQueue.startMessageQueueMonitor(),30);
   if(page==='auditLogs')  setTimeout(()=>{loadAuditNotificationPreferences();loadAuditLogs();},30);
   if(page==='homepageAnalytics')setTimeout(()=>loadHomepageAnalyticsReport(false),30);
   scheduleAdminTableSorting();
