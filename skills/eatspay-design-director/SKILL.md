@@ -21,7 +21,7 @@ Turn references into a reusable style fingerprint, then create a spread of clear
 4. Preserve Eatspay requirements from [references/eatspay-guardrails.md](references/eatspay-guardrails.md).
 5. Produce four distinct directions unless the user specifies another count. Each direction must change at least three of: composition, visual medium, color emphasis, depth, subject scale, or typography-safe space.
 6. Use the installed `imagegen` skill for bitmap generation. Issue one image-generation call per direction; do not use one call as a substitute for several distinct prompts.
-7. Keep generated backgrounds text-free by default. Add Korean copy, logos, prices, and CTA elements later as editable Design Studio layers.
+7. When a reference uses expressive display lettering, treat the main Korean phrase as a first-class graphic element inside the image. Match its typographic grammar with hand lettering, dimensional type, warped baselines, outlined shapes, or decorative forms. Keep only small legal, date, or detail copy as optional editable layers.
 8. Present the variants together with short labels explaining the design difference.
 
 ## Direction set

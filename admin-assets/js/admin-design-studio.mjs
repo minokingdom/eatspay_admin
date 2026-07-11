@@ -482,6 +482,7 @@ function showAiImageDialog() {
     <div class="ds-dialog-body"><div class="ds-ai-grid">
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
       <div class="ds-field"><label>프롬프트</label><textarea class="ds-textarea ds-ai-prompt" data-ds-ai-prompt maxlength="1200" placeholder="예: 빠른 정산 서비스를 표현하는 프리미엄 녹색 배너. 오른쪽에 음식점 사장님, 왼쪽은 문구를 넣을 여백. 이미지 안에는 글자와 로고 없음."></textarea></div>
+      <div class="ds-field-grid"><div class="ds-field"><label>메인 디자인 문구 <span>비우면 AI 추천</span></label><input class="ds-input" data-ds-ai-display-text maxlength="50" placeholder="예: 행운 선물하기"></div><div class="ds-field"><label>보조 문구 <span>선택사항</span></label><input class="ds-input" data-ds-ai-supporting-text maxlength="100" placeholder="예: 오늘의 매출을 빠르게 받아보세요"></div></div>
       <div class="ds-field"><label>레퍼런스 이미지 <span>선택사항</span></label>
         <button type="button" class="ds-ai-reference-drop" data-ds-action="ai-reference-pick"><b>이미지를 선택하거나 캡처 후 Ctrl+V</b><span>PNG · JPG · WebP</span></button>
         <input type="file" accept="image/png,image/jpeg,image/webp" data-ds-ai-reference-file hidden>
@@ -564,7 +565,7 @@ async function startAiImageGeneration() {
   startAiElapsed();
   try {
     const job = await api('/api/admin/design-studio/ai-images', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style' }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, preset: presetKey, referenceUrl: state.aiReferenceUrl, referenceRole: state.dialog.querySelector('[data-ds-ai-reference-role]')?.value || 'style', displayText: state.dialog.querySelector('[data-ds-ai-display-text]')?.value.trim() || '', supportingText: state.dialog.querySelector('[data-ds-ai-supporting-text]')?.value.trim() || '' }),
     });
     state.aiJobId = job.id;
     pollAiImageJob();
