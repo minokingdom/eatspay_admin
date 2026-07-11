@@ -157,3 +157,48 @@ Confirm production files contain `setProofInteractionMode`, no reference-card `�
 git add test/admin-proof-image-zoom.test.js test/admin-account-proof-ocr-ui.test.js admin-assets/js/admin-accounts.js admin-assets/css/admin-main.css 이츠페이_관리자_시스템_10.html
 git commit -m "fix: streamline account proof OCR controls"
 ```
+
+### Task 5: Preview the selected crop and support right-click mode swapping
+
+**Files:**
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `admin-assets/js/admin-accounts.js`
+- Modify: `admin-assets/css/admin-main.css`
+- Modify: `이츠페이_관리자_시스템_10.html`
+
+- [ ] **Step 1: Write failing assertions**
+
+Assert the account card contains a hidden crop-preview canvas, the viewer contains a `contextmenu` mode handler, and crop rendering uses `drawImage` with normalized region coordinates.
+
+```js
+assert.match(modal.body, /data-account-proof-crop-preview/);
+assert.match(html, /function renderAccountProofCropPreview/);
+assert.match(html, /addEventListener\('contextmenu'/);
+assert.match(html, /drawImage\(/);
+```
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run: `node --test test/admin-account-proof-ocr-interaction.test.js`
+
+Expected: FAIL because crop preview and right-click swapping are absent.
+
+- [ ] **Step 3: Implement the crop preview**
+
+Add a hidden preview block to the reference card. Before closing the proof overlay, copy the selected original-image pixels into its canvas using `naturalWidth`, `naturalHeight`, and normalized `region`. Unhide the block after drawing and preserve it through OCR result rendering.
+
+- [ ] **Step 4: Implement right-click mode swapping**
+
+On `contextmenu` inside `[data-proof-zoom-stage]`, call `preventDefault()` and toggle with:
+
+```js
+setProofInteractionMode(proofInteractionMode==='select'?'navigate':'select');
+```
+
+Reset an unfinished selection only when switching into selection mode. Keep toolbar controls for touch and keyboard use.
+
+- [ ] **Step 5: Run regression tests and deploy**
+
+Run: `node --test test/admin-account-proof-ocr-interaction.test.js test/admin-proof-image-zoom.test.js test/admin-account-proof-ocr-ui.test.js test/account-proof-ocr.test.js test/admin-account-proof-ocr-api.test.js`
+
+Expected: all tests PASS. Check production health, deploy the admin HTML, account module, and admin CSS, restart, and verify deployed markers.
