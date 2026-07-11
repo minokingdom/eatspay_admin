@@ -72,6 +72,7 @@ body.ds-open .itzbi-widget{display:none}
 .ds-command:focus-visible{outline:3px solid rgba(3,199,90,.2);outline-offset:1px}
 .ds-command:disabled{opacity:.4;cursor:not-allowed}
 .ds-command.is-primary{border-color:#03C75A;background:#03C75A;color:#FFFFFF}
+.ds-command.is-ai-primary{border-color:#087435;background:linear-gradient(135deg,#087435,#03C75A);color:#FFFFFF;box-shadow:0 4px 12px rgba(3,199,90,.2)}
 .ds-command.is-primary:hover:not(:disabled){border-color:#00A94D;background:#00B954;color:#FFFFFF}
 .ds-command.is-danger{border-color:#F3B9B9;color:#C93636}
 .ds-command.is-icon{width:34px;padding:0;font-size:17px}

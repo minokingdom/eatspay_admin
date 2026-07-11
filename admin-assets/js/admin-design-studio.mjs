@@ -191,6 +191,7 @@ function renderLibrary() {
           <div><div class="ds-library-title">디자인 문서</div><div class="ds-library-subtitle">브랜드별 배너와 팝업을 저장하고 다시 편집합니다.</div></div>
           <div class="ds-library-actions">
             <button type="button" class="ds-command" data-ds-action="brand-manage">브랜드 키트</button>
+            <button type="button" class="ds-command is-ai-primary" data-ds-action="new-ai-image">✦ AI 이미지 만들기</button>
             <button type="button" class="ds-command" data-ds-action="new-document" data-ds-kind="banner">새 배너</button>
             <button type="button" class="ds-command is-primary" data-ds-action="new-document" data-ds-kind="popup">새 팝업</button>
           </div>
@@ -1137,6 +1138,7 @@ async function handleClick(event) {
   if (action === 'close') closeStudio();
   else if (action === 'back-library') { await loadLibraryData(); renderLibrary(); }
   else if (action === 'new-document') await openDocument(null, { kind: trigger.dataset.dsKind });
+  else if (action === 'new-ai-image') { await openDocument(null, { kind: 'banner', title: 'AI 이미지' }); showAiImageDialog(); }
   else if (action === 'edit-document') await openDocument(trigger.dataset.dsDocumentId);
   else if (action === 'archive-document') await archiveDocument(trigger.dataset.dsDocumentId);
   else if (action === 'brand-manage') await showBrandManager();
