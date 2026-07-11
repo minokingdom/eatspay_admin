@@ -202,3 +202,16 @@ Reset an unfinished selection only when switching into selection mode. Keep tool
 Run: `node --test test/admin-account-proof-ocr-interaction.test.js test/admin-proof-image-zoom.test.js test/admin-account-proof-ocr-ui.test.js test/account-proof-ocr.test.js test/admin-account-proof-ocr-api.test.js`
 
 Expected: all tests PASS. Check production health, deploy the admin HTML, account module, and admin CSS, restart, and verify deployed markers.
+
+### Task 6: Show right-click mode feedback and force the not-found result to two lines
+
+**Files:**
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `이츠페이_관리자_시스템_10.html`
+- Modify: `admin-assets/css/admin-main.css`
+
+- [ ] Add failing assertions for `showProofModeTooltip`, both Korean mode labels, `1200`, and a newline in the not-found message.
+- [ ] Implement a fixed tooltip near `clientX/clientY`, clamp it to `window.innerWidth/window.innerHeight`, replace any previous tooltip, and fade it after 1.2 seconds.
+- [ ] Call the tooltip from the proof-stage `contextmenu` handler after changing modes.
+- [ ] Change the not-found message to `계좌번호를 인식하지 못했습니다.\n증빙을 직접 확인하세요.` and set `white-space:pre-line` on the result box.
+- [ ] Run the OCR interaction regression tests, verify production health, deploy the admin HTML and CSS, and verify the deployed markers.
