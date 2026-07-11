@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-crop-preview">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-feedback">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -798,6 +798,7 @@ let proofZoomScale=1;
 let proofInteractionMode='navigate';
 const proofTouchPointers=new Map();
 let proofPinchState=null;
+let proofModeTooltipTimer=null;
 let proofPanState=null;
 let proofOcrSelectionState=null;
 function proofZoomThumb(url,name='증빙 이미지',imageClass='account-proof-img',altText='증빙 이미지',referenceText=''){
@@ -876,6 +877,15 @@ function setProofInteractionMode(mode){
     button.setAttribute('aria-pressed',String(active));
   });
   if(parts.title&&proofOcrSelectionState)parts.title.textContent=proofInteractionMode==='select'?'계좌번호 부분을 사각형으로 드래그하세요.':'사진을 확대하거나 드래그해 계좌번호가 잘 보이게 맞추세요.';
+}
+function showProofModeTooltip(mode,clientX,clientY){
+  document.querySelector('[data-proof-mode-tooltip]')?.remove();
+  if(proofModeTooltipTimer){clearTimeout(proofModeTooltipTimer);proofModeTooltipTimer=null;}
+  const tooltip=document.createElement('div');tooltip.className='proof-mode-tooltip';tooltip.dataset.proofModeTooltip='1';
+  tooltip.textContent=mode==='select'?'오른쪽 마우스 · 영역 선택 모드':'오른쪽 마우스 · 이동·확대 모드';document.body.appendChild(tooltip);
+  const width=tooltip.offsetWidth||190,height=tooltip.offsetHeight||32,left=Math.max(8,Math.min(clientX+14,window.innerWidth-width-8)),top=Math.max(8,Math.min(clientY+14,window.innerHeight-height-8));
+  Object.assign(tooltip.style,{left:`${left}px`,top:`${top}px`});
+  proofModeTooltipTimer=setTimeout(()=>{tooltip.classList.add('is-hiding');setTimeout(()=>tooltip.remove(),180);proofModeTooltipTimer=null;},1200);
 }
 function resetProofOcrSelection(){
   const parts=proofZoomParts();
@@ -7163,6 +7173,7 @@ document.addEventListener('contextmenu',ev=>{
   const nextMode=proofInteractionMode==='select'?'navigate':'select';
   if(nextMode==='select')resetProofOcrSelection();
   setProofInteractionMode(nextMode);
+  showProofModeTooltip(nextMode,ev.clientX,ev.clientY);
 });
 document.addEventListener('pointerdown',ev=>{
   if(ev.pointerType==='touch'&&ev.target.closest?.('[data-proof-zoom-stage]')){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
@@ -10525,7 +10536,8 @@ function accountProofOcrDiffHtml(registeredValue,recognizedValue){
   return `<div class="account-proof-ocr-compare"><span>등록번호</span><code>${row(registered,recognized)}</code><span>인식번호</span><code>${row(recognized,registered)}</code></div>`;
 }
 function setAccountProofOcrResult(box,state,message,html=''){
-  if(!box)return;box.hidden=false;box.className=`account-proof-ocr-result is-${state}`;if(html){box.innerHTML=html;return;}box.textContent=message;
+  if(!box)return;box.hidden=false;box.className=`account-proof-ocr-result is-${state}`;if(html)box.innerHTML=html;else box.textContent=message;
+  if(state==='matched'||state==='mismatched')requestAnimationFrame(()=>box.classList.add('is-result-animated'));
 }
 function startAccountProofOcrSelection(button){
   const resultBox=button?.closest('.account-proof-reference')?.querySelector('[data-account-proof-ocr-result]');
@@ -10589,7 +10601,7 @@ async function runAccountProofOcr(button,region){
     const result=json.data||{};
     if(result.status==='matched')setAccountProofOcrResult(box,'matched','계좌번호가 일치합니다.');
     else if(result.status==='mismatched')setAccountProofOcrResult(box,'mismatched','',`<strong>계좌번호가 일치하지 않습니다.</strong>${accountProofOcrDiffHtml(result.registeredAccountNo,result.recognizedAccountNo)}`);
-    else setAccountProofOcrResult(box,'not_found','계좌번호를 인식하지 못했습니다. 증빙을 직접 확인하세요.');
+    else setAccountProofOcrResult(box,'not_found','계좌번호를 인식하지 못했습니다.\n증빙을 직접 확인하세요.');
   }catch(error){setAccountProofOcrResult(box,'error',error?.message||'OCR 처리에 실패했습니다. 다시 시도해주세요.');}
   finally{button.disabled=false;}
 }

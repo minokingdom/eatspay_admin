@@ -38,5 +38,14 @@ test('proof OCR uses explicit navigation, selection, and pinch states', () => {
   assert.match(html, /function renderAccountProofCropPreview/);
   assert.match(html, /addEventListener\('contextmenu'/);
   assert.match(html, /drawImage\(/);
+  assert.match(html, /function showProofModeTooltip/);
+  assert.match(html, /오른쪽 마우스 · 영역 선택 모드/);
+  assert.match(html, /오른쪽 마우스 · 이동·확대 모드/);
+  assert.match(html, /1200/);
+  assert.match(html, /계좌번호를 인식하지 못했습니다\.\\n증빙을 직접 확인하세요\./);
+  assert.match(css, /is-result-animated/);
+  assert.match(css, /account-proof-match-pulse/);
+  assert.match(css, /account-proof-mismatch-pulse/);
+  assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /proof-zoom-stage\.is-selecting/);
 });
