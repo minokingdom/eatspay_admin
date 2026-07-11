@@ -227,3 +227,17 @@ Expected: all tests PASS. Check production health, deploy the admin HTML, accoun
 - [ ] Restart the result animation whenever `setAccountProofOcrResult` applies a new terminal state by removing and re-adding an `is-result-animated` class across an animation frame.
 - [ ] Animate green or red border glow twice over 1.4 seconds, then retain the existing static state border.
 - [ ] Run regression tests, deploy HTML and CSS after production health check, and verify the deployed animation markers.
+
+### Task 8: Stabilize mobile mode switching and pinch zoom
+
+**Files:**
+- Modify: `test/admin-account-proof-ocr-interaction.test.js`
+- Modify: `이츠페이_관리자_시스템_10.html`
+- Modify: `admin-assets/css/admin-main.css`
+
+- [ ] Assert a mobile mode bar, `startProofLongPress`, `cancelProofLongPress`, 500ms/10px thresholds, pinch anchor coordinates, and a post-pinch pointer lock exist.
+- [ ] Add a mobile-only bottom mode bar whose buttons reuse `data-proof-mode` and stay synchronized with desktop controls.
+- [ ] Start a 500ms long-press timer for the first stationary touch, cancel it after 10px movement or a second pointer, toggle modes with tooltip and vibration, and cancel active pan/selection on success.
+- [ ] On the second pointer, cancel pan/selection, capture the stage-local midpoint and content anchor, scale by distance ratio, and update scroll offsets so the anchor remains under the midpoint.
+- [ ] Keep one-finger gestures locked until all pinch pointers are released, then restore normal pan/selection behavior.
+- [ ] Run regression tests, verify production health, deploy admin HTML/CSS, restart, and verify mobile markers.
