@@ -300,3 +300,25 @@ test('Variant exploration follows the video workflow without an iframe', () => {
   assert.doesNotMatch(studio, /<iframe[^>]+variant\.com/i);
   assert.match(css, /\.ds-variant-workflow/);
 });
+
+test('pasting a supported reference URL into the prompt starts analysis automatically', () => {
+  const studio = read('admin-assets', 'js', 'admin-design-studio.mjs');
+  assert.match(studio, /function supportedReferenceUrl/);
+  assert.match(studio, /clipboardData\?\.getData\('text\/plain'\)/);
+  assert.match(studio, /target\?\.matches\?\.\('\[data-ds-ai-analysis-prompt\]'\)/);
+  assert.match(studio, /urlInput\.value = referenceUrl/);
+  assert.match(studio, /await analyzeAiReference\(\)/);
+  assert.match(studio, /URL을 감지해 자동 분석/);
+  assert.match(studio, /data-ds-ai-source-summary/);
+  assert.match(studio, /data-ds-ai-source-url/);
+  assert.match(studio, /data-ds-ai-source-state/);
+});
+
+test('a Pinterest URL takes precedence over a stale uploaded reference', () => {
+  const worker = read('scripts', 'design-studio-imagegen-worker.js');
+  const pinLookup = worker.indexOf("const pinUrl = String(request.prompt || '')");
+  const localFallback = worker.indexOf('if (!pinUrl && request.referencePath) return', pinLookup);
+  assert.ok(pinLookup >= 0);
+  assert.ok(localFallback > pinLookup);
+  assert.match(worker, /if \(!pinUrl && request\.referencePath\)/);
+});

@@ -131,8 +131,8 @@ function htmlAttribute(tag, name) {
 }
 
 async function resolvePinterestReference(request) {
-  if (request.referencePath) return { path: request.referencePath, title: '', isMotion: false, durationMs: 0, mediaType: 'image', originalWidth: Number(request.originalWidth || 0), originalHeight: Number(request.originalHeight || 0) };
   const pinUrl = String(request.prompt || '').match(/https?:\/\/(?:pin\.it\/[^\s]+|(?:[a-z]+\.)?pinterest\.[^\s/]+\/pin\/[^\s]+|(?:www\.)?variant\.com\/[^\s]*)/i)?.[0] || '';
+  if (!pinUrl && request.referencePath) return { path: request.referencePath, title: '', isMotion: false, durationMs: 0, mediaType: 'image', originalWidth: Number(request.originalWidth || 0), originalHeight: Number(request.originalHeight || 0) };
   if (!pinUrl) return { path: '', title: '', isMotion: false, durationMs: 0, mediaType: 'unknown', originalWidth: 0, originalHeight: 0 };
   writeStatus(request.id, { status: 'running', message: '외부 레퍼런스 URL에서 원본 미디어를 불러오고 있습니다.' });
   const page = await fetch(pinUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EatsPayDesignDirector/1.0)', Accept: 'text/html' } });

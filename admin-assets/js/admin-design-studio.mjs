@@ -490,6 +490,7 @@ function showAiImageDialog() {
       <div class="ds-field"><label>이미지 유형</label><select class="ds-select" data-ds-ai-preset>${Object.entries(AI_IMAGE_PRESETS).map(([key, preset]) => `<option value="${key}" ${key === suggested ? 'selected' : ''}>${esc(preset.label)} · ${preset.width}×${preset.height}</option>`).join('')}</select></div>
       <div class="ds-field-grid"><div class="ds-field"><label>결과 유형</label><select class="ds-select" data-ds-ai-output><option value="image">정지 이미지 4개</option><option value="motion">모션그래픽 MP4</option></select></div><div class="ds-field"><label>모션 길이</label><select class="ds-select" data-ds-ai-duration><option value="4">4초</option><option value="6">6초</option><option value="8">8초</option></select></div></div>
       <div class="ds-field"><label>레퍼런스 URL</label><div class="ds-topbar-group"><input class="ds-input" data-ds-ai-reference-url placeholder="Pinterest 또는 Variant 공개 URL을 붙여 넣어주세요"><button type="button" class="ds-command" data-ds-action="ai-reference-analyze" data-ds-ai-analyze>URL 분석</button></div></div>
+      <div class="ds-ai-source-summary" data-ds-ai-source-summary hidden><div><span>분석 대상 URL</span><b data-ds-ai-source-url></b></div><em data-ds-ai-source-state>분석 중</em></div>
       <section class="ds-variant-workflow" aria-label="Variant 디자인 탐색">
         <div><b>웹 UI 디자인이 필요하다면</b><span>영상처럼 Variant는 시안 탐색에, Codex는 실제 구현에 사용합니다.</span></div>
         <ol><li>Variant에서 여러 시안을 탐색</li><li>마음에 드는 시안을 캡처</li><li>캡처 후 이 창에 Ctrl+V</li></ol>
@@ -581,9 +582,21 @@ function removeAiLogo() {
   if (pick) pick.hidden = false;
 }
 
+function supportedReferenceUrl(value) {
+  const match = String(value || '').match(/https?:\/\/(?:www\.)?(?:pin\.it|(?:[a-z]{2}\.)?pinterest\.com|variant\.com)\/[^\s]+/i);
+  return match?.[0] || '';
+}
+
 async function analyzeAiReference(dimensions = {}) {
   const pinterestUrl = state.dialog.querySelector('[data-ds-ai-reference-url]')?.value.trim() || '';
   if (!state.aiReferenceUrl && !pinterestUrl) throw new Error('레퍼런스 이미지 또는 Pinterest URL을 먼저 붙여 넣어주세요.');
+  const sourceSummary = state.dialog.querySelector('[data-ds-ai-source-summary]');
+  if (sourceSummary && pinterestUrl) {
+    sourceSummary.hidden = false;
+    sourceSummary.querySelector('[data-ds-ai-source-url]').textContent = pinterestUrl;
+    sourceSummary.querySelector('[data-ds-ai-source-state]').textContent = '분석 중';
+    sourceSummary.classList.remove('is-complete');
+  }
   const button = state.dialog.querySelector('[data-ds-ai-analyze]');
   if (button) { button.disabled = true; button.textContent = '분석 중'; }
   setAiStatus('레퍼런스를 분석하고 있습니다', '구도·색상·타이포·피사체·원본 크기와 미디어 유형을 확인합니다.');
@@ -602,6 +615,10 @@ async function analyzeAiReference(dimensions = {}) {
     const height = state.dialog.querySelector('[data-ds-ai-height]');
     if (width && result.originalWidth) width.value = result.originalWidth;
     if (height && result.originalHeight) height.value = result.originalHeight;
+    if (sourceSummary && pinterestUrl) {
+      sourceSummary.querySelector('[data-ds-ai-source-state]').textContent = '분석 완료';
+      sourceSummary.classList.add('is-complete');
+    }
     setAiStatus('레퍼런스 분석 완료', `${result.mediaType || 'image'}${result.durationMs ? ` · ${(result.durationMs / 1000).toFixed(1)}초` : ''} · ${result.originalWidth || '-'}×${result.originalHeight || '-'}. 분석 프롬프트와 크기를 수정한 뒤 생성하세요.`);
   };
   try { await poll(); }
@@ -1445,6 +1462,17 @@ async function handleChange(event) {
 
 async function handlePaste(event) {
   if (state.root?.hidden || !state.canvas) return;
+  const target = event.target;
+  const clipboardText = event.clipboardData?.getData('text/plain')?.trim() || '';
+  const referenceUrl = supportedReferenceUrl(clipboardText);
+  if (state.dialog?.hidden === false && target?.matches?.('[data-ds-ai-analysis-prompt]') && referenceUrl) {
+    event.preventDefault();
+    const urlInput = state.dialog.querySelector('[data-ds-ai-reference-url]');
+    if (urlInput) urlInput.value = referenceUrl;
+    showToast('URL을 감지해 자동 분석을 시작합니다.');
+    await analyzeAiReference();
+    return;
+  }
   const pastedImage = Array.from(event.clipboardData?.items || []).find((item) => item.type.startsWith('image/'))?.getAsFile();
   if (state.dialog?.hidden === false && state.dialog.querySelector('[data-ds-ai-prompt]') && pastedImage) {
     event.preventDefault();
