@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-ocr-region">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-ocr-floating-action">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -827,7 +827,7 @@ function ensureProofImageZoomOverlay(){
           <span class="proof-zoom-value" data-proof-zoom-value>100%</span>
           <button type="button" class="btn bo xs" data-proof-zoom-in="1" aria-label="확대">+</button>
           <button type="button" class="btn bo xs" data-proof-zoom-reset="1">100%</button>
-          <button type="button" class="btn bg2 xs admin-hidden" data-proof-ocr-selection-confirm>선택 영역 인식</button>
+          <button type="button" class="btn bg2 xs admin-hidden" data-proof-ocr-selection-confirm>이 영역 인식하기</button>
           <button type="button" class="btn bg2 xs" data-proof-zoom-close="1">닫기</button>
         </div>
       </div>
@@ -920,7 +920,11 @@ function closeProofImageZoom(){
   const image=overlay.querySelector('[data-proof-zoom-image]');
   if(image)image.removeAttribute('src');
   proofOcrSelectionState=null;
-  overlay.querySelector('[data-proof-ocr-selection-confirm]')?.classList.add('admin-hidden');
+  const selectionConfirm=overlay.querySelector('[data-proof-ocr-selection-confirm]');
+  selectionConfirm?.classList.add('admin-hidden');
+  selectionConfirm?.classList.remove('is-floating');
+  selectionConfirm?.style.removeProperty('left');
+  selectionConfirm?.style.removeProperty('top');
   overlay.querySelector('[data-proof-ocr-selection-box]')?.classList.add('admin-hidden');
 }
 let deliveryAgencyLogoCropState=null;
@@ -10485,7 +10489,9 @@ function startAccountProofOcrSelection(button){
   if(!button||!resultBox)return;
   openProofImageZoom(button.dataset.proofDocumentUrl||'','계좌번호 영역 선택',button.dataset.proofAccountNo||'');
   const parts=proofZoomParts();
-  parts.selectionConfirm?.classList.remove('admin-hidden');parts.selectionBox?.classList.add('admin-hidden');
+  parts.selectionConfirm?.classList.add('admin-hidden');parts.selectionConfirm?.classList.remove('is-floating');
+  parts.selectionConfirm?.style.removeProperty('left');parts.selectionConfirm?.style.removeProperty('top');
+  parts.selectionBox?.classList.add('admin-hidden');
   proofOcrSelectionState={button,resultBox,region:null,start:null,dragging:false};
   if(parts.title)parts.title.textContent='계좌번호가 있는 부분을 사각형으로 드래그하세요.';
 }
@@ -10498,8 +10504,16 @@ function beginProofOcrSelection(ev){
 function moveProofOcrSelection(ev){
   const state=proofOcrSelectionState;if(!state?.dragging)return;
   const rect=state.imageRect,x=Math.max(rect.left,Math.min(ev.clientX,rect.right)),y=Math.max(rect.top,Math.min(ev.clientY,rect.bottom));
-  const left=Math.min(state.start.x,x),top=Math.min(state.start.y,y),width=Math.abs(x-state.start.x),height=Math.abs(y-state.start.y),box=proofZoomParts().selectionBox;
+  const left=Math.min(state.start.x,x),top=Math.min(state.start.y,y),width=Math.abs(x-state.start.x),height=Math.abs(y-state.start.y),parts=proofZoomParts(),box=parts.selectionBox;
   Object.assign(box.style,{left:`${left}px`,top:`${top}px`,width:`${width}px`,height:`${height}px`});box.classList.remove('admin-hidden');
+  const confirm=parts.selectionConfirm;
+  if(confirm&&width>=8&&height>=3){
+    confirm.textContent='이 영역 인식하기';confirm.classList.remove('admin-hidden');confirm.classList.add('is-floating');
+    const buttonWidth=confirm.offsetWidth||150,buttonHeight=confirm.offsetHeight||40,gap=10;
+    const below=top+height+gap,buttonTop=below+buttonHeight<=window.innerHeight-8?below:Math.max(8,top-buttonHeight-gap);
+    const buttonLeft=Math.max(8,Math.min(left,window.innerWidth-buttonWidth-8));
+    Object.assign(confirm.style,{left:`${buttonLeft}px`,top:`${buttonTop}px`});
+  }
   state.region={x:(left-rect.left)/rect.width,y:(top-rect.top)/rect.height,width:width/rect.width,height:height/rect.height};ev.preventDefault();
 }
 function endProofOcrSelection(ev){if(proofOcrSelectionState?.dragging){proofOcrSelectionState.dragging=false;ev.preventDefault();}}

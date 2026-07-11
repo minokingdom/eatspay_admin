@@ -817,6 +817,7 @@ tr:hover td{background:#FAFFFE}
 .proof-zoom-stage{flex:1;overflow:auto;padding:18px;background:#F8FFF8;outline:none;cursor:grab;touch-action:none}
 .proof-ocr-selection-box{position:fixed;z-index:3;pointer-events:none;border:3px solid #03C75A;border-radius:5px;background:rgba(3,199,90,.16);box-shadow:0 0 0 9999px rgba(15,23,42,.26),0 0 0 2px #fff}
 .proof-ocr-selection-box.admin-hidden{display:none}
+[data-proof-ocr-selection-confirm].is-floating{position:fixed;z-index:7005;min-width:150px;min-height:40px;padding:9px 16px;border-radius:10px;box-shadow:0 10px 28px rgba(3,199,90,.32)}
 .proof-zoom-stage.is-panning{cursor:grabbing;user-select:none}
 .proof-zoom-stage.is-panning .proof-zoom-image{pointer-events:none}
 .proof-zoom-image{display:block;width:100%;max-width:none;height:auto;margin:0 auto;border:1px solid #D1E8D1;border-radius:8px;background:#fff;box-shadow:0 8px 24px rgba(21,42,21,.08);transform-origin:top center}
