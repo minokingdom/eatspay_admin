@@ -59,7 +59,7 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-feedback">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-mobile-gestures">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260711-studio5">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
 </head>
@@ -798,6 +798,8 @@ let proofZoomScale=1;
 let proofInteractionMode='navigate';
 const proofTouchPointers=new Map();
 let proofPinchState=null;
+let proofLongPressState=null;
+let proofTouchGestureLocked=false;
 let proofModeTooltipTimer=null;
 let proofPanState=null;
 let proofOcrSelectionState=null;
@@ -841,6 +843,10 @@ function ensureProofImageZoomOverlay(){
         <img class="proof-zoom-image" data-proof-zoom-image alt="증빙 이미지">
         <div class="proof-ocr-selection-box admin-hidden" data-proof-ocr-selection-box></div>
       </div>
+      <div class="proof-mobile-mode-bar" aria-label="모바일 이미지 조작 모드">
+        <button type="button" class="btn bg2" data-proof-mode="navigate">사진 이동</button>
+        <button type="button" class="btn bo" data-proof-mode="select">영역 선택</button>
+      </div>
     </div>`;
   document.body.appendChild(overlay);
   return overlay;
@@ -878,11 +884,11 @@ function setProofInteractionMode(mode){
   });
   if(parts.title&&proofOcrSelectionState)parts.title.textContent=proofInteractionMode==='select'?'계좌번호 부분을 사각형으로 드래그하세요.':'사진을 확대하거나 드래그해 계좌번호가 잘 보이게 맞추세요.';
 }
-function showProofModeTooltip(mode,clientX,clientY){
+function showProofModeTooltip(mode,clientX,clientY,source='mouse'){
   document.querySelector('[data-proof-mode-tooltip]')?.remove();
   if(proofModeTooltipTimer){clearTimeout(proofModeTooltipTimer);proofModeTooltipTimer=null;}
   const tooltip=document.createElement('div');tooltip.className='proof-mode-tooltip';tooltip.dataset.proofModeTooltip='1';
-  tooltip.textContent=mode==='select'?'오른쪽 마우스 · 영역 선택 모드':'오른쪽 마우스 · 이동·확대 모드';document.body.appendChild(tooltip);
+  const prefix=source==='touch'?'길게 누르기':'오른쪽 마우스';tooltip.textContent=mode==='select'?`${prefix} · 영역 선택 모드`:`${prefix} · 이동·확대 모드`;document.body.appendChild(tooltip);
   const width=tooltip.offsetWidth||190,height=tooltip.offsetHeight||32,left=Math.max(8,Math.min(clientX+14,window.innerWidth-width-8)),top=Math.max(8,Math.min(clientY+14,window.innerHeight-height-8));
   Object.assign(tooltip.style,{left:`${left}px`,top:`${top}px`});
   proofModeTooltipTimer=setTimeout(()=>{tooltip.classList.add('is-hiding');setTimeout(()=>tooltip.remove(),180);proofModeTooltipTimer=null;},1200);
@@ -894,15 +900,33 @@ function resetProofOcrSelection(){
   parts.selectionConfirm?.classList.add('admin-hidden');
   parts.selectionConfirm?.classList.remove('is-floating');
 }
+function cancelProofLongPress(){
+  if(proofLongPressState?.timer)clearTimeout(proofLongPressState.timer);
+  proofLongPressState=null;
+}
+function cancelProofActiveTouchGesture(){
+  if(proofPanState){proofPanState.stage.classList.remove('is-panning');proofPanState=null;}
+  if(proofOcrSelectionState?.dragging){proofOcrSelectionState.dragging=false;proofZoomParts().selectionBox?.classList.add('admin-hidden');}
+}
+function startProofLongPress(ev){
+  if(ev.pointerType!=='touch'||!proofOcrSelectionState||proofTouchPointers.size!==1)return;
+  cancelProofLongPress();
+  proofLongPressState={pointerId:ev.pointerId,x:ev.clientX,y:ev.clientY,timer:setTimeout(()=>{
+    if(proofTouchPointers.size!==1)return cancelProofLongPress();
+    cancelProofActiveTouchGesture();
+    const nextMode=proofInteractionMode==='select'?'navigate':'select';if(nextMode==='select')resetProofOcrSelection();setProofInteractionMode(nextMode);
+    showProofModeTooltip(nextMode,ev.clientX,ev.clientY,'touch');navigator.vibrate?.(25);proofLongPressState=null;
+  },500)};
+}
 function updateProofPinchZoom(){
-  if(proofInteractionMode!=='navigate'||proofTouchPointers.size<2){proofPinchState=null;return;}
+  if(proofTouchPointers.size<2){proofPinchState=null;return;}
   const points=[...proofTouchPointers.values()].slice(0,2);
-  const distance=Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y);
-  if(!proofPinchState){proofPinchState={distance,scale:proofZoomScale};return;}
-  if(proofPinchState.distance>0)setProofImageZoom(proofPinchState.scale*(distance/proofPinchState.distance));
+  const distance=Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y),midX=(points[0].x+points[1].x)/2,midY=(points[0].y+points[1].y)/2,stage=proofZoomParts().stage,rect=stage.getBoundingClientRect(),localX=midX-rect.left,localY=midY-rect.top;
+  if(!proofPinchState){proofPinchState={distance,scale:proofZoomScale,anchorX:stage.scrollLeft+localX,anchorY:stage.scrollTop+localY};return;}
+  if(proofPinchState.distance>0){const nextScale=Math.max(.5,Math.min(4,proofPinchState.scale*(distance/proofPinchState.distance))),ratio=nextScale/proofPinchState.scale;setProofImageZoom(nextScale);stage.scrollLeft=proofPinchState.anchorX*ratio-localX;stage.scrollTop=proofPinchState.anchorY*ratio-localY;}
 }
 function startProofImagePan(ev){
-  if(proofInteractionMode!=='navigate'||proofTouchPointers.size>1)return;
+  if(proofInteractionMode!=='navigate'||proofTouchPointers.size>1||proofTouchGestureLocked)return;
   const stage=ev.target.closest?.('[data-proof-zoom-pan]');
   if(!stage||ev.button!==0||ev.target.closest?.('button,a,input,select,textarea'))return;
   proofPanState={
@@ -961,6 +985,7 @@ function closeProofImageZoom(){
   const image=overlay.querySelector('[data-proof-zoom-image]');
   if(image)image.removeAttribute('src');
   proofOcrSelectionState=null;
+  cancelProofLongPress();proofTouchPointers.clear();proofPinchState=null;proofTouchGestureLocked=false;
   const selectionConfirm=overlay.querySelector('[data-proof-ocr-selection-confirm]');
   selectionConfirm?.classList.add('admin-hidden');
   selectionConfirm?.classList.remove('is-floating');
@@ -7176,25 +7201,35 @@ document.addEventListener('contextmenu',ev=>{
   showProofModeTooltip(nextMode,ev.clientX,ev.clientY);
 });
 document.addEventListener('pointerdown',ev=>{
-  if(ev.pointerType==='touch'&&ev.target.closest?.('[data-proof-zoom-stage]')){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
+  if(ev.pointerType==='touch'&&ev.target.closest?.('[data-proof-zoom-stage]')){
+    proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+    if(proofTouchPointers.size===1)startProofLongPress(ev);
+    if(proofTouchPointers.size>=2){cancelProofLongPress();proofTouchGestureLocked=true;cancelProofActiveTouchGesture();updateProofPinchZoom();}
+  }
   if(ev.target.closest?.('[data-da-logo-crop-pan]'))startDeliveryAgencyLogoCropPan(ev);
+  if(ev.pointerType==='touch'&&proofTouchGestureLocked)return;
   if(ev.target.closest?.('[data-proof-zoom-image]')&&beginProofOcrSelection(ev))return;
   if(ev.target.closest?.('[data-proof-zoom-pan]'))startProofImagePan(ev);
 });
 document.addEventListener('pointermove',ev=>{
-  if(proofTouchPointers.has(ev.pointerId)){proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});updateProofPinchZoom();}
+  const proofTouch=proofTouchPointers.has(ev.pointerId);
+  if(proofTouch){
+    proofTouchPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+    if(proofLongPressState&&Math.hypot(ev.clientX-proofLongPressState.x,ev.clientY-proofLongPressState.y)>10)cancelProofLongPress();
+    if(proofTouchGestureLocked)updateProofPinchZoom();
+  }
   moveProofOcrSelection(ev);
   moveDeliveryAgencyLogoCropPan(ev);
-  moveProofImagePan(ev);
+  if(!(proofTouch&&proofTouchGestureLocked))moveProofImagePan(ev);
 });
 document.addEventListener('pointerup',ev=>{
-  if(proofTouchPointers.delete(ev.pointerId))updateProofPinchZoom();
+  if(proofTouchPointers.delete(ev.pointerId)){if(proofLongPressState?.pointerId===ev.pointerId)cancelProofLongPress();if(proofTouchPointers.size===0){proofTouchGestureLocked=false;proofPinchState=null;}else updateProofPinchZoom();}
   endProofOcrSelection(ev);
   endDeliveryAgencyLogoCropPan(ev);
   endProofImagePan(ev);
 });
 document.addEventListener('pointercancel',ev=>{
-  if(proofTouchPointers.delete(ev.pointerId))updateProofPinchZoom();
+  if(proofTouchPointers.delete(ev.pointerId)){cancelProofLongPress();if(proofTouchPointers.size===0){proofTouchGestureLocked=false;proofPinchState=null;}else updateProofPinchZoom();}
   endProofOcrSelection(ev);
   endDeliveryAgencyLogoCropPan(ev);
   endProofImagePan(ev);
