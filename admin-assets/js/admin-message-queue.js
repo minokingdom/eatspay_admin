@@ -18,10 +18,24 @@
   const esc = value => text(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const statusLabel = status => ({ queued: '대기', retry_wait: '재시도 대기', running: '처리 중', completed: '완료', failed: '실패', cancelled: '취소' })[status] || status;
 
-  async function request(url, options) {
-    const response = await fetch(url, options);
+  async function request(url, options = {}) {
+    const requestOptions = {
+      ...options,
+      headers: typeof window.adminAuthHeaders === 'function'
+        ? window.adminAuthHeaders(options.headers || {})
+        : (options.headers || {})
+    };
+    const response = await fetch(url, requestOptions);
+    if (typeof window.handleAdminUnauthorized === 'function' && await window.handleAdminUnauthorized(response)) {
+      throw new Error('관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.');
+    }
     const json = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(json.error?.message || json.message || '메시지 큐를 불러오지 못했습니다.');
+    if (!response.ok) {
+      const message = json.error?.code === 'ACCESS_DENIED'
+        ? '메시지 작업은 시스템 관리자만 확인할 수 있습니다.'
+        : (json.error?.message || json.message || '메시지 큐를 불러오지 못했습니다.');
+      throw new Error(message);
+    }
     return json.data;
   }
 

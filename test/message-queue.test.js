@@ -56,6 +56,9 @@ test('admin exposes a message queue monitor and queued broadcast result', () => 
   assert.match(module, /message-queue-completed/);
   assert.match(module, /message-queue-failed/);
   assert.match(module, /5000/);
+  assert.match(module, /adminAuthHeaders/);
+  assert.match(module, /handleAdminUnauthorized/);
+  assert.match(module, /관리자 로그인이 만료되었습니다/);
   assert.match(html, /작업이 접수되었습니다/);
 });
 
