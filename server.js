@@ -64,6 +64,13 @@ const ACCOUNT_EXPORT_TEMPLATE_PATH = path.join(__dirname, 'assets', 'templates',
 const CARDGORILLA_RANKING_URL = String(process.env.CARDGORILLA_RANKING_URL || '').trim();
 const CARDGORILLA_UPDATE_HOUR_KST = Number(process.env.CARDGORILLA_UPDATE_HOUR_KST || 6);
 const ALIGO_API_URL = 'https://apis.aligo.in/send/';
+const ACCOUNT_APPROVAL_SMS_MESSAGE = [
+  '사장님',
+  '지금부터 이츠페이',
+  '모든 서비스 이용이 가능합니다.',
+  '항상 응원하겠습니다.',
+  '감사합니다.'
+].join('\n');
 const CH_PAYWAY_UID = String(process.env.CH_PAYWAY_UID || process.env.PAYWAY_UID || '').trim();
 const CH_PAYWAY_PW = String(process.env.CH_PAYWAY_PW || process.env.PAYWAY_PW || '').trim();
 const CH_PAYWAY_BASE_URL = 'https://payway.kr';
@@ -12855,7 +12862,13 @@ app.post('/api/internal/message-jobs/deliver', asyncHandler(async (req, res) => 
   const delivery = job?.deliveries?.find(item => Number(item.id) === Number(req.body?.deliveryId));
   if (!job || !delivery) return sendError(res, 404, 'MESSAGE_DELIVERY_NOT_FOUND', 'Message delivery was not found.');
   if (delivery.status === 'completed') return res.status(200).json({ success: true, data: { duplicate: true } });
-  const data = { ...(job.payload || {}), source: 'admin_push_broadcast', messageJobId: job.id };
+  const data = { ...(job.payload || {}), source: job.payload?.source || 'admin_push_broadcast', messageJobId: job.id };
+  let sms = null;
+  if (delivery.channel === 'sms') {
+    const user = await repo.findUserById(delivery.user_id);
+    if (!normalizePhoneNumber(user?.phone)) throw new Error('MESSAGE_SMS_PHONE_MISSING');
+    sms = await sendAligoSms(user.phone, job.body, { title: job.title });
+  }
   if (delivery.channel === 'both' || delivery.channel === 'inapp') {
     await pool.query(
       `INSERT INTO notifications (user_id,type,title,body,data,message_job_delivery_id)
@@ -12867,7 +12880,7 @@ app.post('/api/internal/message-jobs/deliver', asyncHandler(async (req, res) => 
   let push = null;
   if (delivery.channel === 'both' || delivery.channel === 'push') push = await sendUserPushNotification(delivery.user_id, { title: job.title, body: job.body, data });
   await repo.completeMessageDelivery(delivery.id);
-  return res.status(200).json({ success: true, data: { push } });
+  return res.status(200).json({ success: true, data: { push, sms: sms ? { accepted: true } : null } });
 }));
 
 app.get('/api/delivery-agencies', asyncHandler(async (req, res) => {
@@ -13835,6 +13848,7 @@ app.put('/api/admin/accounts/pg-contracts', authenticateAdmin, requireSystemAdmi
   if (!target) {
     return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
   }
+  const wasServiceEnabled = hasAccountApprovalCredentials(target);
   const normalized = normalizeAdminPgContractPayload(req.body || {});
   await repo.updateAccountApprovalPgContracts({
     source,
@@ -13846,6 +13860,11 @@ app.put('/api/admin/accounts/pg-contracts', authenticateAdmin, requireSystemAdmi
   const updated = source === 'delivery_account'
     ? await repo.findDeliveryAccountById(Number(accountId))
     : await repo.findAccountRequest(accountId);
+  const isServiceEnabled = hasAccountApprovalCredentials(updated || {});
+  if (!wasServiceEnabled && isServiceEnabled) {
+    const owner = target.franchiseId ? await repo.findUserByFranchiseId(target.franchiseId) : null;
+    if (owner?.id) await enqueueAccountApprovalSms(source, accountId, owner.id);
+  }
   await recordAuditLog(req, {
     action: 'ACCOUNT_PG_CONTRACT_UPDATE',
     entityType: source,
@@ -15762,7 +15781,7 @@ function isSmsVerified(phone) {
   return Boolean(entry?.verifiedAt && Date.now() <= entry.expiresAt);
 }
 
-async function sendAligoSms(receiver, message) {
+async function sendAligoSms(receiver, message, options = {}) {
   if (!isAligoConfigured()) {
     throw Object.assign(new Error('ALIGO_CONFIG_MISSING'), {
       statusCode: 500,
@@ -15770,14 +15789,16 @@ async function sendAligoSms(receiver, message) {
     });
   }
 
+  const messageType = Buffer.byteLength(message, 'utf8') > 90 ? 'LMS' : 'SMS';
   const form = new URLSearchParams({
     key: ALIGO_API_KEY,
     user_id: ALIGO_USER_ID,
     sender: ALIGO_SENDER,
     receiver: normalizePhoneNumber(receiver),
     msg: message,
-    msg_type: 'SMS'
+    msg_type: messageType
   });
+  if (messageType === 'LMS' && options.title) form.set('title', String(options.title).slice(0, 44));
   const response = await fetch(ALIGO_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -16423,10 +16444,41 @@ async function notifyAccountApprovalTxidApplied(results = []) {
         data
       });
       await sendUserPushNotification(userId, { title, body, data });
+      await enqueueAccountApprovalSms(source, id, userId);
     } catch (err) {
       console.warn('[ACCOUNT_APPROVAL_NOTIFICATION_FAILED]', { source, id, message: err?.message || String(err) });
     }
   }
+}
+
+function accountApprovalSmsJobId(source, id) {
+  const hex = crypto.createHash('sha256')
+    .update(`account-approval-sms:${String(source || '').trim()}:${String(id || '').trim()}`)
+    .digest('hex')
+    .slice(0, 32)
+    .split('');
+  hex[12] = '5';
+  hex[16] = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join('');
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+async function enqueueAccountApprovalSms(source, id, userId) {
+  if (!userId) return null;
+  return repo.createMessageJob({
+    id: accountApprovalSmsJobId(source, id),
+    type: 'ACCOUNT_APPROVAL_SMS',
+    requestedBy: null,
+    title: '이츠페이 계좌 승인 완료',
+    body: ACCOUNT_APPROVAL_SMS_MESSAGE,
+    payload: {
+      source: 'account_approval',
+      accountSource: String(source || ''),
+      accountId: String(id || '')
+    },
+    targets: [{ id: userId }],
+    channel: 'sms'
+  });
 }
 
 function publicUser(user) {

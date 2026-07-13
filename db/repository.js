@@ -317,7 +317,7 @@ function findProviderSettlementTime(payload) {
 
 function toPgSettlement(row) {
   if (!row) return null;
-  const settledAt = row.transfer_received_at || row.deposit_received_at || row.settled_at || null;
+  const settledAt = row.transfer_received_at || row.deposit_received_at || row.settlement_confirmed_at || row.settled_at || null;
   const paymentDate = row.payment_created_at || row.payment_date || row.created_at;
   const rawStatus = String(row.status || '').trim();
   const hasPaymentCode = !!String(row.approval_no || '').trim();
@@ -4582,6 +4582,7 @@ function createRepository(pool) {
                 t.created_at AS payment_created_at,
                 t.auth_code AS payment_auth_code,
                 dn.received_at AS deposit_received_at,
+                cn.received_at AS settlement_confirmed_at,
                 dn.deposit_txid,
                 dn.deposit_bank_name,
                 dn.deposit_account_no,
@@ -4622,6 +4623,14 @@ function createRepository(pool) {
            ORDER BY CASE WHEN txid = ps.pg_tx_id THEN 0 ELSE 1 END, received_at ASC, id ASC
            LIMIT 1
          ) dn ON true
+         LEFT JOIN LATERAL (
+           SELECT received_at
+           FROM pg_notifications
+           WHERE event_type = 'CH_PAYWAY_FALLBACK_SETTLED'
+             AND transaction_id = ps.approval_no
+           ORDER BY received_at ASC, id ASC
+           LIMIT 1
+         ) cn ON true
          LEFT JOIN LATERAL (
            SELECT COALESCE(da.bank_name, ar.bank_name, ar.assigned_virtual_account->>'bankName') AS account_bank_name,
                   COALESCE(da.account_no, ar.account_no, ar.assigned_virtual_account->>'accountNumber') AS account_account_no,
@@ -4666,12 +4675,17 @@ function createRepository(pool) {
              AND NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
              AND t.created_at IS NOT NULL
              AND pn.received_at >= t.created_at
+             AND pn.received_at <= t.created_at + interval '24 hours'
+             AND regexp_replace(COALESCE(pn.query->>'acctNo', ''), '[^0-9A-Za-z]', '', 'g') =
+                 regexp_replace(COALESCE(NULLIF(ps.account_no, ''), acct.account_account_no, ''), '[^0-9A-Za-z]', '', 'g')
              AND ps.approval_no = (
                SELECT ps_match.approval_no
                FROM pg_settlements ps_match
                JOIN transactions t_match ON t_match.transaction_id = ps_match.approval_no
                WHERE ps_match.net_amt = NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric
                  AND t_match.created_at <= pn.received_at
+                 AND regexp_replace(COALESCE(ps_match.account_no, ''), '[^0-9A-Za-z]', '', 'g') =
+                     regexp_replace(COALESCE(pn.query->>'acctNo', ''), '[^0-9A-Za-z]', '', 'g')
                ORDER BY t_match.created_at DESC, ps_match.id DESC
                LIMIT 1
              )
@@ -4681,7 +4695,7 @@ function createRepository(pool) {
          LEFT JOIN users u ON u.franchise_id = ps.franchise_id
          LEFT JOIN agencies a ON a.id = ${agencyIdExpr}
          ${where}
-         ORDER BY COALESCE(tn.received_at, dn.received_at, t.created_at, ps.created_at) DESC
+         ORDER BY COALESCE(tn.received_at, dn.received_at, cn.received_at, t.created_at, ps.created_at) DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, limit, offset]
       );
@@ -4731,12 +4745,17 @@ function createRepository(pool) {
              AND NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
              AND t.created_at IS NOT NULL
              AND pn.received_at >= t.created_at
+             AND pn.received_at <= t.created_at + interval '24 hours'
+             AND regexp_replace(COALESCE(pn.query->>'acctNo', ''), '[^0-9A-Za-z]', '', 'g') =
+                 regexp_replace(COALESCE(NULLIF(ps.account_no, ''), acct.account_account_no, ''), '[^0-9A-Za-z]', '', 'g')
              AND ps.approval_no = (
                SELECT ps_match.approval_no
                FROM pg_settlements ps_match
                JOIN transactions t_match ON t_match.transaction_id = ps_match.approval_no
                WHERE ps_match.net_amt = NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric
                  AND t_match.created_at <= pn.received_at
+                 AND regexp_replace(COALESCE(ps_match.account_no, ''), '[^0-9A-Za-z]', '', 'g') =
+                     regexp_replace(COALESCE(pn.query->>'acctNo', ''), '[^0-9A-Za-z]', '', 'g')
                ORDER BY t_match.created_at DESC, ps_match.id DESC
                LIMIT 1
              )
@@ -6720,7 +6739,9 @@ function createRepository(pool) {
         await client.query('BEGIN');
         const jobResult = await client.query(
           `INSERT INTO message_jobs (id, type, requested_by, title, body, payload, total_count)
-           VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
+           ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+           RETURNING *`,
           [id, type, requestedBy || null, title, body, JSON.stringify(payload), targets.length]
         );
         for (const target of targets) {
