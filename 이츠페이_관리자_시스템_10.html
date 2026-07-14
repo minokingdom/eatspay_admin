@@ -3394,23 +3394,24 @@ function franchiseDisplayEmail(f){
   const fallback=String(f?.loginId||f?.customerId||'').trim();
   return fallback.includes('@')?esc(fallback):'-';
 }
+function koreaDateKey(value=new Date()){
+  if(value===null||value===undefined||value==='')return'';
+  const raw=value instanceof Date?'':String(value).trim();
+  const displayedDate=raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|[,\s])/);
+  if(displayedDate)return displayedDate[1];
+  const date=value instanceof Date?value:new Date(value);
+  if(Number.isNaN(date.getTime()))return'';
+  const parts=new Intl.DateTimeFormat('en-CA',{
+    timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+  }).formatToParts(date);
+  const part=type=>parts.find(item=>item.type===type)?.value||'';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
 function isNewFranchise(f){
-  const raw=dateOnly(f?.createdAt||f?.joinDate);
-  if(!raw)return false;
-  const joined=new Date(`${raw}T00:00:00`);
-  const now=new Date();
-  const todayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const diff=Math.floor((todayDate-joined)/86400000);
-  return diff>=0&&diff<7;
+  return koreaDateKey(f?.createdAt||f?.joinDate)===koreaDateKey();
 }
 function isRecentPayment(p){
-  const raw=dateOnly(p?.date||p?.createdAt||p?.paidAt);
-  if(!raw)return false;
-  const paid=new Date(`${raw}T00:00:00`);
-  const now=new Date();
-  const todayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const diff=Math.floor((todayDate-paid)/86400000);
-  return diff>=0&&diff<7;
+  return koreaDateKey(p?.createdAt||p?.paidAt||p?.date)===koreaDateKey();
 }
 function goFrDetail(id){
   frDetailId=id;
