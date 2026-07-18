@@ -5793,6 +5793,13 @@ function verifyKakaoTxidUploadToken(token) {
 function renderKakaoTxidUploadPage(token, message = '') {
   const safeToken = htmlAttr(token);
   const note = message ? '<div class="note" id="result-note">' + htmlAttr(message) + '</div>' : '<div class="note hidden" id="result-note"></div>';
+  const uploadMarkup = safeToken ? [
+    '<form id="upload-form" method="post" action="/tid-upload/' + safeToken + '" enctype="multipart/form-data">',
+    '<input class="file" type="file" name="file" accept=".xlsx,.xls" required>',
+    '<div class="progress-wrap hidden" id="progress-wrap"><div class="progress-meta"><span class="status" id="progress-status">업로드 준비</span><span id="progress-percent">0%</span></div><div class="track"><div class="bar" id="progress-bar"></div></div></div>',
+    '<button class="btn" id="submit-btn" type="submit">서버에 반영</button></form>',
+    '<script>(function(){var form=document.getElementById("upload-form"),bar=document.getElementById("progress-bar"),pct=document.getElementById("progress-percent"),status=document.getElementById("progress-status"),wrap=document.getElementById("progress-wrap"),btn=document.getElementById("submit-btn"),note=document.getElementById("result-note");function setProgress(n,t){wrap.classList.remove("hidden");bar.style.width=n+"%";pct.textContent=n+"%";if(t)status.textContent=t}form.addEventListener("submit",function(e){e.preventDefault();if(!form.file.files.length)return;note.className="note hidden";note.textContent="";btn.disabled=true;btn.textContent="업로드 중";setProgress(0,"업로드 시작");var xhr=new XMLHttpRequest();xhr.open("POST",form.action,true);xhr.upload.onprogress=function(ev){if(ev.lengthComputable){var n=Math.max(1,Math.min(95,Math.round(ev.loaded/ev.total*100)));setProgress(n,"파일 전송 중")}};xhr.onload=function(){setProgress(100,xhr.status>=200&&xhr.status<300?"반영 완료":"처리 실패");btn.disabled=false;btn.textContent="서버에 반영";if(xhr.status>=200&&xhr.status<300){document.open();document.write(xhr.responseText);document.close()}else{note.className="note err";note.textContent="업로드 실패: 서버 응답 " + xhr.status}};xhr.onerror=function(){btn.disabled=false;btn.textContent="서버에 반영";note.className="note err";note.textContent="업로드 실패: 네트워크 연결을 확인하세요";setProgress(0,"전송 실패")};xhr.upload.onload=function(){setProgress(98,"서버 반영 처리 중")};xhr.send(new FormData(form))})();</script>'
+  ].join('') : '<div class="note err">이 링크에서는 업로드할 수 없습니다. 카카오방에서 TID 엑셀을 다시 요청해 최신 링크를 이용해 주세요.</div>';
   return [
     '<!doctype html><html lang="ko"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
@@ -5801,11 +5808,7 @@ function renderKakaoTxidUploadPage(token, message = '') {
     '</head><body><main class="box"><div class="brand"><img class="brand-logo" src="/logo.png" alt="이츠페이"><h1>이츠페이 TID 엑셀 업로드</h1></div>',
     '<p class="sub">수정한 엑셀 파일(.xlsx/.xls)을 선택한 뒤 업로드하세요. 완료되면 서버에 바로 반영됩니다.</p>',
     note,
-    '<form id="upload-form" method="post" action="/tid-upload/' + safeToken + '" enctype="multipart/form-data">',
-    '<input class="file" type="file" name="file" accept=".xlsx,.xls" required>',
-    '<div class="progress-wrap hidden" id="progress-wrap"><div class="progress-meta"><span class="status" id="progress-status">업로드 준비</span><span id="progress-percent">0%</span></div><div class="track"><div class="bar" id="progress-bar"></div></div></div>',
-    '<button class="btn" id="submit-btn" type="submit">서버에 반영</button></form>',
-    '<script>(function(){var form=document.getElementById("upload-form"),bar=document.getElementById("progress-bar"),pct=document.getElementById("progress-percent"),status=document.getElementById("progress-status"),wrap=document.getElementById("progress-wrap"),btn=document.getElementById("submit-btn"),note=document.getElementById("result-note");function setProgress(n,t){wrap.classList.remove("hidden");bar.style.width=n+"%";pct.textContent=n+"%";if(t)status.textContent=t}form.addEventListener("submit",function(e){e.preventDefault();if(!form.file.files.length)return;note.className="note hidden";note.textContent="";btn.disabled=true;btn.textContent="업로드 중";setProgress(0,"업로드 시작");var xhr=new XMLHttpRequest();xhr.open("POST",form.action,true);xhr.upload.onprogress=function(ev){if(ev.lengthComputable){var n=Math.max(1,Math.min(95,Math.round(ev.loaded/ev.total*100)));setProgress(n,"파일 전송 중")}};xhr.onload=function(){setProgress(100,xhr.status>=200&&xhr.status<300?"반영 완료":"처리 실패");btn.disabled=false;btn.textContent="서버에 반영";if(xhr.status>=200&&xhr.status<300){document.open();document.write(xhr.responseText);document.close()}else{note.className="note err";note.textContent="업로드 실패: 서버 응답 " + xhr.status}};xhr.onerror=function(){btn.disabled=false;btn.textContent="서버에 반영";note.className="note err";note.textContent="업로드 실패: 네트워크 연결을 확인하세요";setProgress(0,"전송 실패")};xhr.upload.onload=function(){setProgress(98,"서버 반영 처리 중")};xhr.send(new FormData(form))})})();</script>',
+    uploadMarkup,
     '</main></body></html>'
   ].join('');
 }
@@ -5864,6 +5867,7 @@ function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {
   const results = Array.isArray(data.results) ? data.results : [];
   const targets = results.slice(0, 30).map(item => ({
     status: item.status || '',
+    reason: item.reason || '',
     franchiseName: item.franchiseName || '',
     accountNo: item.accountNo || '',
     manualTid: item.manualTid || '',
@@ -5880,6 +5884,7 @@ function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {
     skipped: Number(data.skipped || 0),
     invalidTid: Number(data.invalidTxid || 0),
     notFound: Number(data.notFound || 0),
+    staleAccount: Number(data.staleAccount || 0),
     ambiguous: Number(data.ambiguous || 0),
     targets
   };
@@ -5943,6 +5948,7 @@ async function handleAccountApprovalTxidUpload(req, res) {
       invalidTxid: results.filter(item => item.status === 'INVALID_TXID').length,
       invalidRouteupContract: results.filter(item => item.status === 'INVALID_ROUTEUP_CONTRACT').length,
       notFound: results.filter(item => item.status === 'NOT_FOUND').length,
+      staleAccount: results.filter(item => item.status === 'STALE_ACCOUNT').length,
       ambiguous: results.filter(item => item.status === 'AMBIGUOUS').length,
       results
     }
@@ -6001,6 +6007,26 @@ function kakaoPgPayloadValue(payload = {}, ...keys) {
   return '';
 }
 
+function formatKakaoElapsedSeconds(value) {
+  const total = Math.max(0, Math.round(Number(value) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return [hours ? `${hours}시간` : '', minutes ? `${minutes}분` : '', `${seconds}초`].filter(Boolean).join(' ');
+}
+
+function formatKakaoDailySalesNotification(summary = {}, receivedAt = new Date()) {
+  const count = Math.max(0, Number(summary.count || 0));
+  const time = formatKstDateTime(receivedAt).slice(11, 16) || '-';
+  return [
+    '📊 이츠페이 오늘 누적 매출',
+    '',
+    `오늘 누적 매출: ${kakaoNotiWon(summary.total)}`,
+    `오늘 결제 건수: ${count.toLocaleString('ko-KR')}건`,
+    `집계시각: ${time}`
+  ].join('\n');
+}
+
 function formatKakaoPgNotificationEvent(row) {
   const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
   const query = row.query && typeof row.query === 'object' ? row.query : {};
@@ -6009,11 +6035,13 @@ function formatKakaoPgNotificationEvent(row) {
     return [
       '☑ 이츠페이 입금 이체 성공',
       '',
-      `업체: ${kakaoNotiText(query.compNm)}`,
+      `업체: ${kakaoNotiText(row.franchise_name || query.compNm)}`,
+      `상위대리점: ${kakaoNotiText(row.agency_name, '미지정')}`,
       `예금주: ${kakaoNotiText(query.acctNm)}`,
       `은행: ${kakaoNotiText(query.bankNm)}`,
       `입금계좌: ${kakaoNotiText(query.acctNo)}`,
       `입금금액: ${kakaoNotiWon(query.transAmt)}`,
+      `이체 소요시간: ${formatKakaoElapsedSeconds(row.transfer_elapsed_seconds)}`,
       '',
       `입금코드: ${kakaoNotiText(query.transSeq)}`,
       `입금일시: ${kakaoNotiText(query.transReqDttm || formatKstDateTime(row.received_at))}`,
@@ -6035,9 +6063,7 @@ function formatKakaoPgNotificationEvent(row) {
   const hasUsefulPayload = transactionId || pgTxId || franchiseName || Number.isFinite(Number(paymentAmount)) || Number.isFinite(Number(netAmount));
   if (!hasUsefulPayload) return null;
 
-  const title = row.event_type === 'CH_PAYWAY_FALLBACK_SETTLED'
-    ? '☑ 이츠페이 정산 확인'
-    : '☑ 이츠페이 PG 노티 수신';
+  const title = '☑ 이츠페이 PG 노티 수신';
   return [
     title,
     '',
@@ -6077,28 +6103,47 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
   const sincePg = Math.max(0, Number(req.query?.sincePg || 0) || 0);
   const sinceDeposit = Math.max(0, Number(req.query?.sinceDeposit || 0) || 0);
   const limit = Math.min(Math.max(Number(req.query?.limit || 50) || 50, 1), 100);
-  const [pgResult, depositResult, maxPgResult, maxDepositResult] = await Promise.all([
+  const [pgResult, depositResult, maxPgResult, maxDepositResult, dailySalesResult] = await Promise.all([
     pool.query(
       `SELECT pn.id, pn.provider, pn.event_type, pn.transaction_id, pn.pg_transaction_id,
               pn.result_code, pn.result_message, pn.payload, pn.query, pn.received_at,
-              ps.franchise_name, ps.payment_amt, ps.net_amt, ps.approval_no, ps.pg_tx_id,
-              t.auth_code
+              sm.franchise_name, sm.payment_amt, sm.net_amt, sm.approval_no, sm.pg_tx_id,
+              sm.agency_name, sm.auth_code, sm.transfer_elapsed_seconds
        FROM pg_notifications pn
-       LEFT JOIN pg_settlements ps
-         ON ps.approval_no = COALESCE(NULLIF(pn.transaction_id, ''), pn.payload->>'odrno', pn.payload->>'trackId')
-         OR ps.pg_tx_id = COALESCE(NULLIF(pn.pg_transaction_id, ''), pn.payload->>'tradeno', pn.payload->>'trxId')
-       LEFT JOIN transactions t
-         ON t.transaction_id = COALESCE(ps.approval_no, NULLIF(pn.transaction_id, ''), pn.payload->>'odrno', pn.payload->>'trackId')
-       WHERE pn.id > $1
-         AND (
-           pn.event_type = 'CH_PAYWAY_FALLBACK_SETTLED'
-           OR (
-             pn.provider = 'GH Payments'
-             AND pn.transaction_id IS NULL
-             AND pn.pg_transaction_id IS NULL
-             AND pn.query->>'transResult' LIKE '%성공%'
+       LEFT JOIN LATERAL (
+         SELECT ps.franchise_name, ps.payment_amt, ps.net_amt, ps.approval_no, ps.pg_tx_id,
+                COALESCE(a.name, NULLIF(ps.agency_name, '')) AS agency_name,
+                t.auth_code,
+                cn.received_at AS settlement_confirmed_at,
+                extract(epoch from (pn.received_at - cn.received_at)) AS transfer_elapsed_seconds
+         FROM pg_settlements ps
+         JOIN transactions t ON t.transaction_id = ps.approval_no
+         LEFT JOIN agencies a ON a.id = ps.agency_id
+         LEFT JOIN LATERAL (
+           SELECT received_at
+           FROM pg_notifications
+           WHERE event_type = 'CH_PAYWAY_FALLBACK_SETTLED'
+             AND transaction_id = ps.approval_no
+           ORDER BY received_at ASC, id ASC
+           LIMIT 1
+         ) cn ON true
+         WHERE NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
+           AND t.created_at <= pn.received_at
+           AND pn.received_at <= t.created_at + interval '24 hours'
+           AND (NULLIF(pn.query->>'compNm', '') IS NULL OR ps.franchise_name = pn.query->>'compNm')
+           AND (
+             NULLIF(pn.query->>'acctNo', '') IS NULL
+             OR NULLIF(ps.account_no, '') IS NULL
+             OR regexp_replace(pn.query->>'acctNo', '[^0-9A-Za-z]', '', 'g') = regexp_replace(ps.account_no, '[^0-9A-Za-z]', '', 'g')
            )
-         )
+         ORDER BY t.created_at DESC, ps.id DESC
+         LIMIT 1
+       ) sm ON true
+       WHERE pn.id > $1
+         AND pn.provider = 'GH Payments'
+         AND pn.transaction_id IS NULL
+         AND pn.pg_transaction_id IS NULL
+         AND pn.query->>'transResult' LIKE '%성공%'
        ORDER BY pn.id ASC
        LIMIT $2`,
       [sincePg, limit]
@@ -6117,6 +6162,14 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
     ),
     pool.query(
       'SELECT COALESCE(max(id), 0)::int AS max_id FROM deposit_notifications'
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(total_amount), 0)::numeric AS total
+       FROM transactions
+       WHERE type = 'CHARGE'
+         AND status = 'SUCCESS'
+         AND created_at >= ((now() AT TIME ZONE 'Asia/Seoul')::date::timestamp AT TIME ZONE 'Asia/Seoul')
+         AND created_at < (((now() AT TIME ZONE 'Asia/Seoul')::date + interval '1 day')::timestamp AT TIME ZONE 'Asia/Seoul')`
     )
   ]);
 
@@ -6127,7 +6180,8 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
       receivedAt: row.received_at,
       provider: row.provider,
       eventType: row.event_type,
-      text: formatKakaoPgNotificationEvent(row)
+      text: formatKakaoPgNotificationEvent(row),
+      texts: [formatKakaoPgNotificationEvent(row), formatKakaoDailySalesNotification(dailySalesResult.rows[0], new Date())]
     }))
     .filter(event => event.text);
   const depositEvents = [];
