@@ -90,6 +90,56 @@ test('account rows show every active PG as a provider badge', () => {
   assert.match(accounts.renderAccountRows([]), /colspan="10"/);
 });
 
+test('account rows offer soft-delete only when every PG is inactive', () => {
+  const accounts = loadAccountsModule();
+  const inactiveHtml = accounts.renderAccountRows([{
+    idx: 2,
+    fid: 101,
+    accountStatus: '승인완료',
+    memberId: 'delete-test-user',
+    fname: '삭제테스트가맹점',
+    agency: '배달사A'
+  }]);
+
+  assert.match(inactiveHtml, /data-admin-action="fr-account-detail"/);
+  assert.match(inactiveHtml, /data-admin-action="fr-account-action"/);
+  assert.match(inactiveHtml, /data-fr-action="remove"/);
+  assert.match(inactiveHtml, /data-fr-account-idx="2"/);
+  assert.match(inactiveHtml, />삭제<\/button>/);
+
+  const activeHtml = accounts.renderAccountRows([{
+    idx: 3,
+    fid: 101,
+    accountStatus: '승인완료',
+    memberId: 'active-delete-test-user',
+    fname: '활성가맹점',
+    agency: '배달사A',
+    recurringTid: 'TMN026063',
+    hasRecurringKey: true
+  }]);
+
+  assert.match(activeHtml, /data-admin-action="fr-account-detail"/);
+  assert.doesNotMatch(activeHtml, /data-fr-action="remove"/);
+  assert.doesNotMatch(activeHtml, />삭제<\/button>/);
+});
+
+test('account detail offers soft-delete only when every PG is inactive', () => {
+  const accounts = loadAccountsModule();
+  const render = account => accounts.renderAccountDetailModal({
+    franchise: { id: 101, name: '삭제테스트가맹점' },
+    account,
+    fid: 101,
+    idx: 0
+  }, { role: 'hq' });
+
+  assert.match(render({ accountStatus: '승인대기' }).footerButtons.join(''), /data-fr-action="remove"/);
+  assert.doesNotMatch(render({
+    accountStatus: '승인완료',
+    recurringTid: 'TMN026063',
+    hasRecurringKey: true
+  }).footerButtons.join(''), /data-fr-action="remove"/);
+});
+
 test('account list excel separates assigned PG from active PG providers', () => {
   const accounts = loadAccountsModule();
   const [row] = accounts.buildAccountListExportRows([{

@@ -33,7 +33,7 @@
     </div>
     <div class="card accounts-list-main">
       <div class="ch"><span class="admin-card-heading">출금계좌 목록</span><span class="admin-card-tools payment-list-tools"><span id="account-result-count" class="bdg bg payment-result-count">0건</span><label class="admin-inline-select payment-page-size-label">표시 <select class="fs" id="account-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="payment-list-pager"><button type="button" class="btn bo xs" data-account-page="prev">이전</button><span id="account-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-account-page="next">다음</button></span><button type="button" class="btn bg2 xs" data-account-list-export="1">전체 계좌 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-export="gh">건흥 양식 내보내기</button><button type="button" class="btn bo xs" data-account-txid-upload-open="account-migration-txid-upload">건흥 결과 업로드</button><input type="file" id="account-migration-txid-upload" class="admin-hidden-input" accept=".xlsx,.xls" data-account-txid-upload-input="1"><button type="button" class="btn bo xs" data-account-pg-migration-export="routeup">위루트 양식 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-upload="routeup">위루트 서버 업로드</button></span></div>
-      <div class="tw"><table class="accounts-table accounts-table-wide"><colgroup><col class="admin-col-120"><col class="admin-col-130"><col class="admin-col-170"><col class="admin-col-130"><col class="admin-col-130"><col class="admin-col-110"><col class="admin-col-160"><col class="admin-col-120"><col class="admin-col-110"><col class="admin-col-76"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>활성 PG</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>확인</th></tr></thead><tbody id="acb"></tbody></table></div>
+      <div class="tw"><table class="accounts-table accounts-table-wide"><colgroup><col class="admin-col-120"><col class="admin-col-130"><col class="admin-col-170"><col class="admin-col-130"><col class="admin-col-130"><col class="admin-col-110"><col class="admin-col-160"><col class="admin-col-120"><col class="admin-col-110"><col class="admin-col-130"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>활성 PG</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>관리</th></tr></thead><tbody id="acb"></tbody></table></div>
     </div>
   </div>`;
   }
@@ -141,6 +141,14 @@
     }).join('')}</span>`;
   }
 
+  function renderAccountRowActions(account = {}, esc = fallbackEsc) {
+    const attrs = `data-fr-account-idx="${esc(account.idx)}" data-fr-id="${esc(account.fid)}"`;
+    const removeButton = getActivePgProviderNames(account).length
+      ? ''
+      : `<button type="button" class="btn bd xs" data-admin-action="fr-account-action" data-fr-action="remove" ${attrs}>삭제</button>`;
+    return `<div class="admin-action-group"><button type="button" class="btn bo xs" data-admin-action="fr-account-detail" ${attrs}>확인</button>${removeButton}</div>`;
+  }
+
   function renderPgContractGridItems(account = {}, franchise = {}, ctx = {}) {
     if ((ctx.role || '') !== 'hq' && ctx.isHq !== true) return '';
     const contracts = Array.isArray(account.pgContracts) ? account.pgContracts : [];
@@ -187,7 +195,7 @@
     <td class="admin-mono admin-text-small">${esc(a.accountNo||'미입력')}</td>
     <td>${esc(a.accountHolder||a.owner||'-')}</td>
     <td class="accounts-date-cell">${esc(a.reqDate||a.createdAt||'-')}</td>
-    <td><button type="button" class="btn bo xs" data-admin-action="fr-account-detail" data-fr-account-idx="${a.idx}" data-fr-id="${esc(a.fid)}">확인</button></td>
+    <td>${renderAccountRowActions(a, esc)}</td>
   </tr>`).join('');
   }
 
@@ -324,7 +332,9 @@
         footerButtons.push(adminModalButton('반려', `data-admin-action="fr-account-action" data-fr-action="reject" data-fr-id="${esc(fid)}" data-fr-account-idx="${idx}"`, 'danger'));
       }
       footerButtons.push(adminModalButton('PG 계약 수정', `data-admin-action="account-pg-contract-edit" data-fr-id="${esc(fid)}" data-fr-account-idx="${idx}"`, 'secondary'));
-      footerButtons.push(adminModalButton('숨김', `data-admin-action="fr-visibility" data-fr-vis-type="account" data-fr-id="${esc(fid)}" data-fr-target-id="${idx}" data-fr-hidden="true"`, 'danger'));
+      if(!getActivePgProviderNames(da).length){
+        footerButtons.push(adminModalButton('목록에서 제거', `data-admin-action="fr-account-action" data-fr-action="remove" data-fr-id="${esc(fid)}" data-fr-account-idx="${idx}"`, 'danger'));
+      }
     }
     footerButtons.push(adminModalButton('닫기', 'data-modal-close="1"'));
 
