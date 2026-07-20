@@ -14,6 +14,8 @@ const { createPublicAgencyInvite } = require('./lib/public-agency-invite');
 const { buildAuditChangeSet, sanitizeAuditData } = require('./lib/audit-log');
 const { createSignupAttribution } = require('./lib/signup-attribution');
 const { isProtectedAgencyJoinCode } = require('./lib/agency-link-policy');
+const { preferredProjectedAccount } = require('./lib/account-merge-preference');
+const { selectDefaultPgProvider } = require('./lib/pg-default-policy');
 const {
   buildRouteupBillKeyPayload,
   buildRouteupBillPayPayload,
@@ -3648,7 +3650,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
-  if (/\.(html|js|css)$/i.test(req.path) || req.path === '/' || req.path === '/admin' || req.path.startsWith('/join/') || req.path === '/sw.js') {
+  if (/\.(html|js|css)$/i.test(req.path) || req.path === '/' || req.path === '/admin' || req.path === '/guide' || req.path.startsWith('/join/') || req.path === '/sw.js') {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -3708,6 +3710,10 @@ app.get('/', (req, res) => {
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '이츠페이_관리자_시스템_10.html'));
+});
+
+app.get('/guide', (req, res) => {
+  res.sendFile(path.join(__dirname, 'web-admin-guide.html'));
 });
 
 app.get('/tv-dashboard', (req, res) => {
@@ -6101,11 +6107,37 @@ function formatKakaoDepositNotificationEvent(row) {
   ].join('\n');
 }
 
+function kakaoAdvanceInquiryNotifyRooms() {
+  return String(process.env.EATSPAY_ADVANCE_INQUIRY_NOTIFY_ROOMS || '380705904900190,474536781052768')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function formatKakaoAdvanceInquiryNotificationEvent(row) {
+  const deliverySales = Number(row.delivery_sales_manwon || 0);
+  const storeSales = Number(row.store_sales_manwon || 0);
+  const source = row.user_id ? '이츠페이 웹' : '홈페이지';
+  return [
+    '📩 이츠페이 선정산 문의 접수',
+    '',
+    `업체/성함: ${kakaoNotiText(row.franchise_name)}`,
+    `연락처: ${kakaoNotiText(row.phone)}`,
+    row.email ? `이메일: ${row.email}` : '',
+    row.delivery_apps ? `문의 내용: ${row.delivery_apps}` : '',
+    deliverySales > 0 ? `배달앱 매출: ${deliverySales.toLocaleString('ko-KR')}만원` : '',
+    storeSales > 0 ? `매장/카드 매출: ${storeSales.toLocaleString('ko-KR')}만원` : '',
+    `접수 경로: ${source}`,
+    `접수 시각: ${formatKstDateTime(row.created_at)}`
+  ].filter(Boolean).join('\n');
+}
+
 app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncHandler(async (req, res) => {
   const sincePg = Math.max(0, Number(req.query?.sincePg || 0) || 0);
   const sinceDeposit = Math.max(0, Number(req.query?.sinceDeposit || 0) || 0);
+  const sinceAdvance = Math.max(0, Number(req.query?.sinceAdvance || 0) || 0);
   const limit = Math.min(Math.max(Number(req.query?.limit || 50) || 50, 1), 100);
-  const [pgResult, depositResult, maxPgResult, maxDepositResult, dailySalesResult] = await Promise.all([
+  const [pgResult, depositResult, advanceResult, maxPgResult, maxDepositResult, maxAdvanceResult, dailySalesResult] = await Promise.all([
     pool.query(
       `SELECT pn.id, pn.provider, pn.event_type, pn.transaction_id, pn.pg_transaction_id,
               pn.result_code, pn.result_message, pn.payload, pn.query, pn.received_at,
@@ -6153,10 +6185,22 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
       [sinceDeposit, limit]
     ),
     pool.query(
+      `SELECT id, user_id, franchise_name, phone, email, delivery_sales_manwon,
+              delivery_apps, store_sales_manwon, created_at
+       FROM advance_inquiries
+       WHERE id > $1
+       ORDER BY id ASC
+       LIMIT $2`,
+      [sinceAdvance, limit]
+    ),
+    pool.query(
       'SELECT COALESCE(max(id), 0)::int AS max_id FROM pg_notifications'
     ),
     pool.query(
       'SELECT COALESCE(max(id), 0)::int AS max_id FROM deposit_notifications'
+    ),
+    pool.query(
+      'SELECT COALESCE(max(id), 0)::int AS max_id FROM advance_inquiries'
     ),
     pool.query(
       `SELECT COUNT(*)::int AS count, COALESCE(SUM(total_amount), 0)::numeric AS total
@@ -6180,13 +6224,21 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
     }))
     .filter(event => event.text);
   const depositEvents = [];
+  const advanceInquiryEvents = advanceResult.rows.map(row => ({
+    id: row.id,
+    kind: 'advance_inquiry',
+    receivedAt: row.created_at,
+    text: formatKakaoAdvanceInquiryNotificationEvent(row),
+    rooms: kakaoAdvanceInquiryNotifyRooms()
+  }));
 
   return res.status(200).json({
     success: true,
     data: {
       maxPgId: Number(maxPgResult.rows[0]?.max_id || sincePg),
       maxDepositId: Number(maxDepositResult.rows[0]?.max_id || sinceDeposit),
-      events: [...pgEvents, ...depositEvents]
+      maxAdvanceInquiryId: Number(maxAdvanceResult.rows[0]?.max_id || sinceAdvance),
+      events: [...pgEvents, ...depositEvents, ...advanceInquiryEvents]
         .sort((a, b) => new Date(a.receivedAt || 0) - new Date(b.receivedAt || 0))
         .slice(-limit)
     }
@@ -6291,11 +6343,6 @@ function hasAccountApprovalCredentials(account = {}) {
   return hasAccountTidKey(account) || hasRouteupExternalIntegrationKeys(account);
 }
 
-function cardMatchesCurrentPg(card = {}, selectedPgProvider = null) {
-  if (!selectedPgProvider?.id) return true;
-  return String(card.pgProviderId || card.pg_provider_id || '') === String(selectedPgProvider.id);
-}
-
 function accountApprovalStatusIsApproved(account = {}) {
   const status = String(account.status || account.accountStatus || account.account_status || '').trim().toUpperCase();
   const label = String(account.statusLabel || account.accountStatusLabel || '').trim();
@@ -6329,7 +6376,8 @@ function accountHasCurrentPgApprovalCredentials(account = {}, selectedPgProvider
   };
 
   if (isRouteupProviderName(providerName)) {
-    return hasRouteupExternalIntegrationKeys(providerScopedAccount);
+    return hasRouteupExternalIntegrationKeys(providerScopedAccount)
+      && Boolean(currentPgBillingCredentials(providerScopedAccount, selectedPgProvider));
   }
   if (isGhPaymentsProviderName(providerName)) {
     if (hasBillablePgContract(providerScopedAccount)) return true;
@@ -6344,6 +6392,35 @@ function accountMatchesCurrentPgApproval(account = {}, selectedPgProvider = null
   if (account.active === false || account.hidden === true) return false;
   return accountApprovalStatusIsApproved(account)
     && accountHasCurrentPgApprovalCredentials(account, selectedPgProvider);
+}
+
+function currentPgBillingCredentials(account = {}, selectedPgProvider = null) {
+  const providerName = normalizeProviderName(selectedPgProvider?.name || 'GH Payments');
+  if (isRouteupProviderName(providerName)) {
+    const contract = pickRouteupBillingContract(account, selectedPgProvider);
+    return contract ? {
+      providerName: '위루트',
+      tid: String(contract.tid || '').trim(),
+      paymentKey: String(contract.paymentKey || '').trim()
+    } : null;
+  }
+
+  const contracts = sanitizePgContracts(account.pgContracts || account.pg_contracts || []);
+  const contract = contracts.find(item =>
+    isGhPaymentsProviderName(item.providerName) &&
+    item.active !== false &&
+    item.credentialType === 'recurring' &&
+    item.tid &&
+    item.paymentKey
+  ) || contracts.find(item =>
+    isGhPaymentsProviderName(item.providerName) &&
+    item.active !== false &&
+    item.tid &&
+    item.paymentKey
+  );
+  const tid = String(contract?.tid || account.recurringTid || account.recurring_tid || account.txid || '').trim();
+  const paymentKey = String(contract?.paymentKey || account.recurringKey || account.recurring_key || '').trim();
+  return tid && paymentKey ? { providerName: 'GH Payments', tid, paymentKey } : null;
 }
 
 app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) => {
@@ -6364,7 +6441,7 @@ app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) =
 
   const statusLabel = (status, account = {}) => {
     if (status === 'REJECTED') return '\uBC18\uB824';
-    if (hasAccountApprovalCredentials(account)) return '\uC2B9\uC778\uC644\uB8CC';
+    if (accountMatchesCurrentPgApproval(account, selectedPgProvider)) return '\uC2B9\uC778\uC644\uB8CC';
     if (status === 'APPROVED') return '\uC2B9\uC778\uB300\uAE30';
     return '\uC2B9\uC778\uB300\uAE30';
   };
@@ -6441,7 +6518,6 @@ app.get('/api/franchise/accounts', authenticate, asyncHandler(async (req, res) =
   }
 
   const accounts = [...mergedAccounts.values()]
-    .map(({ currentPgApproved, ...item }) => item)
     .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0));
 
   return res.status(200).json({
@@ -6745,7 +6821,7 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 400, 'MISSING_DEPOSIT_ACCOUNT', '입금받을 가상계좌를 선택해주세요.');
   }
 
-  const expectedTotalAmount = Math.round(Number(amount) / CHARGE_DEPOSIT_RATE);
+  const expectedTotalAmount = Math.floor(Number(amount) / CHARGE_DEPOSIT_RATE);
   const expectedFee = expectedTotalAmount - Number(amount);
   if (Number(calculatedFee) !== expectedFee || Number(totalAmount) !== expectedTotalAmount) {
     return sendError(res, 400, 'FEE_MISMATCH', 'Fee calculation mismatch.');
@@ -6764,12 +6840,6 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 404, 'CARD_NOT_FOUND', '결제 가능한 등록 카드가 없습니다.');
   }
   const selectedPgProvider = await getUserPgProvider(req.user);
-  if (selectedPgProvider && String(card.pgProviderId || '') !== String(selectedPgProvider.id)) {
-    return sendError(res, 409, 'CARD_PG_RE_REGISTRATION_REQUIRED', 'PG사가 변경되어 기존 등록 카드를 사용할 수 없습니다. 카드를 다시 등록해 주세요.', {
-      pgProviderId: selectedPgProvider.id,
-      pgProviderName: selectedPgProvider.name
-    });
-  }
 
   const depositAccount = await repo.findChargeDepositAccount({
     franchiseId: req.user.franchiseId,
@@ -6786,98 +6856,12 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
     });
   }
 
-  if (isRouteupProviderName(selectedPgProvider?.name)) {
-    const routeupContract = pickRouteupBillingContract(depositAccount, selectedPgProvider);
-    if (!routeupContract) {
-      return sendError(res, 409, 'ROUTEUP_ACCOUNT_CONTRACT_REQUIRED', '위루트 결제는 승인된 계좌의 MID, TID, 결제 KEY가 등록된 후 이용할 수 있습니다.');
-    }
-    if (String(card.id || '').startsWith('card_ref_')) {
-      return sendError(res, 409, 'CARD_PROVIDER_NOT_READY', '위루트 결제가 가능한 카드가 아닙니다. 카드를 다시 등록해 주세요.');
-    }
-
-    const transactionId = generateId('TXN', 7);
-    const routeupBody = buildRouteupBillPayPayload({
-      contract: routeupContract,
-      orderNo: transactionId,
-      buyerName: card.payerName || req.user.name || req.user.franchiseName || '',
-      buyerPhone: card.payerTel || req.user.phone || req.user.tel || '',
-      itemName: 'eats PAY 충전',
-      billKey: card.id,
-      amount: Number(totalAmount),
-      installment: installmentMonths
-    });
-    console.log(`[ROUTEUP_BILLING_PAY_REQUEST] billKey=${String(card.id).slice(0, 10)}... ordNum=${transactionId} amount=${Number(totalAmount)} installment=${installmentMonths} accountTid=${routeupContract.tid}`);
-    const providerResponse = await routeupRequest('/api/v2/pay/bill-key/hand', {
-      method: 'POST',
-      payKey: routeupContract.paymentKey,
-      body: routeupBody
-    });
-    const payload = await providerResponse.json().catch(() => ({}));
-    if (!providerResponse.ok || !isRouteupSuccess(payload)) {
-      const providerMessage = routeupMessage(payload) || 'Routeup billing payment failed.';
-      console.log(`[ROUTEUP_BILLING_PAY_FAILED] ordNum=${transactionId} code=${payload?.result_cd || providerResponse.status} message=${providerMessage}`);
-      return sendError(res, providerResponse.status || 502, 'ROUTEUP_BILLING_PAY_FAILED', providerMessage, payload);
-    }
-
-    const providerTid = String(payload.tid || payload.TID || '').trim();
-    if (providerTid && providerTid !== routeupContract.tid) {
-      console.log(`[ROUTEUP_TID_MISMATCH] billKey=${String(card.id).slice(0, 10)}... ordNum=${transactionId} expectedTid=${routeupContract.tid} providerTid=${providerTid} accountId=${depositAccount.id}`);
-      return sendError(res, 502, 'ROUTEUP_TID_MISMATCH', '위루트가 선택한 입금 계좌와 요청 계좌가 일치하지 않습니다. 결제를 중단했습니다.', {
-        expectedTid: routeupContract.tid,
-        providerTid
-      });
-    }
-
-    const cardIssuer = payload.issuer || card.cardCompany || card.cardName || 'CARD';
-    const cardLast4 = String(payload.card_num || card.maskedNumber || card.masked_number || '').replace(/[^0-9]/g, '').slice(-4) || String(card.id).slice(-4);
-    const cardDetails = `${cardIssuer} ****-****-****-${cardLast4}`;
-    console.log(`[ROUTEUP_BILLING_PAY_SUCCESS] ordNum=${transactionId} trxId=${payload.trx_id || '-'} apprNum=${payload.appr_num || '-'} amount=${payload.amount || totalAmount} accountTid=${routeupContract.tid}${providerTid ? ` providerTid=${providerTid}` : ''}`);
-    const result = await repo.recordCharge({
-      userId: req.user.id,
-      franchiseId: req.user.franchiseId,
-      transactionId,
-      amount: Number(amount),
-      fee: expectedFee,
-      totalAmount: Number(totalAmount),
-      method: 'CARD',
-      cardDetails,
-      pg: '위루트',
-      pgTxId: payload.trx_id || '',
-      authCode: payload.appr_num || '',
-      depositAccountSource: depositAccount.source || accountSource || '',
-      depositAccountId: String(depositAccount.id || accountId || ''),
-      depositBankName: depositAccount.bank_name || '',
-      depositAccountNo: depositAccount.account_no || '',
-      depositAccountHolder: depositAccount.account_holder || '',
-      depositDeliveryAgency: depositAccount.agency_name || '',
-      depositTxid: routeupContract.tid
-    });
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        transactionId,
-        status: 'PAID',
-        amount: Number(amount),
-        fee: expectedFee,
-        totalAmount: Number(totalAmount),
-        approvedAt: new Date().toISOString(),
-        updatedBalance: result.updatedBalance,
-        provider: 'ROUTEUP',
-        providerResult: payload
-      }
-    });
+  const billingCredentials = currentPgBillingCredentials(depositAccount, selectedPgProvider);
+  if (!billingCredentials) {
+    return sendError(res, 409, 'DEPOSIT_ACCOUNT_TID_KEY_REQUIRED', '현재 PG에서 승인된 계좌의 TID와 결제 KEY가 등록된 후 결제할 수 있습니다.');
   }
-
-  if (selectedPgProvider && !isGhPaymentsProviderName(selectedPgProvider.name)) {
-    return sendError(res, 409, 'PG_PROVIDER_NOT_READY', `${selectedPgProvider.name} PG 결제 연동은 아직 준비 중입니다. PG사를 GH Payments 또는 위루트으로 변경하거나 연동 완료 후 이용해 주세요.`);
-  }
-
-  const depositAccountRecurringTid = String(depositAccount.recurring_tid || depositAccount.txid || '').trim();
-  const depositAccountRecurringKey = String(depositAccount.recurring_key || '').trim();
-  if (!depositAccountRecurringTid || !depositAccountRecurringKey) {
-    return sendError(res, 409, 'DEPOSIT_ACCOUNT_TID_KEY_REQUIRED', '해당 계좌는 정기 TID와 Key가 등록된 후 결제할 수 있습니다.');
-  }
+  const depositAccountRecurringTid = billingCredentials.tid;
+  const depositAccountRecurringKey = billingCredentials.paymentKey;
 
   const isProviderCard = !String(card.id).startsWith('card_ref_');
   const useProvider = hasGhPaymentsPayKey() && isProviderCard;
@@ -6933,7 +6917,7 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
       totalAmount: Number(totalAmount),
       method: 'CARD',
       cardDetails,
-      pg: 'GH Payments',
+      pg: billingCredentials.providerName,
       pgTxId: payload.pay?.trxId || '',
       authCode: payload.pay?.authCd || '',
       depositAccountSource: depositAccount.source || accountSource || '',
@@ -6956,6 +6940,7 @@ app.post('/api/payment/charge', authenticate, asyncHandler(async (req, res) => {
         approvedAt: new Date().toISOString(),
         updatedBalance: result.updatedBalance,
         provider: 'GH_PAYMENTS',
+        accountProvider: billingCredentials.providerName,
         providerResult: payload
       }
     });
@@ -7001,9 +6986,7 @@ app.get('/api/payment/history', authenticate, asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/card/list', authenticate, asyncHandler(async (req, res) => {
-  const selectedPgProvider = await getUserPgProvider(req.user).catch(() => null);
-  const cards = (await repo.listCardsByUserId(req.user.id))
-    .filter(card => cardMatchesCurrentPg(card, selectedPgProvider));
+  const cards = await repo.listCardsByUserId(req.user.id);
   return res.status(200).json({
     success: true,
     data: cards
@@ -7232,83 +7215,8 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     return sendError(res, 400, 'BAD_REQUEST', 'payerTel is invalid.');
   }
 
-  const selectedPgProvider = await getUserPgProvider(req.user);
-  if (isRouteupProviderName(selectedPgProvider?.name)) {
-    const routeupCardContractSource = await repo.findDefaultRouteupCardRegistrationContract({
-      franchiseId: req.user.franchiseId,
-      providerName: '위루트'
-    });
-    const routeupContract = pickRouteupCardRegistrationContract(routeupCardContractSource || {}, selectedPgProvider);
-    if (!routeupContract) {
-      return sendError(res, 409, 'ROUTEUP_CARD_CONTRACT_REQUIRED', '위루트 카드등록용 결제 KEY가 등록되지 않았습니다. 관리자에서 위루트 계약 정보를 먼저 저장해 주세요.');
-    }
-    const routeupRegistrationContract = { ...routeupContract, tid: '' };
-
-    const registrationTrackId = generateId('CARD', 6);
-    const response = await routeupRequest('/api/v2/pay/bill-key', {
-      method: 'POST',
-      payKey: routeupContract.paymentKey,
-      body: buildRouteupBillKeyPayload({
-        contract: routeupRegistrationContract,
-        orderNo: registrationTrackId,
-        buyerName: resolvedPayerName,
-        buyerPhone: resolvedPayerTel,
-        cardNumber: digits,
-        expiryMonth,
-        expiryYear,
-        identity,
-        cardPw
-      })
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    const billKey = extractRouteupBillKey(payload);
-    if (!response.ok || !isRouteupSuccess(payload) || !billKey) {
-      return sendError(res, response.status || 502, 'ROUTEUP_CARD_REGISTRATION_FAILED', routeupMessage(payload) || 'Routeup card registration failed.', payload);
-    }
-
-    const cardName = normalizeProviderCardCompany(payload.issuer || payload.acquirer, resolvedCompany, digits);
-    const maskedNumber = maskCardNumberForStorage(payload.card_num, digits, cardName);
-    console.log(`[ROUTEUP_CARD_REGISTRATION_SUCCESS] ordNum=${registrationTrackId} billKey=${billKey.slice(0, 10)}... trxId=${payload.trx_id || '-'} issuer=${cardName} tid=`);
-    const card = await repo.registerCard(req.user.id, {
-      id: billKey,
-      maskedNumber,
-      cardName,
-      cardCompany: cardName,
-      alias: resolvedAlias,
-      expiryMonth: String(expiryMonth || '').padStart(2, '0'),
-      expiryYear: String(expiryYear || ''),
-      payerName: resolvedPayerName,
-      payerEmail: resolvedPayerEmail,
-      payerTel: resolvedPayerTel,
-      cardIdentity: resolvedCardIdentity,
-      pgProviderId: selectedPgProvider?.id || null
-    });
-    await recordAuditLog(req, {
-      action: 'CARD_CREATE',
-      entityType: 'card',
-      entityId: card.id,
-      entityName: card.alias || card.cardName || '',
-      beforeData: {},
-      afterData: pickCardAuditData(card),
-      force: true
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Card registered through Routeup.',
-      data: {
-        ...card,
-        provider: 'ROUTEUP',
-        billKey,
-        providerResult: payload
-      }
-    });
-  }
-
-  if (selectedPgProvider && !isGhPaymentsProviderName(selectedPgProvider.name)) {
-    return sendError(res, 409, 'PG_PROVIDER_NOT_READY', `${selectedPgProvider.name} PG 카드등록 연동은 아직 준비 중입니다. PG사를 GH Payments 또는 위루트으로 변경하거나 연동 완료 후 이용해 주세요.`);
-  }
+  const cardVerificationPgProvider = (await repo.listPgProviders())
+    .find(provider => provider.status === '활성' && isGhPaymentsProviderName(provider.name)) || null;
 
   if (hasGhPaymentsPayKey()) {
     const registrationTrackId = generateId('CARD', 6);
@@ -7368,7 +7276,7 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
       payerEmail: resolvedPayerEmail,
       payerTel: resolvedPayerTel,
       cardIdentity: resolvedCardIdentity,
-      pgProviderId: selectedPgProvider?.id || null
+      pgProviderId: cardVerificationPgProvider?.id || null
     });
     await recordAuditLog(req, {
       action: 'CARD_CREATE',
@@ -7406,7 +7314,7 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
     payerEmail: resolvedPayerEmail,
     payerTel: resolvedPayerTel,
     cardIdentity: resolvedCardIdentity,
-    pgProviderId: selectedPgProvider?.id || null
+    pgProviderId: cardVerificationPgProvider?.id || null
   });
   await recordAuditLog(req, {
     action: 'CARD_CREATE',
@@ -7426,7 +7334,7 @@ app.post('/api/card/register', authenticate, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/admin/accounts/reset-verification', authenticateAdmin, asyncHandler(async (req, res) => {
-  const { requestId, accountId, source } = req.body || {};
+  const { requestId, accountId, source, force } = req.body || {};
   const isDeliveryAccount = !requestId && (source === 'delivery_account' || accountId);
 
   if (isDeliveryAccount) {
@@ -7438,7 +7346,7 @@ app.post('/api/admin/accounts/reset-verification', authenticateAdmin, asyncHandl
     if (!account) {
       return sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
     }
-    if (account.accountStatus === 'PENDING') {
+    if (account.accountStatus === 'PENDING' && force !== true) {
       return res.status(200).json({
         success: true,
         message: '이미 검증전 상태입니다.',
@@ -7468,7 +7376,7 @@ app.post('/api/admin/accounts/reset-verification', authenticateAdmin, asyncHandl
   if (!request) {
     return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Account request was not found.');
   }
-  if (request.status === 'PENDING') {
+  if (request.status === 'PENDING' && force !== true) {
     return res.status(200).json({
       success: true,
       message: '이미 검증전 상태입니다.',
@@ -8286,15 +8194,10 @@ app.get('/api/admin/franchises', authenticateAdmin, asyncHandler(async (req, res
       `SELECT cards.id, cards.user_id, cards.masked_number, cards.card_name, cards.card_company, cards.alias,
               cards.active, cards.hidden, cards.pg_provider_id, pg_providers.name AS pg_provider_name, cards.created_at
        FROM cards
-       JOIN users AS card_users ON card_users.id = cards.user_id
        LEFT JOIN pg_providers ON pg_providers.id = cards.pg_provider_id
        WHERE cards.user_id = ANY($1::bigint[])
          AND COALESCE(cards.hidden, false) = false
          AND COALESCE(cards.active, true) = true
-         AND (
-           card_users.pg_provider_id IS NULL
-           OR cards.pg_provider_id = card_users.pg_provider_id
-         )
        ORDER BY cards.created_at DESC`,
       [userIds]
     )
@@ -8991,10 +8894,6 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     await repo.updateUserPasswordByFranchiseId(franchiseId, await hashPassword(password));
   }
   const pgChanged = String(beforeUser?.pgProviderId || '') !== String(updated.pgProviderId || '');
-  let deactivatedCardCount = 0;
-  if (pgChanged) {
-    deactivatedCardCount = await repo.deactivateCardsByFranchiseId(franchiseId);
-  }
   let normalizedBizDocFileName = updated.bizDocFileName || '';
   if (updated.bizDocFileKey) {
     const bizDocFile = await repo.findFileByKey(updated.bizDocFileKey);
@@ -9056,8 +8955,8 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
     afterAudit.pgProviderName = selectedPgProvider.name;
   }
   if (pgChanged) {
-    afterAudit.cardReRegistrationRequired = true;
-    afterAudit.deactivatedCardCount = deactivatedCardCount;
+    afterAudit.cardRegistrationPreserved = true;
+    afterAudit.accountApprovalReevaluated = true;
   }
   await recordAuditLog(req, {
     action: 'FRANCHISE_UPDATE',
@@ -9100,8 +8999,8 @@ app.put('/api/admin/franchises/:id', authenticateAdmin, asyncHandler(async (req,
       feeRate: updated.franchiseFeeRate,
       pgProviderId: updated.pgProviderId || null,
       pgProviderName: selectedPgProvider?.name || '',
-      cardReRegistrationRequired: pgChanged,
-      deactivatedCardCount,
+      cardReRegistrationRequired: false,
+      deactivatedCardCount: 0,
       agencyId: updated.agencyId || null,
       agency: agency ? displayAgencyName(agency.name) : '',
       deliveryAgencies: savedDeliveryAccounts.map(account => ({
@@ -9255,15 +9154,10 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       `SELECT cards.id, cards.user_id, cards.masked_number, cards.card_name, cards.card_company, cards.alias,
               cards.active, cards.hidden, cards.pg_provider_id, pg_providers.name AS pg_provider_name, cards.created_at
        FROM cards
-       JOIN users AS card_users ON card_users.id = cards.user_id
        LEFT JOIN pg_providers ON pg_providers.id = cards.pg_provider_id
        WHERE cards.user_id = ANY($1::bigint[])
          AND COALESCE(cards.hidden, false) = false
          AND COALESCE(cards.active, true) = true
-         AND (
-           card_users.pg_provider_id IS NULL
-           OR cards.pg_provider_id = card_users.pg_provider_id
-         )
        ORDER BY cards.created_at DESC`,
       [adminUserIds]
     )).rows
@@ -9348,6 +9242,11 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
     isAgencyViewer ? agencySafeAccountTidKeyFields() : accountTidKeyDisplayFields(account, includeSensitiveTidKeys)
   );
 
+  const accountSourceByIdentity = new Map([
+    ...accountRequests.map(request => [`account_request:${request.requestId}`, request]),
+    ...deliveryAccounts.map(account => [`delivery_account:${account.id}`, account])
+  ]);
+  const accountMergeSourceByKey = new Map();
   const pushDeliveryAgency = (franchiseId, entry) => {
     const franchise = franchiseMap.get(franchiseId);
     if (!franchise) return;
@@ -9357,26 +9256,21 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       String(item.bankName || '').trim().toLowerCase(),
       normalizeAccountMergeKey(item.accountNo)
     ].join('|');
-    const statusPriority = item => {
-      const rawStatus = String(item.approvalStatus || item.status || '').toUpperCase();
-      if (rawStatus === 'PENDING' || item.accountStatus === '승인대기') return 4;
-      if (rawStatus === 'APPROVED' || item.accountStatus === '승인완료') return 3;
-      if (rawStatus === 'REJECTED' || item.accountStatus === '반려') return 1;
-      return 0;
-    };
+    const mergeKey = `${franchiseId}|${normalizedKey(entry)}`;
+    const incomingSource = accountSourceByIdentity.get(`${entry.source}:${entry.requestId || entry.id}`) || entry;
     const existingIndex = franchise.deliveryAgencies.findIndex(item => (
       item.requestId && item.requestId === entry.requestId
     ) || normalizedKey(item) === normalizedKey(entry));
     if (existingIndex === -1) {
       franchise.deliveryAgencies.push(entry);
+      accountMergeSourceByKey.set(mergeKey, incomingSource);
       return;
     }
     const existing = franchise.deliveryAgencies[existingIndex];
-    if (
-      statusPriority(entry) > statusPriority(existing) ||
-      (statusPriority(entry) === statusPriority(existing) && String(entry.reqDate || '').localeCompare(String(existing.reqDate || '')) > 0)
-    ) {
+    const existingSource = accountMergeSourceByKey.get(mergeKey) || existing;
+    if (preferredProjectedAccount(existing, entry, existingSource, incomingSource) === entry) {
       franchise.deliveryAgencies[existingIndex] = entry;
+      accountMergeSourceByKey.set(mergeKey, incomingSource);
     }
   };
 
@@ -9419,6 +9313,8 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       accountStatus: request.status === 'REJECTED' ? '\uBC18\uB824' : hasAccountApprovalCredentials(accountForStatus) ? '승인완료' : '\uC2B9\uC778\uB300\uAE30',
       approvalStatus: request.status,
       reqDate: formatDate(request.submittedAt),
+      submittedAt: request.submittedAt,
+      updatedAt: request.updatedAt,
       requestId: request.requestId,
       source: 'account_request',
       hidden: request.hidden === true,
@@ -9446,6 +9342,8 @@ app.get('/api/admin/bootstrap', authenticateAdminOrAgency, asyncHandler(async (r
       accountStatus: account.accountStatus === 'REJECTED' ? '\uBC18\uB824' : hasAccountApprovalCredentials(accountForStatus) ? '승인완료' : '\uC2B9\uC778\uB300\uAE30',
       approvalStatus: account.accountStatus,
       reqDate: formatDate(account.reqDate),
+      submittedAt: account.reqDate,
+      updatedAt: account.updatedAt,
       requestId: null,
       source: 'delivery_account',
       hidden: account.hidden === true,
@@ -10773,7 +10671,7 @@ app.delete('/api/admin/pg-assignment-rules/:id', authenticateAdmin, requireSyste
 }));
 
 function normalizeAgencyInquiryPayload(body = {}) {
-  const allowedTypes = new Set(['가맹점 등록', '지점/지사 개설', '배달대행사 제휴', '기타 문의']);
+  const allowedTypes = new Set(['가맹점 등록', '지점/지사 개설', '선정산 문의', '배달대행사 제휴', '기타 문의']);
   const rawInquiryType = String(body.inquiryType || body.inquiry_type || '지점/지사 개설').trim();
   return {
     inquiryType: allowedTypes.has(rawInquiryType) ? rawInquiryType : '기타 문의',
@@ -10826,11 +10724,46 @@ function pickAdvanceInquiryAuditData(inquiry) {
   };
 }
 
+function homepageAdvanceInquiryDetails(inquiry = {}) {
+  return [
+    inquiry.deliveryAgency ? `현재 업종: ${inquiry.deliveryAgency}` : '',
+    inquiry.region ? `지역: ${inquiry.region}` : '',
+    inquiry.handler ? `유입 경로: ${inquiry.handler}` : ''
+  ].filter(Boolean).join(' / ');
+}
+
 app.post('/api/agency-inquiries', asyncHandler(async (req, res) => {
   const inquiryData = normalizeAgencyInquiryPayload(req.body || {});
   const validationMessage = validateAgencyInquiryPayload(inquiryData, true);
   if (validationMessage) {
     return sendError(res, 400, 'BAD_REQUEST', validationMessage);
+  }
+  if (inquiryData.inquiryType === '선정산 문의') {
+    const inquiry = await repo.createAdvanceInquiry({
+      userId: null,
+      franchiseId: null,
+      franchiseName: inquiryData.name,
+      phone: inquiryData.phone,
+      email: '',
+      deliverySalesManwon: 0,
+      deliveryApps: homepageAdvanceInquiryDetails(inquiryData),
+      storeSalesManwon: 0,
+      status: '상담 대기'
+    });
+    await recordAuditLog(req, {
+      action: 'ADVANCE_INQUIRY_CREATE',
+      entityType: 'advance_inquiry',
+      entityId: inquiry.id,
+      entityName: inquiry.franchiseName || '선정산 문의',
+      beforeData: {},
+      afterData: pickAdvanceInquiryAuditData(inquiry),
+      force: true
+    });
+    return res.status(201).json({
+      success: true,
+      data: inquiry,
+      message: '선정산 문의가 접수되었습니다.'
+    });
   }
   const inquiry = await repo.createAgencyInquiry({
     ...inquiryData,
@@ -11437,8 +11370,8 @@ function parsePopupTemplate(value, fallback = {}) {
     benefit1Desc: String(parsed.benefit1Desc || '전날 매출을 다음날 빠르게 입금').trim(),
     benefit2Title: String(parsed.benefit2Title || '약정 없이 자유롭게').trim(),
     benefit2Desc: String(parsed.benefit2Desc || '필요한 기간만 부담 없이 이용').trim(),
-    benefit3Title: String(parsed.benefit3Title || '투명한 수수료 1.1%').trim(),
-    benefit3Desc: String(parsed.benefit3Desc || '부가세 포함 기준으로 안내').trim(),
+    benefit3Title: String(parsed.benefit3Title || '투명한 수수료 1.5% (부가세 별도)').trim(),
+    benefit3Desc: String(parsed.benefit3Desc || '이용수수료 기준으로 안내').trim(),
     benefit4Title: String(parsed.benefit4Title || '신용등급 보호').trim(),
     benefit4Desc: String(parsed.benefit4Desc || '매출 기반으로 운영 자금 확보').trim(),
     platform1: String(parsed.platform1 || '배민').trim(),
@@ -12936,7 +12869,7 @@ app.get('/api/delivery-agencies', asyncHandler(async (req, res) => {
   const deliveryAgencies = await repo.listDeliveryAgencies();
   return res.status(200).json({
     success: true,
-    data: deliveryAgencies.filter(item => item.status === 'active' || item.status === 'inactive')
+    data: deliveryAgencies.filter(item => item.status === 'active')
   });
 }));
 
@@ -13032,7 +12965,7 @@ function tvAddDays(date, days) {
 }
 
 function tvAmount(row) {
-  return Number(row?.amount ?? row?.totalAmount ?? row?.paymentAmt ?? row?.total_amount ?? 0) || 0;
+  return Number(row?.totalAmount ?? row?.total_amount ?? row?.paymentAmt ?? row?.payment_amt ?? row?.amount ?? 0) || 0;
 }
 
 function tvBuildDailyTrend(rows, days = 7) {
@@ -13521,7 +13454,7 @@ app.get('/api/delivery-agencies/nearby', asyncHandler(async (req, res) => {
     : [null, []];
   const naverPlaces = hasLocation ? await searchNaverDeliveryPlaces(kakaoRegion, lat, lng) : [];
   const deliveryAgencies = await repo.listDeliveryAgencies();
-  const activeAgencies = deliveryAgencies.filter(item => item.status === 'active' || item.status === 'inactive');
+  const activeAgencies = deliveryAgencies.filter(item => item.status === 'active');
   const dbAgencies = activeAgencies.map(item => {
     const agencyLat = Number(item.latitude);
     const agencyLng = Number(item.longitude);
@@ -14883,9 +14816,13 @@ async function resolveAdminPgProvider(pgProviderId) {
 }
 
 async function getUserPgProvider(user) {
-  if (!user?.pgProviderId) return null;
   const providers = await repo.listPgProviders();
-  return providers.find(item => Number(item.id) === Number(user.pgProviderId)) || null;
+  if (user?.pgProviderId) {
+    return providers.find(item => Number(item.id) === Number(user.pgProviderId)) || null;
+  }
+  const agencies = user?.agencyId ? await repo.listAgencies() : [];
+  const agency = agencies.find(item => Number(item.id) === Number(user.agencyId)) || null;
+  return selectDefaultPgProvider(providers, agency);
 }
 
 function currentKstDateInfo() {
@@ -14959,30 +14896,18 @@ async function validatePgAssignmentRule(rule) {
 }
 
 async function resolveSignupPgProvider({ agencyId = null, joinCode = '' } = {}) {
-  const [providers, rules] = await Promise.all([
+  const [providers, agencies] = await Promise.all([
     repo.listPgProviders(),
-    repo.listPgAssignmentRules({ onlyActive: true })
+    repo.listAgencies()
   ]);
-  const activeProviders = providers.filter(provider => provider.status === '활성');
-  const providerById = new Map(activeProviders.map(provider => [String(provider.id), provider]));
   const { date, weekday } = currentKstDateInfo();
-  const normalizedJoinCode = String(joinCode || '').trim().toLowerCase();
-  const matchedRule = rules.find(rule => {
-    if (!providerById.has(String(rule.pgProviderId))) return false;
-    if (rule.agencyId && String(rule.agencyId) !== String(agencyId || '')) return false;
-    if (rule.joinCode && rule.joinCode.toLowerCase() !== normalizedJoinCode) return false;
-    if (rule.startDate && date < rule.startDate) return false;
-    if (rule.endDate && date > rule.endDate) return false;
-    if (Array.isArray(rule.weekdays) && rule.weekdays.length && !rule.weekdays.includes(weekday)) return false;
-    return true;
-  });
-  const fallback = activeProviders
-    .slice()
-    .sort((a, b) => (Number(a.displayOrder || 0) - Number(b.displayOrder || 0)) || String(a.name || '').localeCompare(String(b.name || '')))[0] || null;
-  const provider = matchedRule ? providerById.get(String(matchedRule.pgProviderId)) : fallback;
+  const agency = agencies.find(item => Number(item.id) === Number(agencyId)) || {
+    joinCode: String(joinCode || '').trim()
+  };
+  const provider = selectDefaultPgProvider(providers, agency);
   return {
     provider: provider || null,
-    rule: matchedRule || null,
+    rule: null,
     date,
     weekday
   };
@@ -15830,6 +15755,11 @@ function isSmsVerified(phone) {
   return Boolean(entry?.verifiedAt && Date.now() <= entry.expiresAt);
 }
 
+function aligoSmsByteLength(message) {
+  return [...String(message || '')]
+    .reduce((bytes, character) => bytes + (character.charCodeAt(0) > 0x7f ? 2 : 1), 0);
+}
+
 async function sendAligoSms(receiver, message, options = {}) {
   if (!isAligoConfigured()) {
     throw Object.assign(new Error('ALIGO_CONFIG_MISSING'), {
@@ -15838,7 +15768,7 @@ async function sendAligoSms(receiver, message, options = {}) {
     });
   }
 
-  const messageType = Buffer.byteLength(message, 'utf8') > 90 ? 'LMS' : 'SMS';
+  const messageType = aligoSmsByteLength(message) > 90 ? 'LMS' : 'SMS';
   const form = new URLSearchParams({
     key: ALIGO_API_KEY,
     user_id: ALIGO_USER_ID,
@@ -16532,9 +16462,10 @@ async function enqueueAccountApprovalSms(source, id, userId) {
 
 function publicUser(user) {
   const isAdmin = user.role === 'ADMIN';
+  const isAgency = user.role === 'AGENCY';
   const adminLevel = normalizeAdminLevel(user.adminLevel);
   const adminPermissions = normalizeAdminPermissions(user.adminPermissions, adminLevel);
-  const approvalState = isAdmin
+  const approvalState = isAdmin || isAgency
     ? 'APPROVED'
     : user.role === 'OWNER'
       ? 'APPROVED'

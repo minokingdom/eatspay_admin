@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -9,9 +9,10 @@
 <link rel="stylesheet" href="/admin-assets/css/admin-common.css?v=20260704-provider-export-flat">
 <script src="/admin-assets/js/admin-agency-tree.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
-<script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260709-agency-safe-fields"></script>
+<script src="/admin-assets/js/admin-date-time.js?v=20260715-list-date-time1"></script>
+<script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260715-franchise-export"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260711-account-proof-digit-overlay"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260715-account-detail-cleanup"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -24,11 +25,14 @@
 <script src="/admin-assets/js/admin-payments.js?v=20260701-ch-payway-absolute-start"></script>
 <script src="/admin-assets/js/admin-pg-settlements.js?v=20260701-pg-auth-code"></script>
 <script src="/admin-assets/js/admin-agency-settlement-calculator.js?v=20260709-agent-fee-scope"></script>
-<script src="/admin-assets/js/admin-agency-settlements.js?v=20260707-income-tax"></script>
+<script src="/admin-assets/js/admin-agency-settlements.js?v=20260715-payout-cycle1"></script>
 <script src="/admin-assets/js/admin-my-url.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-fees.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-installments.js?v=20260703-installment-max6"></script>
-<script defer src="/admin-assets/js/admin-modules.js?v=20260711-popup-preview2"></script>
+<script src="/assets/user-guide/guide-data.js?v=20260716-guide5"></script>
+<script src="/assets/user-guide/guide-renderer.js?v=20260716-guide5"></script>
+<script src="/admin-assets/js/admin-user-guide.js?v=20260716-guide5"></script>
+<script defer src="/admin-assets/js/admin-modules.js?v=20260715-account-cleanup"></script>
 <script defer src="/admin-assets/js/admin-itzbi.js?v=20260709-itzbi-open-state"></script>
 <script>
 try{
@@ -48,7 +52,7 @@ try{
     banners:"배너 관리", homepageAnalytics:"홈페이지 분석", legalDocs:"개인정보/약관", faqs:"FAQ 관리", installments:"무이자 할부", auditLogs:"변경 기록", push:"푸시알림", messageQueue:"메시지 큐",
     pg:"PG사 관리", admins:"관리자 계정", eatsgoAdmin:"이츠고",
     notices:"공지사항", guides:"이용가이드", announcements:"이츠페이 알림장", talk:"이츠톡 관리",
-    urlMgmt:"가입 URL 관리", myUrl:"내 가입 URL",
+    urlMgmt:"가입 URL 관리", myUrl:"내 가입 URL", agencyGuide:"사용 가이드",
   },
   roles:[
     {key:"SUPER",name:"총괄 관리자",desc:"모든 기능 + 관리자 계정 생성/삭제",color:"#EF4444"},
@@ -60,9 +64,10 @@ try{
   pgAssignmentRules:[],
 };
 </script>
-<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260711-account-proof-digit-gutter">
+<link rel="stylesheet" href="/admin-assets/css/admin-main.css?v=20260715-account-cleanup">
 <link rel="stylesheet" href="/admin-assets/css/admin-design-studio.css?v=20260712-ai11">
 <link rel="stylesheet" href="/admin-assets/css/admin-itzbi.css?v=20260709-itzbi-white">
+<link rel="stylesheet" href="/assets/user-guide/user-guide.css?v=20260716-guide5">
 </head>
 <body>
 <div class="app">
@@ -454,7 +459,7 @@ function accountHasCompleteRouteupExternalKeys(account={},franchise={}){
   );
 }
 function accountPendingApproval(account,franchise={}){
-  if(accountHasCompleteRouteupExternalKeys(account,franchise))return false;
+  if(franchiseAccountHasApprovalCredentials(account,franchise))return false;
   const raw=String(account?.approvalStatus||account?.status||'').toUpperCase();
   if(['PENDING','APPROVED','REJECTED'].includes(raw))return raw==='PENDING';
   return account?.accountStatus==='승인대기'&&!String(account?.exportReadyAt||'').trim();
@@ -634,6 +639,7 @@ const AG_NAV=[
   {s:'결제'},{id:'payments',sub:1},{id:'settlements',sub:1},
   {s:'가맹점'},{id:'franchises',sub:1},
   {s:'내 URL'},{id:'myUrl',sub:1},
+  {s:'도움말'},{id:'agencyGuide',sub:1},
 ];
 const ADMIN_LEVEL_PAGES={
   SUPER:null,
@@ -711,6 +717,8 @@ function setRole(r){
   syncRoleToggleUi();
   if(r==='agent'&&!selectedAgencyId)selectedAgencyId=defaultAgentAgencyId();
   if(r==='agent')window._settleAgId=selectedAgencyId||'';
+  if(r==='hq')window._settleAgId='';
+  resetAgencySettlementPagination();
   page=firstAllowedPage();
   renderNav();
   renderPage();
@@ -1205,14 +1213,15 @@ function getUpcomingFriday(referenceDate=new Date()){
 }
 function getAgencySettlementCycle(referenceDate=new Date()){
   const base=new Date(referenceDate.getFullYear(),referenceDate.getMonth(),referenceDate.getDate());
-  const weekStart=addDateDays(base,-((base.getDay()+6)%7));
+  const currentWeekStart=addDateDays(base,-((base.getDay()+6)%7));
+  const weekStart=addDateDays(currentWeekStart,-7);
   const weekEnd=addDateDays(weekStart,6);
   const payout=addDateDays(weekStart,11);
   return {
     payoutDate:dateInputValue(payout),
     startDate:dateInputValue(weekStart),
     endDate:dateInputValue(weekEnd),
-    rule:'금주 월요일부터 일요일까지의 거래를 1주 뒤 금요일에 지급합니다.'
+    rule:'전주 월요일부터 일요일까지의 거래를 이번 주 금요일에 지급합니다.'
   };
 }
 function v(id){const el=document.getElementById(id);return el?el.value:'';}
@@ -1971,7 +1980,11 @@ function pgDash(){
       <div class="admin-pending-meta">${p.fagency||'-'} | ${p.agency||'-'}</div>
       <div class="admin-pending-account"><span class="pend-label">가상계좌</span>&nbsp;&nbsp;<span class="admin-mono">${p.accountNo||'미입력'}</span></div>
     </div>
-    <button type="button" class="btn bg2 xs" data-admin-action="fr-account-detail" data-fr-account-idx="${p.idx}" data-fr-id="${esc(p.fid)}">🔍 확인</button>
+    <div class="admin-pending-actions">
+      <button type="button" class="btn bg2 xs" data-admin-action="fr-account-detail" data-fr-account-idx="${p.idx}" data-fr-id="${esc(p.fid)}">🔍 확인</button>
+      <button type="button" class="btn bo xs" data-admin-action="fr-account-action" data-fr-action="force-reset" data-fr-account-idx="${p.idx}" data-fr-id="${esc(p.fid)}">강제 초기화</button>
+      <button type="button" class="btn bd xs" data-admin-action="fr-account-action" data-fr-action="remove" data-fr-account-idx="${p.idx}" data-fr-id="${esc(p.fid)}">목록에서 제거</button>
+    </div>
   </div>`).join('')+pendingPager:`<div class="emp admin-empty-spacious">${dashboardAccountEmptyText}</div>`}</div></div>
   `;
 }
@@ -2423,7 +2436,7 @@ function ensureSettlementFilters(){
   }
   if(window._settleAgId===undefined)window._settleAgId='';
   const scope=role==='agent'?'agent':'hq';
-  const defaultRange='week';
+  const defaultRange='settlementCycle';
   if(window._settleDefaultScope!==scope||!window._settleSd||!window._settleEd){
     setSettlementRange(defaultRange,false);
     window._settleDefaultScope=scope;
@@ -2775,7 +2788,7 @@ function pgFr(){
     <div class="franchise-list-main">
       ${role==='hq'?`<div class="franchise-list-head"><button type="button" class="btn bo" data-admin-action="fr-bulk-template">대량등록 양식</button><button type="button" class="btn bo" data-admin-action="fr-bulk-upload">대량등록 업로드</button><button type="button" class="btn bg2" data-admin-action="fr-add">+ 가맹점 추가</button></div>`:''}
       <div class="card">
-        <div class="ch"><span class="franchise-list-title">가맹점 목록</span><span class="admin-card-tools franchise-list-tools"><span id="fr-result-count" class="bdg bg franchise-result-count">0건</span><label class="admin-inline-select franchise-page-size-label">표시 <select class="fs" id="fr-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="franchise-list-pager"><button type="button" class="btn bo xs" data-fr-page="prev">이전</button><span id="fr-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-fr-page="next">다음</button></span><button type="button" class="btn bg2 xs" data-fr-export="1">내보내기</button></span></div>
+        <div class="ch"><span class="franchise-list-title">가맹점 목록</span><span class="admin-card-tools franchise-list-tools"><span id="fr-result-count" class="bdg bg franchise-result-count">0건</span><label class="admin-inline-select franchise-page-size-label">표시 <select class="fs" id="fr-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="franchise-list-pager"><button type="button" class="btn bo xs" data-fr-page="prev">이전</button><span id="fr-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-fr-page="next">다음</button></span><button type="button" class="btn bg2 xs" data-fr-export="1">엑셀로 내보내기</button></span></div>
         <div class="tw franchise-table"><table><thead><tr><th>가맹점명</th><th>대리점</th><th>대표자</th><th>연락처</th><th>가입일</th><th>배달대행사</th><th>계좌상태</th><th>은행명</th><th>계좌번호</th><th>카드별칭</th><th>카드명</th><th>최근결제</th><th>카드상태</th><th>계정삭제</th></tr></thead><tbody id="fb"></tbody></table></div>
       </div>
     </div>
@@ -2854,12 +2867,7 @@ function franchiseCardItems(f){
 }
 function franchiseCardProviderId(card){return String(card?.pgProviderId||card?.pg_provider_id||card?.providerId||'').trim();}
 function franchiseCurrentProviderId(f){return String(f?.pgProviderId||f?.pg_provider_id||f?.providerId||'').trim();}
-function franchiseIsCurrentVisibleCard(f,card){
-  if(!card||card.hidden===true||card.active===false)return false;
-  const currentProviderId=franchiseCurrentProviderId(f);
-  if(!currentProviderId)return true;
-  return franchiseCardProviderId(card)===currentProviderId;
-}
+function franchiseIsCurrentVisibleCard(f,card){return Boolean(card&&card.hidden!==true&&card.active!==false);}
 function deliveryAccountVisibleKey(account){
   const fn=eatsFrUtils().deliveryAccountVisibleKey;
   if(typeof fn==='function')return fn(account);
@@ -2944,29 +2952,33 @@ function franchiseVisibleAccountStatus(f){
   if(accounts.some(a=>a.accountStatus==='반려'))return'반려';
   if(accounts.some(a=>a.accountStatus==='승인대기'&&!franchiseAccountHasApprovalCredentials(a,f)))return'승인대기';
   if(accounts.some(a=>a.accountStatus==='승인완료'&&franchiseAccountHasApprovalCredentials(a,f)))return'승인완료';
-  if(accounts.some(a=>a.accountStatus==='승인대기'&&accountHasCompleteRouteupExternalKeys(a,f)))return'승인완료';
+  if(accounts.some(a=>a.accountStatus==='승인대기'&&franchiseAccountHasApprovalCredentials(a,f)))return'승인완료';
   if(accounts.some(a=>a.accountStatus==='승인완료'))return'승인대기';
   return accounts[0]?.accountStatus||'미등록';
 }
-function franchiseAccountHasTidKey(account={}){
+function franchiseAccountHasTidKey(account={},providerName=''){
+  const selectedProvider=accountPgProviderName(providerName);
   const contracts=Array.isArray(account.pgContracts)?account.pgContracts:[];
   if(contracts.some(contract=>{
     const provider=accountPgProviderName(contract.providerName);
-    if(provider==='위루트')return Boolean(contract.mid&&contract.tid&&(contract.hasPaymentKey||contract.paymentKey||contract.paymentKeyMasked));
+    if(selectedProvider&&provider!==selectedProvider)return false;
+    if(provider==='위루트')return Boolean(contract.tid&&(contract.hasPaymentKey||contract.paymentKey||contract.paymentKeyMasked));
     if(provider==='GH Payments')return contract.credentialType==='recurring'&&Boolean(contract.tid&&(contract.hasPaymentKey||contract.paymentKey||contract.paymentKeyMasked));
     return Boolean(contract.tid&&(contract.hasPaymentKey||contract.paymentKey||contract.paymentKeyMasked));
   }))return true;
+  if(selectedProvider&&selectedProvider!=='GH Payments')return false;
   return Boolean(String(account.recurringTid||account.txid||'').trim()&&(account.hasRecurringKey===true||String(account.recurringKeyMasked||'').trim()));
 }
 function franchiseAccountHasApprovalCredentials(account={},f={}){
   const provider=accountPgProviderName(account?.pgProviderName||f?.pgProviderName||'');
-  if(provider==='위루트')return accountHasCompleteRouteupExternalKeys(account,f);
-  return franchiseAccountHasTidKey(account)||accountHasCompleteRouteupExternalKeys(account,f);
+  if(provider==='위루트')return accountHasCompleteRouteupExternalKeys(account,f)&&franchiseAccountHasTidKey(account,'위루트');
+  if(provider==='GH Payments')return franchiseAccountHasTidKey(account,'GH Payments');
+  return franchiseAccountHasTidKey(account);
 }
 function franchiseAccountDisplayStatus(account,f){
   const raw=String(account?.accountStatus||franchiseVisibleAccountStatus(f)||'미등록');
   if(role!=='hq')return raw;
-  if(raw==='승인대기'&&accountHasCompleteRouteupExternalKeys(account,f))return'승인완료';
+  if(raw==='승인대기'&&franchiseAccountHasApprovalCredentials(account,f))return'승인완료';
   if(raw==='승인완료'&&!franchiseAccountHasApprovalCredentials(account,f))return'승인대기';
   return raw;
 }
@@ -3526,64 +3538,113 @@ function rFr(){
     <td class="franchise-delete-cell">${franchiseDeleteButton(f,'btn bd xs')||'-'}</td>
   </tr>`}).join('')||'<tr><td colspan="14" class="emp">검색 결과 없음</td></tr>';
 }
-function downloadFilteredFranchisesExcel(){
+async function downloadFilteredFranchisesExcel(button=null){
   refreshFranchiseFiltersFromDom();
   const {rows}=getFilteredFranchiseRows();
-  const headers=['가맹점명','로그인 ID','대리점','대표자','연락처','가입일','배달대행사','계좌상태','은행명','계좌번호','정기 TID','정기 Key','수기 TID','수기 Key','카드별칭','카드명','최근결제'];
-  const bodyRows=[];
-  rows.forEach(f=>{
-    const lines=franchiseSortedDisplayLines(f);
-    const safeLines=lines.length?lines:[{card:null,accountEntry:null,matchedPaymentDate:''}];
-    safeLines.forEach(line=>{
-      const account=line.accountEntry?.account||{};
-      const card=line.card||{};
-      const cardLast=String(card.cardLast4||card.maskedNumber||card.cardNumber||'').replace(/[^0-9]/g,'').slice(-4);
-      const cardName=String(card.cardCompany||card.cardName||'').trim();
-      bodyRows.push([
-        f.name||'',
-        f.loginId||f.customerId||displayMemberId(f.email)||'',
-        f.agency||agencyNameById(f.agencyId)||'',
-        f.owner||'',
-        f.phone||'',
-        f.joinDate||dateOnly(f.createdAt)||'',
-        account.agency||account.agencyName||f.deliveryAgency||f.deliveryCompany||'',
-        franchiseAccountDisplayStatus(account,f),
-        franchiseBankDisplay(account),
-        account.accountNo||account.virtualAccountNo||'',
-        account.recurringTid||account.txid||'',
-        account.recurringKeyMasked||'',
-        account.manualTid||'',
-        account.manualKeyMasked||'',
-        card.alias||card.cardAlias||'',
-        cardName&&cardLast?`${cardName} ****-${cardLast}`:(cardName||cardLast||''),
-        franchiseDisplayLineDate(line)||''
-      ]);
+  if(!rows.length){
+    await adminAlert('현재 필터 조건에 해당하는 가맹점이 없습니다.');
+    return;
+  }
+  const buildRows=eatsFrListUtils().buildFranchiseExportRows;
+  if(typeof buildRows!=='function'){
+    await adminAlert('가맹점 엑셀 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+  const originalText=button?.textContent||'엑셀로 내보내기';
+  if(button){button.disabled=true;button.textContent='엑셀 생성 중...';}
+  try{
+    const exportRows=buildRows(rows,{
+      visibleAccountEntries:franchiseVisibleAccountEntries,
+      cardItems:franchiseVisibleCardItems,
+      accountStatus:franchiseAccountStatus,
+      accountDisplayStatus:franchiseAccountDisplayStatus,
+      bankDisplay:franchiseBankDisplay,
+      displayMemberId,
+      dateOnly,
+      agencyName:f=>f?.agency||agencyNameById(f?.agencyId)||'',
+      latestPaymentDate:f=>franchiseSortedDisplayLines(f).map(franchiseDisplayLineDate).filter(Boolean).sort().pop()||'',
+      cardPaymentDate:franchisePaymentDateForCard
     });
-  });
-  const filterSummary=[
-    franchiseFilters.q?`검색어: ${franchiseFilters.q}`:'',
-    franchiseFilters.accountStatus?`계좌상태: ${franchiseFilters.accountStatus}`:'',
-    franchiseFilters.cardFilter?`카드등록: ${franchiseFilters.cardFilter==='yes'?'등록':'미등록'}`:'',
-    franchiseFilters.joinStart||franchiseFilters.joinEnd?`가입일: ${franchiseFilters.joinStart||'전체'} ~ ${franchiseFilters.joinEnd||'전체'}`:'',
-    franchiseFilters.payStart||franchiseFilters.payEnd?`최근결제: ${franchiseFilters.payStart||'전체'} ~ ${franchiseFilters.payEnd||'전체'}`:''
-  ].filter(Boolean).join(' / ')||'전체';
-  const thead=`<tr>${headers.map(h=>`<th>${xlsEscape(h)}</th>`).join('')}</tr>`;
-  const tbody=bodyRows.length
-    ? bodyRows.map(row=>`<tr>${row.map(cell=>`<td>${xlsEscape(cell)}</td>`).join('')}</tr>`).join('')
-    : `<tr><td colspan="${headers.length}">검색 결과가 없습니다.</td></tr>`;
-  const html=`<!doctype html><html><head><meta charset="UTF-8"></head><body>
-    <h3>이츠페이 가맹점 목록</h3>
-    <p>${xlsEscape(filterSummary)}</p>
-    <table border="1"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
-  </body></html>`;
-  const blob=new Blob(['\ufeff',html],{type:'application/vnd.ms-excel;charset=utf-8;'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`eatspay_franchises_${today()}.xls`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(a.href),500);
+    const fileName=`eatspay_franchises_${today()}`;
+    const res=await fetch('/api/admin/exports/settlement.xlsx',{
+      method:'POST',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({
+        fileName,
+        sheets:[
+          {
+            name:'가맹점 요약',
+            columns:[
+              {key:'franchiseId',header:'가맹점 ID',width:14},
+              {key:'franchiseName',header:'가맹점명',width:24},
+              {key:'loginId',header:'로그인 ID',width:18},
+              {key:'agency',header:'대리점',width:20},
+              {key:'owner',header:'대표자',width:14},
+              {key:'phone',header:'연락처',width:16},
+              {key:'joinDate',header:'가입일',width:13},
+              {key:'accountStatus',header:'계좌 상태',width:13},
+              {key:'accountCount',header:'계좌 수',type:'number',width:10},
+              {key:'cardCount',header:'카드 수',type:'number',width:10},
+              {key:'recentPayment',header:'최근 결제일',width:14},
+              {key:'memberStatus',header:'회원 상태',width:14}
+            ],
+            rows:exportRows.summaryRows
+          },
+          {
+            name:'계좌 상세',
+            columns:[
+              {key:'franchiseId',header:'가맹점 ID',width:14},
+              {key:'franchiseName',header:'가맹점명',width:24},
+              {key:'agency',header:'대리점',width:20},
+              {key:'deliveryAgency',header:'배달대행사',width:18},
+              {key:'accountStatus',header:'계좌 상태',width:13},
+              {key:'bankName',header:'은행명',width:16},
+              {key:'accountNo',header:'계좌번호',width:22},
+              {key:'accountHolder',header:'예금주',width:15},
+              {key:'recurringTid',header:'정기 TID',width:18},
+              {key:'recurringKey',header:'정기 Key',width:18},
+              {key:'manualTid',header:'수기 TID',width:18},
+              {key:'manualKey',header:'수기 Key',width:18}
+            ],
+            rows:exportRows.accountRows
+          },
+          {
+            name:'카드 상세',
+            columns:[
+              {key:'franchiseId',header:'가맹점 ID',width:14},
+              {key:'franchiseName',header:'가맹점명',width:24},
+              {key:'agency',header:'대리점',width:20},
+              {key:'alias',header:'카드 별칭',width:18},
+              {key:'cardCompany',header:'카드사',width:16},
+              {key:'cardLast4',header:'카드번호 끝 4자리',width:18},
+              {key:'cardStatus',header:'카드 상태',width:13},
+              {key:'recentPayment',header:'최근 결제일',width:14}
+            ],
+            rows:exportRows.cardRows
+          }
+        ]
+      })
+    });
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok){
+      const errorBody=await res.json().catch(()=>({}));
+      throw new Error(errorBody.error?.message||errorBody.message||'가맹점 엑셀 다운로드에 실패했습니다.');
+    }
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`eatspay_franchises_${today()}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast('가맹점 엑셀을 다운로드했습니다.');
+  }catch(e){
+    await adminAlert(e.message||'가맹점 엑셀 다운로드에 실패했습니다.');
+  }finally{
+    if(button){button.disabled=false;button.textContent=originalText;}
+  }
 }
 async function changeFrStatus(id,newStatus,selectEl){
   const f=D.franchises.find(x=>String(x.id)===String(id));
@@ -4120,7 +4181,7 @@ function franchisePgProviderOptions(selectedId=''){
     .filter(provider=>provider.status==='활성'||String(provider.id)===selected)
     .slice()
     .sort((a,b)=>(Number(a.displayOrder||0)-Number(b.displayOrder||0))||String(a.name||'').localeCompare(String(b.name||'')));
-  return `<option value="">메인 PG 자동</option>${activeProviders.map(provider=>`<option value="${esc(provider.id)}" ${String(provider.id)===selected?'selected':''}>${esc(provider.name)}${provider.status==='활성'?'':` (${esc(provider.status||'비활성')})`}</option>`).join('')}`;
+  return `<option value="">소속 기준 자동</option>${activeProviders.map(provider=>`<option value="${esc(provider.id)}" ${String(provider.id)===selected?'selected':''}>${esc(provider.name)}${provider.status==='활성'?'':` (${esc(provider.status||'비활성')})`}</option>`).join('')}`;
 }
 function franchiseForm(f={},roDA){const isNew=!f.id;const currentAgencyId=f.agencyId||'';const currentFee=selectedAgencyFeeRate(currentAgencyId);const formEmail=validEmailValue(f.email)||validEmailValue(f.contactEmail);const initialPgFee=franchisePgFeeRateByProvider(f.pgProviderId||'',f.pgProviderName||'');return`
   <div class="franchise-form">
@@ -4130,7 +4191,7 @@ function franchiseForm(f={},roDA){const isNew=!f.id;const currentAgencyId=f.agen
   <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명 *</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">사업자등록번호 *</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div><div class="fg"><label class="fl">상위대리점</label>${franchiseAgencyTypeFilterHtml()}<select class="admin-hidden-input" id="fagencyid" data-fr-agency-select="1">${agencyOptions(f.agencyId,f.agency)}</select>${franchiseAgencyPickerHtml(f.agencyId,f.agency)}</div></div>
   <div class="fr2"><div class="fg"><label class="fl">연락처</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">상위대리점 영업수수료율 (%)</label><input class="fi" id="ffee" type="number" step="0.01" min="0" max="99.99" value="${currentFee?Number(currentFee).toFixed(2):''}" placeholder="상위대리점 선택 시 표시" readonly aria-readonly="true"><div class="admin-modal-note">본사 기준 건흥 1.98%, 위루트 2.2% 기준입니다.</div></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">PG사</label><select class="fs" id="fpgprovider">${franchisePgProviderOptions(f.pgProviderId||'')}</select><div class="admin-modal-note">PG사를 변경하면 기존 등록 카드는 사용할 수 없어 재등록이 필요합니다.</div><div class="admin-modal-note" id="fr-pg-fee-note"></div></div><div class="fg"><label class="fl">가맹점 PG 수수료율 (%)</label><input class="fi" id="fpgfee" type="number" step="0.01" value="${initialPgFee.toFixed(2)}" readonly aria-readonly="true"><div class="admin-modal-note">결제·정산 기준 수수료입니다.</div></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">PG사</label><select class="fs" id="fpgprovider">${franchisePgProviderOptions(f.pgProviderId||'')}</select><div class="admin-modal-note">자동 선택은 본사 위루트, 지사·지점 건흥입니다. PG 변경 시 등록 카드는 유지되고 계좌·TID만 현재 PG 승인값을 따릅니다.</div><div class="admin-modal-note" id="fr-pg-fee-note"></div></div><div class="fg"><label class="fl">가맹점 PG 수수료율 (%)</label><input class="fi" id="fpgfee" type="number" step="0.01" value="${initialPgFee.toFixed(2)}" readonly aria-readonly="true"><div class="admin-modal-note">결제·정산 기준 수수료입니다.</div></div></div>
   <div class="fg"><label class="fl">주소</label><div class="franchise-address-line"><input class="fi" id="faddr" value="${f.address||''}" placeholder="도로명주소" readonly><button type="button" class="btn bo" data-admin-action="fr-address-search">주소검색</button></div></div>
   <div class="fg"><label class="fl">상세주소</label><input class="fi" id="fdetailaddr" value="${f.tel||''}" placeholder="동/호수, 층, 기타 상세주소"></div>
   <div class="fg"><label class="fl">비고 메모</label><textarea class="fi" id="fnote" rows="3" maxlength="1000" placeholder="관리자 내부 메모">${esc(f.note||'')}</textarea><div class="admin-modal-note">가맹점 상세에 표시되는 관리자 메모입니다. 최대 1000자까지 저장됩니다.</div></div>
@@ -4315,12 +4376,6 @@ async function savF(id){
   if(payload.email&&!validEmailValue(payload.email)){showFranchiseFormError('이메일 형식을 확인해 주세요.','fe');return;}
   if(!payload.loginId){showFranchiseFormError('로그인 ID를 입력하세요.','flogin');return;}
   if(!id&&!payload.password){showFranchiseFormError('비밀번호를 입력하세요.','fpw');return;}
-  if(id){
-    const current=D.franchises.find(x=>String(x.id)===String(id))||{};
-    if(String(current.pgProviderId||'')!==String(payload.pgProviderId||'')&&Number(current.cardCount||0)>0){
-      if(!await adminConfirm('PG사를 변경하면 기존 등록 카드는 사용할 수 없어 가맹점이 카드를 다시 등록해야 합니다. 계속 변경하시겠습니까?','PG사 변경 주의'))return;
-    }
-  }
   const missingBankAccount=editingAgencies.find(a=>a.source!=='account_request'&&a.agency&&a.accountNo&&!normalizedDABankName(a));
   if(missingBankAccount){await adminAlert(`${missingBankAccount.agency} 계좌의 은행명을 입력해 주세요.`);return;}
   try{
@@ -4413,7 +4468,7 @@ async function savF(id){
     await syncBackendTransactions();
     closeM();
     render();
-    toast(json.data?.cardReRegistrationRequired?'가맹점 정보가 수정되었습니다. 기존 카드는 재등록이 필요합니다.':(id?'가맹점 정보가 수정되었습니다.':'가맹점이 추가되었습니다.'));
+    toast(id?'가맹점 정보가 수정되었습니다.':'가맹점이 추가되었습니다.');
   }catch(e){
     console.error(e);
     showFranchiseFormError(e.message||'가맹점 저장에 실패했습니다.');
@@ -4553,7 +4608,7 @@ function rAcc(){
   const filters=window.EatsAdminAccounts.collectAccountFilters({agencyQ:_sddSel.acda});
   const rows=window.EatsAdminAccounts.filterAccountRows(D.franchises,filters);
   const pageRows=applyPagination(rows,accountPagination,'account');
-  el.innerHTML=window.EatsAdminAccounts.renderAccountRows(pageRows,{esc,bdg});
+  el.innerHTML=window.EatsAdminAccounts.renderAccountRows(pageRows,{esc,bdg,dateTimeHtml:window.EatsAdminDateTime.html});
 }
 
 function getManagedAccount(fid,idx){
@@ -5145,6 +5200,7 @@ const myUrlCtx=()=>{
   return{agency:ag,url,esc};
 };
 function pgMyUrl(){return window.EatsAdminMyUrl.pgMyUrl(myUrlCtx());}
+function pgAgencyGuide(){return window.EatsAdminUserGuide.pgAgencyGuide();}
 function pgAg(){return`
   <div class="admin-toolbar">
     <div class="aw aw-g admin-toolbar-note">대리점은 DB에 저장된 본사/본부/지사/지점 트리 기준으로 표시됩니다. 1단계는 조직만, 2단계는 가맹점까지 함께 표시합니다.</div>
@@ -5783,7 +5839,7 @@ function pgDeliveryMgmt(){
     </div>
     <button class="btn bg2" type="button" data-admin-action="da-add">+ 배달대행사 추가</button>
   </div>
-  <div class="aw admin-note-spaced">배달대행사는 앱 계좌 등록 화면의 선택 목록과 연결됩니다. 가입 불가 상태는 선택 시 고객센터 문의 안내로 표시됩니다.</div>
+  <div class="aw admin-note-spaced">배달대행사는 앱/웹 계좌 등록 화면의 선택 목록과 연결됩니다. 가입 불가 상태는 앱/웹 선택 목록에 노출되지 않습니다.</div>
   <div class="card"><div class="tw"><table class="delivery-agency-table">
     <thead><tr>
       <th>${daSortHeader('logo','로고')}</th>
@@ -6341,8 +6397,8 @@ function pgAdvanceInquiries(){
   return`
   <div class="card">
     <div class="ch"><span class="admin-section-head-text">선정산 문의 <span class="tg">${rows.length}건</span></span></div>
-    <div class="tw"><table><thead><tr><th>상태</th><th>가맹점</th><th>연락처</th><th>이메일</th><th>배달앱 매출</th><th>카드사 매출</th><th>이용 배달앱</th><th>접수일</th><th>처리</th></tr></thead><tbody>
-    ${rows.map(i=>`<tr><td>${bdg(i.status||'상담 대기')}</td><td class="admin-text-bold">${esc(i.franchiseName||'-')}</td><td>${esc(i.phone||'-')}</td><td>${esc(i.email||'-')}</td><td>${manwonLabel(i.deliverySalesManwon)}</td><td>${manwonLabel(i.storeSalesManwon)}</td><td>${esc(i.deliveryApps||'-')}</td><td>${esc(i.date||String(i.createdAt||'').slice(0,10)||'-')}</td>
+    <div class="tw"><table><thead><tr><th>상태</th><th>가맹점</th><th>연락처</th><th>이메일</th><th>배달앱 매출</th><th>카드사 매출</th><th>이용 배달앱</th><th>접수일시</th><th>처리</th></tr></thead><tbody>
+    ${rows.map(i=>`<tr><td>${bdg(i.status||'상담 대기')}</td><td class="admin-text-bold">${esc(i.franchiseName||'-')}</td><td>${esc(i.phone||'-')}</td><td>${esc(i.email||'-')}</td><td>${manwonLabel(i.deliverySalesManwon)}</td><td>${manwonLabel(i.storeSalesManwon)}</td><td>${esc(i.deliveryApps||'-')}</td><td class="payment-date-cell">${window.EatsAdminDateTime.html(i.createdAt||i.date)}</td>
     <td><div class="admin-action-group">
       ${['상담 대기','상담중','상담 완료','보류'].map(status=>adminActionChip(status,'advance-inquiry-status',`data-advance-inquiry-id="${esc(i.id)}" data-advance-inquiry-status="${esc(status)}"`,status===i.status?'primary':'')).join('')}
       ${adminActionChip('삭제','advance-inquiry-delete',`data-advance-inquiry-id="${esc(i.id)}"`,'danger')}
@@ -8544,7 +8600,7 @@ function bnF(b={}){
       <div><div class="banner-builder-title">${isPopup?'세로 팝업 이미지 제작':'배너 이미지 제작'}</div><div class="banner-builder-desc">${isPopup?'홈페이지 팝업에 들어갈 세로형 카드 이미지를 생성하거나 업로드합니다.':'로고와 문구를 합쳐 앱에 들어갈 한 장의 배너 이미지로 생성합니다.'}</div></div>
       <div class="admin-page-actions"><button type="button" class="btn bo" data-admin-action="design-studio-open" data-studio-kind="${isPopup?'popup':'banner'}" data-studio-design-id="${esc(b.designDocumentId||'')}">디자인 스튜디오</button><button type="button" class="btn bg2 banner-builder-action" data-admin-action="banner-generate-image">이미지 생성</button></div>
     </div>
-    <div class="admin-modal-note">${isPopup?'팝업 이미지는 세로형 카드 비율을 권장합니다. 제목과 설명은 홈페이지 팝업 텍스트에도 함께 표시됩니다.':'웹/앱 배너는 45:8 비율을 권장합니다.'}</div>
+    <div class="admin-modal-note">${isPopup?'팝업 이미지는 세로형 카드 비율을 권장합니다. 제목과 설명은 홈페이지 팝업 텍스트에도 함께 표시됩니다.':'웹/앱 배너는 45:8 표시 영역에 맞춰 원본 비율을 유지하고 잘리지 않게 표시합니다.'}</div>
     <div class="banner-generated-preview-wrap ${imageUrl?'has-image':'is-empty'}">
       <img id="bn-generated-preview" src="${esc(imageUrl)}" alt="">
       <div class="banner-generated-placeholder">
@@ -8556,7 +8612,7 @@ function bnF(b={}){
       <div class="banner-upload-title">완성 이미지 직접 업로드</div>
       <div class="admin-modal-note">디자인툴이나 코덱스에서 만든 배너/팝업 이미지를 그대로 올릴 때 사용합니다.</div>
       <div class="ab banner-upload-row"><input class="fi" id="bn-upload-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><button type="button" class="btn bg2" data-admin-action="banner-upload-image">업로드 적용</button></div>
-      <div class="admin-modal-note">${isPopup?'업로드하면 아래 이미지 URL과 팝업 미리보기에 바로 반영됩니다.':'업로드하면 아래 이미지 URL과 미리보기에 바로 반영됩니다. 배너는 45:8 비율을 권장합니다.'}</div>
+      <div class="admin-modal-note">${isPopup?'업로드하면 아래 이미지 URL과 팝업 미리보기에 바로 반영됩니다.':'업로드하면 아래 이미지 URL과 미리보기에 바로 반영됩니다. 45:8 표시 영역에 맞춰 원본 비율을 유지하고 잘리지 않게 표시합니다.'}</div>
     </div>
     <div class="fr2 banner-builder-controls"><div class="fg"><label class="fl">디자인시스템</label><div class="admin-design-system-picker"><select class="fs" id="bn-design-set">${designSetOptions(b.designSetId||'')}</select><button type="button" class="btn bo" data-admin-action="design-set-add">만들기</button></div><div class="admin-modal-note">먼저 디자인시스템을 만들어두면 배너/팝업 생성 때 같은 톤과 규칙을 반복 적용할 수 있습니다.</div></div><div class="fg"><label class="fl">생성 스타일</label><select class="fs" id="bnstyle"><option value="premium">그린 라이트</option><option value="clean">심플 카드</option><option value="blue">블루 포인트</option><option value="warm">웜 그린</option></select></div></div>
     <div class="fg"><label class="fl">생성용 로고 파일</label><input class="fi" id="bn-logo-file" type="file" accept="image/png,image/jpeg"><div class="admin-modal-note">이미지 생성 버튼을 사용할 때만 필요한 로고입니다. 완성 이미지를 올릴 때는 위 업로드 영역만 사용하세요.</div></div>
@@ -8589,9 +8645,9 @@ const POPUP_TEMPLATE_DEFAULT={
   benefit2TitleHtml:'',
   benefit2Desc:'필요한 기간만 부담 없이 이용',
   benefit2DescHtml:'',
-  benefit3Title:'투명한 수수료 1.1%',
+  benefit3Title:'투명한 수수료 1.5% (부가세 별도)',
   benefit3TitleHtml:'',
-  benefit3Desc:'부가세 포함 기준으로 안내',
+  benefit3Desc:'이용수수료 기준으로 안내',
   benefit3DescHtml:'',
   benefit4Title:'신용등급 보호',
   benefit4TitleHtml:'',
@@ -9246,6 +9302,9 @@ function fmtAnalyticsTime(value){
   if(Number.isNaN(d.getTime()))return'-';
   return d.toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 }
+function homepageAnalyticsDailyNewestFirst(rows=[]){
+  return [...(Array.isArray(rows)?rows:[])].sort((a,b)=>String(b?.date||'').localeCompare(String(a?.date||'')));
+}
 function homepageAnalyticsEmptyRow(label='아직 수집된 데이터가 없습니다.',cols=3){
   return `<tr><td colspan="${cols}" class="mut">${esc(label)}</td></tr>`;
 }
@@ -9309,7 +9368,7 @@ function pgHomepageAnalytics(){
   const totals=report.totals||{};
   const eventRows=Array.isArray(report.events)?report.events:[];
   const referrerRows=Array.isArray(report.referrers)?report.referrers:[];
-  const dailyRows=Array.isArray(report.daily)?report.daily:[];
+  const dailyRows=homepageAnalyticsDailyNewestFirst(report.daily);
   const recentRows=Array.isArray(report.recent)?report.recent:[];
   const clickRows=eventRows.filter(row=>row.eventName&&row.eventName!=='page_view');
   const referrerPage=homepageAnalyticsPageState('trafficSources',referrerRows);
@@ -10336,7 +10395,7 @@ async function saveAuditNotificationPreference(category,enabled){
 // ═══ 렌더 ═══
 function renderPage(){
   window.EatsAdminMessageQueue?.stopMessageQueueMonitor();
-  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,legalDocs:pgLegalDocs,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,announcements:pgAnnouncements,talk:pgTalk,admins:pgAdmins,pg:pgPG,installments:pgInst,auditLogs:pgAuditLogs,push:pgPush,messageQueue:pgMessageQueue,inquiries:pgInquiries,advanceInquiries:pgAdvanceInquiries,banners:pgBanners,homepageAnalytics:pgHomepageAnalytics,eatsgoAdmin:pgEatsgoAdmin,myUrl:pgMyUrl};
+  const m={dashboard:pgDash,payments:pgPay,pgsettle:pgPGSettle,settlements:pgSettle,franchises:pgFr,franchiseDetail:pgFrDetail,accounts:pgAccounts,agencies:pgAg,agencyDetail:pgAgDetail,ag_detail:pgAgDetail,deliveryMgmt:pgDeliveryMgmt,legalDocs:pgLegalDocs,faqs:pgFAQ,notices:pgNotices,guides:pgGuides,announcements:pgAnnouncements,talk:pgTalk,admins:pgAdmins,pg:pgPG,installments:pgInst,auditLogs:pgAuditLogs,push:pgPush,messageQueue:pgMessageQueue,inquiries:pgInquiries,advanceInquiries:pgAdvanceInquiries,banners:pgBanners,homepageAnalytics:pgHomepageAnalytics,eatsgoAdmin:pgEatsgoAdmin,myUrl:pgMyUrl,agencyGuide:pgAgencyGuide};
   if(page==='franchiseDetail'){
     const hasDetail=frDetailId&&(D.franchises||[]).some(f=>String(f.id)===String(frDetailId));
     if(!hasDetail){
@@ -10837,11 +10896,15 @@ async function rejectAccount(fid,idx){
   toast(`${f.name} 계좌 반려`);
 }
 
-async function reverifyAccount(fid,idx){
+async function reverifyAccount(fid,idx,options={}){
   const f=D.franchises.find(x=>String(x.id)===String(fid));
   if(!f||!f.deliveryAgencies||!f.deliveryAgencies[idx]){await adminAlert('계좌 요청 정보를 찾지 못했습니다. 새로고침 후 다시 시도해주세요.');return;}
   const da=f.deliveryAgencies[idx];
-  if(!await adminConfirm(`'${f.name}'의 ${da.agency||'출금계좌'} 계좌를 검증전으로 되돌립니다.\n재검증 상태가 되면 내보내기/TID 대상에서 제외됩니다.`))return;
+  const forceReset=options.force===true;
+  const resetMessage=forceReset
+    ? `'${f.name}'의 ${da.agency||'출금계좌'} 검증 정보를 강제 초기화합니다.\n계좌번호와 증빙은 유지되고 검증상태·TID·Key·내보내기 정보가 초기화됩니다.`
+    : `'${f.name}'의 ${da.agency||'출금계좌'} 계좌를 검증전으로 되돌립니다.\n재검증 상태가 되면 내보내기/TID 대상에서 제외됩니다.`;
+  if(!await adminConfirm(resetMessage,forceReset?'계좌 검증 강제 초기화':'계좌 재검증'))return;
   const ident=getManagedAccountIdentity(da);
   if(!da.requestId&&!ident.id){await adminAlert('DB 계좌 ID가 없습니다. 화면을 새로고침한 뒤 다시 시도해주세요.');return;}
 
@@ -10855,7 +10918,8 @@ async function reverifyAccount(fid,idx){
       body: JSON.stringify({
         requestId: da.requestId,
         accountId: ident.id,
-        source: ident.source
+        source: ident.source,
+        force:options.force===true
       })
     });
     if(!res.ok){
@@ -11133,6 +11197,8 @@ document.addEventListener('click',function(ev){
     if(action==='approve')approveAccount(fid,idx);
     if(action==='reject')rejectAccount(fid,idx);
     if(action==='reverify')reverifyAccount(fid,idx);
+    if(action==='force-reset')reverifyAccount(fid,idx,{force:true});
+    if(action==='remove')hideManagedAccount(fid,idx,true);
     return;
   }
   const accountPgContractEditTarget=ev.target.closest('[data-admin-action="account-pg-contract-edit"]');
@@ -11373,7 +11439,7 @@ document.addEventListener('click',function(ev){
   if(frExportTarget){
     ev.preventDefault();
     ev.stopPropagation();
-    downloadFilteredFranchisesExcel();
+    downloadFilteredFranchisesExcel(frExportTarget);
     return;
   }
   const frPageTarget=ev.target.closest('[data-fr-page]');
