@@ -6008,11 +6008,13 @@ function kakaoPgPayloadValue(payload = {}, ...keys) {
 }
 
 function formatKakaoElapsedSeconds(value) {
-  const total = Math.max(0, Math.round(Number(value) || 0));
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return '시간 확인 불가';
+  const total = Math.round(seconds);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  return [hours ? `${hours}시간` : '', minutes ? `${minutes}분` : '', `${seconds}초`].filter(Boolean).join(' ');
+  const remainingSeconds = total % 60;
+  return [hours ? `${hours}시간` : '', minutes ? `${minutes}분` : '', `${remainingSeconds}초`].filter(Boolean).join(' ');
 }
 
 function formatKakaoDailySalesNotification(summary = {}, receivedAt = new Date()) {
@@ -6114,23 +6116,16 @@ app.get('/api/internal/kakao/notification-events', authenticateKakaoTxid, asyncH
          SELECT ps.franchise_name, ps.payment_amt, ps.net_amt, ps.approval_no, ps.pg_tx_id,
                 COALESCE(a.name, NULLIF(ps.agency_name, '')) AS agency_name,
                 t.auth_code,
-                cn.received_at AS settlement_confirmed_at,
-                extract(epoch from (pn.received_at - cn.received_at)) AS transfer_elapsed_seconds
+                t.created_at AS payment_approved_at,
+                ps.settled_at AS deposit_completed_at,
+                extract(epoch from (ps.settled_at - t.created_at)) AS transfer_elapsed_seconds
          FROM pg_settlements ps
          JOIN transactions t ON t.transaction_id = ps.approval_no
          LEFT JOIN agencies a ON a.id = ps.agency_id
-         LEFT JOIN LATERAL (
-           SELECT received_at
-           FROM pg_notifications
-           WHERE event_type = 'CH_PAYWAY_FALLBACK_SETTLED'
-             AND transaction_id = ps.approval_no
-           ORDER BY received_at ASC, id ASC
-           LIMIT 1
-         ) cn ON true
          WHERE NULLIF(regexp_replace(COALESCE(pn.query->>'transAmt', ''), '[^0-9]', '', 'g'), '')::numeric = ps.net_amt
            AND t.created_at <= pn.received_at
            AND pn.received_at <= t.created_at + interval '24 hours'
-           AND (NULLIF(pn.query->>'compNm', '') IS NULL OR ps.franchise_name = pn.query->>'compNm')
+           AND (NULLIF(btrim(pn.query->>'compNm'), '') IS NULL OR btrim(ps.franchise_name) = btrim(pn.query->>'compNm'))
            AND (
              NULLIF(pn.query->>'acctNo', '') IS NULL
              OR NULLIF(ps.account_no, '') IS NULL

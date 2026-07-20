@@ -10,11 +10,18 @@ test('kakao notification emits transfer success only and suppresses settlement c
   assert.doesNotMatch(server, /\u2611 \uc774\uce20\ud398\uc774 \uc815\uc0b0 \ud655\uc778/);
 });
 
-test('transfer success notification contains agency and elapsed settlement-to-transfer time', () => {
+test('transfer success notification uses the same payment and settlement times as admin', () => {
   assert.match(server, /\uc0c1\uc704\ub300\ub9ac\uc810:/);
   assert.match(server, /\uc774\uccb4 \uc18c\uc694\uc2dc\uac04:/);
-  assert.match(server, /settlement_confirmed_at/);
-  assert.match(server, /extract\(epoch from \(pn\.received_at - cn\.received_at\)\)/);
+  assert.match(server, /btrim\(ps\.franchise_name\) = btrim\(pn\.query->>'compNm'\)/);
+  assert.match(server, /t\.created_at AS payment_approved_at/);
+  assert.match(server, /ps\.settled_at AS deposit_completed_at/);
+  assert.match(server, /extract\(epoch from \(ps\.settled_at - t\.created_at\)\)/);
+});
+
+test('missing transfer elapsed time is never rendered as zero seconds', () => {
+  assert.match(server, /if \(!Number\.isFinite\(seconds\) \|\| seconds < 0\) return '\uc2dc\uac04 \ud655\uc778 \ubd88\uac00';/);
+  assert.doesNotMatch(server, /Math\.round\(Number\(value\) \|\| 0\)/);
 });
 
 test('transfer event returns a separate all-franchise daily sales summary', () => {
