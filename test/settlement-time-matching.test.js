@@ -17,3 +17,14 @@ test('settlement list prefers real transfer time and falls back to CH PAYWAY con
   assert.match(repository, /ps_match\.account_no/);
   assert.match(repository, /pn\.received_at <= t\.created_at \+ interval '24 hours'/);
 });
+
+test('GH transfer success replaces only a CH PAYWAY date-only midnight settlement time', () => {
+  assert.match(repository, /ps\.settled_at IS NULL\s+OR\s+\(/);
+  assert.match(
+    repository,
+    /ps\.settled_at = date_trunc\('day', ps\.settled_at AT TIME ZONE 'Asia\/Seoul'\) AT TIME ZONE 'Asia\/Seoul'/
+  );
+  assert.match(repository, /fallback_notification\.event_type = 'CH_PAYWAY_FALLBACK_SETTLED'/);
+  assert.match(repository, /fallback_notification\.transaction_id = ps\.approval_no/);
+  assert.match(repository, /ps\.status IN \('NORMAL_APPROVED', 'PENDING', 'APPROVED', 'SETTLED'\)/);
+});

@@ -5110,8 +5110,19 @@ function createRepository(pool) {
                  SELECT ps.id
                  FROM pg_settlements ps
                  LEFT JOIN transactions t ON t.transaction_id = ps.approval_no
-                 WHERE ps.settled_at IS NULL
-                   AND ps.status IN ('NORMAL_APPROVED', 'PENDING', 'APPROVED')
+                 WHERE (
+                   ps.settled_at IS NULL
+                   OR (
+                     ps.settled_at = date_trunc('day', ps.settled_at AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul'
+                     AND EXISTS (
+                       SELECT 1
+                       FROM pg_notifications fallback_notification
+                       WHERE fallback_notification.event_type = 'CH_PAYWAY_FALLBACK_SETTLED'
+                         AND fallback_notification.transaction_id = ps.approval_no
+                     )
+                   )
+                 )
+                   AND ps.status IN ('NORMAL_APPROVED', 'PENDING', 'APPROVED', 'SETTLED')
                    AND ps.net_amt = $1::numeric
                    AND regexp_replace(COALESCE(ps.account_no, ''), '[^0-9A-Za-z]', '', 'g') = $2
                    AND ($3::text = '' OR btrim(COALESCE(ps.franchise_name, '')) = btrim($3))
