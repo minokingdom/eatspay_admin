@@ -3724,7 +3724,8 @@ function createRepository(pool) {
 
     accountApprovalExportFilters(filters = {}) {
       const params = [];
-      const clauses = [
+      const includeConfigured = filters.includeConfigured === true;
+      const clauses = includeConfigured ? [] : [
         "(COALESCE(recurring_tid, txid, '') = '' OR COALESCE(recurring_key, '') = '')",
         `NOT EXISTS (
           SELECT 1
@@ -3780,6 +3781,9 @@ function createRepository(pool) {
 
     async listAccountApprovalExportRows(filters = {}) {
       const { params, where } = this.accountApprovalExportFilters(filters);
+      const includeAllApproved = filters.includeAllApproved === true;
+      const accountRequestReadyClause = includeAllApproved ? '' : 'AND ar.export_ready_at IS NOT NULL';
+      const deliveryAccountReadyClause = includeAllApproved ? '' : 'AND da.export_ready_at IS NOT NULL';
       const result = await pool.query(
         `WITH export_rows AS (
           SELECT 'account_request' AS source,
@@ -3813,7 +3817,7 @@ function createRepository(pool) {
           LEFT JOIN agencies ON agencies.id = users.agency_id
           LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE ar.status = 'APPROVED'
-            AND ar.export_ready_at IS NOT NULL
+            ${accountRequestReadyClause}
             AND COALESCE(ar.hidden, false) = false
           UNION ALL
           SELECT 'delivery_account' AS source,
@@ -3847,7 +3851,7 @@ function createRepository(pool) {
           LEFT JOIN agencies ON agencies.id = users.agency_id
           LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE da.account_status = 'APPROVED'
-            AND da.export_ready_at IS NOT NULL
+            ${deliveryAccountReadyClause}
             AND COALESCE(da.hidden, false) = false
         )
         SELECT *
@@ -3861,6 +3865,9 @@ function createRepository(pool) {
 
     async countAccountApprovalExportRows(filters = {}) {
       const { params, where } = this.accountApprovalExportFilters(filters);
+      const includeAllApproved = filters.includeAllApproved === true;
+      const accountRequestReadyClause = includeAllApproved ? '' : 'AND ar.export_ready_at IS NOT NULL';
+      const deliveryAccountReadyClause = includeAllApproved ? '' : 'AND da.export_ready_at IS NOT NULL';
       const result = await pool.query(
         `WITH export_rows AS (
           SELECT ar.request_id::text AS id,
@@ -3881,7 +3888,7 @@ function createRepository(pool) {
           LEFT JOIN users ON users.franchise_id = ar.franchise_id
           LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE ar.status = 'APPROVED'
-            AND ar.export_ready_at IS NOT NULL
+            ${accountRequestReadyClause}
             AND COALESCE(ar.hidden, false) = false
           UNION ALL
           SELECT da.id::text AS id,
@@ -3902,7 +3909,7 @@ function createRepository(pool) {
           LEFT JOIN users ON users.franchise_id = da.franchise_id
           LEFT JOIN pg_providers ON pg_providers.id = users.pg_provider_id
           WHERE da.account_status = 'APPROVED'
-            AND da.export_ready_at IS NOT NULL
+            ${deliveryAccountReadyClause}
             AND COALESCE(da.hidden, false) = false
         )
         SELECT count(*)::int AS count

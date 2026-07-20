@@ -13,11 +13,6 @@
     const makeSdd = typeof ctx.makeSdd === 'function' ? ctx.makeSdd : (() => '<select class="fs" id="acda" data-sdd-id="acda"></select>');
     const deliveryAgencies = Array.isArray(ctx.deliveryAgencies) ? ctx.deliveryAgencies : [];
     const rejectionReasons = normalizeRejectionReasons(ctx.accountRejectionReasons);
-    const exportPendingCounts = {
-      total: Number(ctx.exportPendingCounts?.total ?? ctx.exportPendingCount ?? 0),
-      gh: Number(ctx.exportPendingCounts?.gh ?? 0),
-      routeup: Number(ctx.exportPendingCounts?.routeup ?? 0)
-    };
     const deliveryOptions = deliveryAgencies
       .filter(a => a && a.status !== 'deleted')
       .map(a => ({ val: a.name, label: a.name }));
@@ -37,7 +32,7 @@
       </div>
     </div>
     <div class="card accounts-list-main">
-      <div class="ch"><span class="admin-card-heading">계좌 검증 내보내기</span><span class="admin-card-tools payment-list-tools account-export-tools"><span class="account-export-group account-provider-counts" id="account-export-count"><span class="bdg account-provider-total">전체 ${exportPendingCounts.total}건</span><span class="bdg account-provider-gh">건흥 ${exportPendingCounts.gh}건</span><span class="bdg account-provider-routeup">위루트 ${exportPendingCounts.routeup}건</span></span><span id="account-result-count" class="bdg bg payment-result-count">0건</span><label class="admin-inline-select payment-page-size-label">표시 <select class="fs" id="account-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="payment-list-pager"><button type="button" class="btn bo xs" data-account-page="prev">이전</button><span id="account-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-account-page="next">다음</button></span><span class="account-export-group account-provider-gh-group"><button type="button" class="btn xs account-provider-gh-action" data-account-export="1" data-account-export-format="gh" ${exportPendingCounts.gh <= 0 ? 'disabled title="현재 건흥 내보내기 대기 계좌가 없습니다."' : ''}>건흥 내보내기</button><button type="button" class="btn xs account-provider-gh-action" data-account-txid-upload-open="account-txid-upload">건흥 업로드</button><input type="file" id="account-txid-upload" accept=".xlsx,.xls" class="admin-hidden-input" data-account-txid-upload-input="1"></span><span class="account-export-group account-provider-routeup-group"><button type="button" class="btn xs account-provider-routeup-action" data-account-export="1" data-account-export-format="routeup" ${exportPendingCounts.routeup <= 0 ? 'disabled title="현재 위루트 내보내기 대기 계좌가 없습니다."' : ''}>위루트 내보내기</button><button type="button" class="btn xs account-provider-routeup-action" data-account-routeup-upload="1">위루트 업로드</button></span></span></div>
+      <div class="ch"><span class="admin-card-heading">출금계좌 목록</span><span class="admin-card-tools payment-list-tools"><span id="account-result-count" class="bdg bg payment-result-count">0건</span><label class="admin-inline-select payment-page-size-label">표시 <select class="fs" id="account-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="payment-list-pager"><button type="button" class="btn bo xs" data-account-page="prev">이전</button><span id="account-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-account-page="next">다음</button></span><button type="button" class="btn bg2 xs" data-account-list-export="1">전체 계좌 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-export="gh">건흥 양식 내보내기</button><button type="button" class="btn bo xs" data-account-txid-upload-open="account-migration-txid-upload">건흥 결과 업로드</button><input type="file" id="account-migration-txid-upload" class="admin-hidden-input" accept=".xlsx,.xls" data-account-txid-upload-input="1"><button type="button" class="btn bo xs" data-account-pg-migration-export="routeup">위루트 양식 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-upload="routeup">위루트 서버 업로드</button></span></div>
       <div class="tw"><table class="accounts-table accounts-table-wide"><colgroup><col class="admin-col-120"><col class="admin-col-130"><col class="admin-col-170"><col class="admin-col-130"><col class="admin-col-110"><col class="admin-col-160"><col class="admin-col-120"><col class="admin-col-110"><col class="admin-col-76"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>확인</th></tr></thead><tbody id="acb"></tbody></table></div>
     </div>
   </div>`;
@@ -163,11 +158,26 @@
         if(nameQ && !String(f.name || '').toLowerCase().includes(nameQ))return;
         if(agencyQ && String(da.agency || '') !== agencyQ)return;
         if(accountQ && !accountText.includes(accountQ))return;
-        rows.push({fid:f.id,fname:f.name,fagency:f.agency,memberId,owner:f.owner,idx:i,...da});
+        rows.push({fid:f.id,fname:f.name,fagency:f.agency,memberId,owner:f.owner,pgProviderName:f.pgProviderName,idx:i,...da});
       });
     });
 
     return rows;
+  }
+
+  function buildAccountListExportRows(rows = []){
+    return (Array.isArray(rows) ? rows : []).map(account => ({
+      status: account.accountStatus || account.approvalStatus || '-',
+      memberId: account.memberId || '',
+      franchiseName: account.fname || account.franchiseName || '',
+      deliveryAgency: account.agency || '',
+      pgProvider: normalizeProviderName(account.pgProviderName) || 'GH Payments',
+      bankName: account.bankName || '',
+      accountNo: account.accountNo || '',
+      accountHolder: account.accountHolder || account.owner || '',
+      registeredAt: account.submittedAt || account.createdAt || account.reqDate || '',
+      verifiedAt: account.exportReadyAt || account.approvedAt || ''
+    }));
   }
 
   function safeDocumentRoot(){
@@ -331,6 +341,7 @@
   api.clearAccountFilterFields = clearAccountFilterFields;
   api.accountExportPendingCount = accountExportPendingCount;
   api.filterAccountRows = filterAccountRows;
+  api.buildAccountListExportRows = buildAccountListExportRows;
   api.renderAccountRows = renderAccountRows;
   api.renderAccountDetailModal = renderAccountDetailModal;
   window.EatsAdminAccounts = api;

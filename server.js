@@ -139,7 +139,7 @@ function avicxDisplayCell(value) {
     ['POST', '결제알림'], ['DEPOSIT', '입금알림'], ['WITHDRAW', '입금이체'], ['ERROR', '오류'],
     ['SUPER', '총괄 관리자'], ['OPERATIONS', '운영 관리자'], ['SETTLEMENT', '정산 관리자'], ['CUSTOMER', '고객 관리자'],
     ['FRANCHISE_UPDATE', '가맹점 정보 수정'], ['FRANCHISE_REGISTER', '가맹점 등록'], ['FRANCHISE_PASSWORD_RESET', '가맹점 비밀번호 초기화'], ['FRANCHISE_DELIVERY_ACCOUNTS_REPLACE', '가맹점 배달계좌 수정'],
-    ['ACCOUNT_PG_CONTRACT_UPDATE', 'PG 계약 정보 수정'], ['ACCOUNT_TXID_UPLOAD', 'TID 엑셀 업로드'], ['ROUTEUP_ACCOUNT_APPROVAL_UPLOAD', '위루트 계좌검증 업로드'],
+    ['ACCOUNT_PG_CONTRACT_UPDATE', 'PG 계약 정보 수정'], ['ACCOUNT_TXID_UPLOAD', 'TID 엑셀 업로드'], ['ROUTEUP_ACCOUNT_APPROVAL_UPLOAD', '위루트 계좌검증 업로드'], ['ROUTEUP_ACCOUNT_MIGRATION_UPLOAD', '위루트 PG 전환 업로드'],
     ['ACCOUNT_REQUEST_VERIFY', '계좌 검증 처리'], ['ACCOUNT_REQUEST_REVERIFY', '계좌 재검증 요청'], ['ACCOUNT_REQUEST_REJECT', '계좌 반려 처리'],
     ['DELIVERY_ACCOUNT_VERIFY', '배달계좌 검증 처리'], ['DELIVERY_ACCOUNT_REVERIFY', '배달계좌 재검증 요청'], ['DELIVERY_ACCOUNT_REJECT', '배달계좌 반려 처리'],
     ['CARD_CREATE', '카드 등록'], ['CARD_UPDATE', '카드 정보 수정'], ['CARD_DELETE', '카드 삭제'], ['CARD_HIDE', '카드 숨김'], ['CARD_SHOW', '카드 표시'], ['CARD_ADMIN_HIDE', '관리자 카드 숨김'], ['CARD_ADMIN_SHOW', '관리자 카드 표시'], ['CARD_ADMIN_ALIAS_UPDATE', '카드 별칭 수정'],
@@ -5632,6 +5632,49 @@ async function createAccountApprovalExportBuffer(req) {
   return { buffer: Buffer.from(buffer), batchId, count: rows.length };
 }
 
+async function createAccountApprovalMigrationExportBuffer(req) {
+  const requestedFormat = String(req.query?.format || '').trim().toLowerCase();
+  const format = requestedFormat === 'routeup'
+    ? 'routeup'
+    : requestedFormat === 'gh' ? 'gh' : '';
+  if (!format) {
+    const err = new Error('전환할 PG 양식을 선택해 주세요.');
+    err.statusCode = 400;
+    err.code = 'INVALID_MIGRATION_EXPORT_FORMAT';
+    throw err;
+  }
+  const rows = await repo.listAccountApprovalExportRows({
+    exportStatus: 'all',
+    includeConfigured: true,
+    includeAllApproved: true,
+    pgProvider: ''
+  });
+  if (!rows.length) {
+    const err = new Error('PG 전환 양식에 내보낼 승인 계좌가 없습니다.');
+    err.statusCode = 404;
+    err.code = 'NO_MIGRATION_EXPORT_ROWS';
+    throw err;
+  }
+  const buffer = await createAccountApprovalExportWorkbook(rows, { format });
+  return { buffer: Buffer.from(buffer), format, count: rows.length };
+}
+
+async function sendAccountApprovalMigrationExportWorkbook(req, res) {
+  try {
+    const result = await createAccountApprovalMigrationExportBuffer(req);
+    const prefix = result.format === 'routeup' ? 'routeup' : 'eatsPay';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${prefix}_migration_${Date.now()}.xlsx"`);
+    res.setHeader('X-Export-Count', String(result.count));
+    return res.status(200).send(result.buffer);
+  } catch (err) {
+    if (err?.code === 'INVALID_MIGRATION_EXPORT_FORMAT' || err?.code === 'NO_MIGRATION_EXPORT_ROWS') {
+      return sendError(res, err.statusCode || 400, err.code, err.message);
+    }
+    throw err;
+  }
+}
+
 async function verifyRouteupBankAccounts(payloadRows = []) {
   const verifiableRows = payloadRows.filter(row => (
     String(row.acct_num || '').trim()
@@ -5649,6 +5692,76 @@ async function verifyRouteupBankAccounts(payloadRows = []) {
       method: 'POST',
       body: chunk
     });
+  }
+}
+
+async function handleRouteupAccountMigrationUpload(req, res) {
+  try {
+    const rows = await repo.listAccountApprovalExportRows({
+      exportStatus: 'all',
+      includeConfigured: true,
+      includeAllApproved: true,
+      pgProvider: ''
+    });
+    if (!rows.length) {
+      return sendError(res, 404, 'NO_ROUTEUP_MIGRATION_ROWS', '위루트에 전환 등록할 승인 계좌가 없습니다.');
+    }
+    if (rows.length > 1000) {
+      return sendError(res, 400, 'ROUTEUP_MIGRATION_LIMIT_EXCEEDED', '위루트 전환 등록은 한 번에 1000건 이하만 처리할 수 있습니다.');
+    }
+    const payloadRows = buildRouteupMerchantPayloadRows(rows);
+    const validationErrors = validateRouteupMerchantPayload(payloadRows);
+    if (validationErrors.length) {
+      return sendError(
+        res,
+        400,
+        'ROUTEUP_MIGRATION_VALIDATION_FAILED',
+        '위루트 전환 등록에 필요한 정보가 부족합니다.',
+        validationErrors.slice(0, 30)
+      );
+    }
+    const verifyBankAccount = req.body?.verifyBankAccount !== false;
+    if (verifyBankAccount) await verifyRouteupBankAccounts(payloadRows);
+    const upstream = await routeupManagerRequest('merchandises/batch-updaters/register', {
+      method: 'POST',
+      body: payloadRows
+    });
+    const batchId = generateId('RTMIG', 6);
+    await recordAuditLog(req, {
+      action: 'ROUTEUP_ACCOUNT_MIGRATION_UPLOAD',
+      entityType: 'account_approval_batch',
+      entityId: batchId,
+      entityName: '위루트 PG 전환 업로드',
+      beforeData: {},
+      afterData: {
+        batchId,
+        count: rows.length,
+        verifyBankAccount,
+        franchises: rows.map(row => ({
+          source: row.source,
+          id: row.id,
+          franchiseName: row.franchise_name,
+          accountNo: row.account_no,
+          bankName: row.bank_name,
+          loginId: row.login_id
+        }))
+      },
+      force: true
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        batchId,
+        count: rows.length,
+        verifyBankAccount,
+        routeup: upstream.data || upstream.text || null
+      }
+    });
+  } catch (err) {
+    if (String(err?.code || '').startsWith('ROUTEUP_')) {
+      return sendError(res, err.statusCode || 502, err.code, err.message || '위루트 전환 업로드에 실패했습니다.', err.details || []);
+    }
+    throw err;
   }
 }
 
@@ -5850,6 +5963,8 @@ async function createKakaoAccountApprovalExportLink(req, res) {
 }
 
 app.get('/api/admin/account-approvals/export.xlsx', authenticateAdmin, asyncHandler(sendAccountApprovalExportWorkbook));
+app.get('/api/admin/account-approvals/migration-export.xlsx', authenticateAdmin, asyncHandler(sendAccountApprovalMigrationExportWorkbook));
+app.post('/api/admin/account-approvals/migration-upload/routeup', authenticateAdmin, requireSuperAdmin, asyncHandler(handleRouteupAccountMigrationUpload));
 app.post('/api/admin/account-approvals/routeup-upload', authenticateAdmin, requireSuperAdmin, asyncHandler(handleRouteupAccountApprovalUpload));
 
 app.post('/api/internal/kakao/account-approvals/export-link', authenticateKakaoTxid, asyncHandler(createKakaoAccountApprovalExportLink));

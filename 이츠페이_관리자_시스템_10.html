@@ -12,7 +12,7 @@
 <script src="/admin-assets/js/admin-date-time.js?v=20260715-list-date-time1"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260715-franchise-export"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260715-account-detail-cleanup"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260721-pg-migration2"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -4504,7 +4504,7 @@ async function delF(id){
 }
 
 // ═══ 출금계좌 목록 ═══
-const accountsCtx=()=>({exportPendingCount:accountExportPendingCount(),exportPendingCounts:accountExportPendingCountsByPg(),deliveryAgencies:D.deliveryAgencyList||[],accountRejectionReasons:D.accountRejectionReasons||[],fRow,makeSdd});
+const accountsCtx=()=>({deliveryAgencies:D.deliveryAgencyList||[],accountRejectionReasons:D.accountRejectionReasons||[],fRow,makeSdd});
 function pgAccounts(){return window.EatsAdminAccounts.pgAccounts(accountsCtx());}
 function resetAccountPagination(){accountPagination.page=1;}
 function accountExportPendingCount(provider=''){
@@ -4609,6 +4609,130 @@ function rAcc(){
   const rows=window.EatsAdminAccounts.filterAccountRows(D.franchises,filters);
   const pageRows=applyPagination(rows,accountPagination,'account');
   el.innerHTML=window.EatsAdminAccounts.renderAccountRows(pageRows,{esc,bdg,dateTimeHtml:window.EatsAdminDateTime.html});
+}
+
+async function downloadAllAccountsExcel(button=null){
+  const rows=window.EatsAdminAccounts.filterAccountRows(D.franchises,{});
+  if(!rows.length){
+    await adminAlert('내보낼 출금계좌가 없습니다.');
+    return;
+  }
+  const buildRows=window.EatsAdminAccounts.buildAccountListExportRows;
+  if(typeof buildRows!=='function'){
+    await adminAlert('출금계좌 엑셀 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+  const originalText=button?.textContent||'전체 계좌 내보내기';
+  if(button){button.disabled=true;button.textContent='엑셀 생성 중...';}
+  try{
+    const res=await fetch('/api/admin/exports/settlement.xlsx',{
+      method:'POST',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({
+        fileName:`eatspay_withdrawal_accounts_${today()}`,
+        sheets:[{
+          name:'출금계좌 목록',
+          columns:[
+            {key:'status',header:'상태',width:14},
+            {key:'memberId',header:'회원 아이디',width:20},
+            {key:'franchiseName',header:'가맹점명',width:24},
+            {key:'deliveryAgency',header:'배달대행사',width:18},
+            {key:'pgProvider',header:'PG사',width:16},
+            {key:'bankName',header:'은행',width:14},
+            {key:'accountNo',header:'계좌번호',width:22},
+            {key:'accountHolder',header:'예금주명',width:16},
+            {key:'registeredAt',header:'등록일시',width:21},
+            {key:'verifiedAt',header:'검증일시',width:21}
+          ],
+          rows:buildRows(rows)
+        }]
+      })
+    });
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok){
+      const errorBody=await res.json().catch(()=>({}));
+      throw new Error(errorBody.error?.message||errorBody.message||'출금계좌 엑셀 다운로드에 실패했습니다.');
+    }
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`eatspay_withdrawal_accounts_${today()}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast(`${rows.length.toLocaleString()}건의 출금계좌를 엑셀로 다운로드했습니다.`);
+  }catch(e){
+    await adminAlert(e.message||'출금계좌 엑셀 다운로드에 실패했습니다.');
+  }finally{
+    if(button){button.disabled=false;button.textContent=originalText;}
+  }
+}
+
+async function downloadAllAccountsPgExcel(format='',button=null){
+  const normalizedFormat=format==='routeup'?'routeup':(format==='gh'?'gh':'');
+  if(!normalizedFormat){
+    await adminAlert('내보낼 PG 양식을 선택해 주세요.');
+    return;
+  }
+  const providerLabel=normalizedFormat==='routeup'?'위루트':'건흥';
+  const originalText=button?.textContent||`${providerLabel} 양식 내보내기`;
+  if(button){button.disabled=true;button.textContent='양식 생성 중...';}
+  try{
+    const res=await fetch(`/api/admin/account-approvals/migration-export.xlsx?format=${encodeURIComponent(normalizedFormat)}`,{
+      headers:adminAuthHeaders(),
+      cache:'no-store'
+    });
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok){
+      const errorBody=await res.json().catch(()=>({}));
+      throw new Error(errorBody.error?.message||errorBody.message||`${providerLabel} 전환 양식 다운로드에 실패했습니다.`);
+    }
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const count=Number(res.headers.get('X-Export-Count')||0);
+    a.href=url;
+    a.download=`${normalizedFormat==='routeup'?'routeup':'eatsPay'}_migration_${today()}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast(`${providerLabel} 양식으로 승인 계좌 ${count.toLocaleString()}건을 다운로드했습니다.`);
+  }catch(e){
+    await adminAlert(e.message||`${providerLabel} 전환 양식 다운로드에 실패했습니다.`);
+  }finally{
+    if(button){button.disabled=false;button.textContent=originalText;}
+  }
+}
+
+async function uploadAllApprovedAccountsToRouteup(button=null){
+  const ok=await adminConfirm('현재 PG와 관계없이 승인된 모든 출금계좌를 위루트 서버에 전환 등록합니다.\n기존 건흥 승인 계좌도 포함됩니다. 진행하시겠습니까?','위루트 PG 전환 업로드');
+  if(!ok)return;
+  const originalText=button?.textContent||'위루트 서버 업로드';
+  if(button){button.disabled=true;button.textContent='업로드 중...';}
+  let progressOpen=false;
+  try{
+    openM('위루트 PG 전환 업로드',`<div class="admin-progress-box"><div class="admin-progress-title">승인 계좌 전체를 위루트에 등록합니다.</div><div class="admin-progress-track"><div class="admin-progress-bar"></div></div><div class="admin-progress-note">예금주 검증 후 위루트 가맹점 대량등록 API로 전송 중입니다.</div></div>`,adminModalFooter());
+    progressOpen=true;
+    const res=await fetch('/api/admin/account-approvals/migration-upload/routeup',{
+      method:'POST',
+      headers:adminAuthHeaders({'Content-Type':'application/json'}),
+      cache:'no-store',
+      body:JSON.stringify({verifyBankAccount:true})
+    });
+    const payload=await res.json().catch(()=>({}));
+    if(await handleAdminUnauthorized(res))return;
+    if(!res.ok||!payload.success)throw new Error(payload.error?.message||payload.message||'위루트 전환 업로드에 실패했습니다.');
+    if(progressOpen){closeM();progressOpen=false;}
+    toast(`위루트 전환 업로드 ${Number(payload.data?.count||0).toLocaleString()}건이 완료되었습니다.`);
+  }catch(e){
+    if(progressOpen){closeM();progressOpen=false;}
+    await adminAlert(e.message||'위루트 전환 업로드에 실패했습니다.','위루트 PG 전환 업로드');
+  }finally{
+    if(button){button.disabled=false;button.textContent=originalText;}
+  }
 }
 
 function getManagedAccount(fid,idx){
@@ -11077,6 +11201,27 @@ document.addEventListener('click',function(ev){
     ev.preventDefault();
     ev.stopPropagation();
     exportApprovedAccounts(accountExportTarget.dataset.accountExportFormat||'');
+    return;
+  }
+  const accountListExportTarget=ev.target.closest('[data-account-list-export]');
+  if(accountListExportTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    downloadAllAccountsExcel(accountListExportTarget);
+    return;
+  }
+  const accountPgMigrationExportTarget=ev.target.closest('[data-account-pg-migration-export]');
+  if(accountPgMigrationExportTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    downloadAllAccountsPgExcel(accountPgMigrationExportTarget.dataset.accountPgMigrationExport||'',accountPgMigrationExportTarget);
+    return;
+  }
+  const accountPgMigrationUploadTarget=ev.target.closest('[data-account-pg-migration-upload="routeup"]');
+  if(accountPgMigrationUploadTarget){
+    ev.preventDefault();
+    ev.stopPropagation();
+    uploadAllApprovedAccountsToRouteup(accountPgMigrationUploadTarget);
     return;
   }
   const adminMenuToggleTarget=ev.target.closest('[data-admin-menu-toggle]');
