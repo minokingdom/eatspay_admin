@@ -33,7 +33,7 @@
     </div>
     <div class="card accounts-list-main">
       <div class="ch"><span class="admin-card-heading">출금계좌 목록</span><span class="admin-card-tools payment-list-tools"><span id="account-result-count" class="bdg bg payment-result-count">0건</span><label class="admin-inline-select payment-page-size-label">표시 <select class="fs" id="account-page-size"><option value="20">20개</option><option value="50">50개</option><option value="100">100개</option></select></label><span class="payment-list-pager"><button type="button" class="btn bo xs" data-account-page="prev">이전</button><span id="account-page-label" class="admin-table-subhead">1 / 1</span><button type="button" class="btn bo xs" data-account-page="next">다음</button></span><button type="button" class="btn bg2 xs" data-account-list-export="1">전체 계좌 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-export="gh">건흥 양식 내보내기</button><button type="button" class="btn bo xs" data-account-txid-upload-open="account-migration-txid-upload">건흥 결과 업로드</button><input type="file" id="account-migration-txid-upload" class="admin-hidden-input" accept=".xlsx,.xls" data-account-txid-upload-input="1"><button type="button" class="btn bo xs" data-account-pg-migration-export="routeup">위루트 양식 내보내기</button><button type="button" class="btn bo xs" data-account-pg-migration-upload="routeup">위루트 서버 업로드</button></span></div>
-      <div class="tw"><table class="accounts-table accounts-table-wide"><colgroup><col class="admin-col-120"><col class="admin-col-130"><col class="admin-col-170"><col class="admin-col-130"><col class="admin-col-110"><col class="admin-col-160"><col class="admin-col-120"><col class="admin-col-110"><col class="admin-col-76"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>확인</th></tr></thead><tbody id="acb"></tbody></table></div>
+      <div class="tw"><table class="accounts-table accounts-table-wide"><colgroup><col class="admin-col-120"><col class="admin-col-130"><col class="admin-col-170"><col class="admin-col-130"><col class="admin-col-130"><col class="admin-col-110"><col class="admin-col-160"><col class="admin-col-120"><col class="admin-col-110"><col class="admin-col-76"></colgroup><thead><tr><th>상태</th><th>회원 아이디</th><th>가맹점명</th><th>배달대행사</th><th>활성 PG</th><th>은행</th><th>계좌번호</th><th>예금주명</th><th>등록일시</th><th>확인</th></tr></thead><tbody id="acb"></tbody></table></div>
     </div>
   </div>`;
   }
@@ -92,6 +92,55 @@
     return values[field] ? '등록완료' : '미등록';
   }
 
+  function hasRegisteredValue(...values) {
+    return values.some(value => value === true || String(value || '').trim());
+  }
+
+  function hasContractTidKey(contract = {}) {
+    return contract.active !== false && Boolean(
+      String(contract.tid || contract.txid || '').trim() &&
+      hasRegisteredValue(contract.paymentKey, contract.paymentKeyMasked, contract.payKey, contract.key, contract.hasPaymentKey)
+    );
+  }
+
+  function hasCompleteRouteupKeys(contract = {}) {
+    if (contract.active === false) return false;
+    const metadata = contract.metadata && typeof contract.metadata === 'object' ? contract.metadata : {};
+    return Boolean(
+      hasRegisteredValue(contract.routeupApiKey, contract.routeupApiKeyMasked, contract.apiKey, contract.apiKeyMasked, contract.hasRouteupApiKey, metadata.routeupApiKey, metadata.routeupApiKeyMasked, metadata.apiKey, metadata.apiKeyMasked, metadata.hasRouteupApiKey) &&
+      hasRegisteredValue(contract.routeupEncryptionKey, contract.routeupEncryptionKeyMasked, contract.encryptionKey, contract.encryptionKeyMasked, contract.encryptKey, contract.encryptKeyMasked, contract.hasRouteupEncryptionKey, metadata.routeupEncryptionKey, metadata.routeupEncryptionKeyMasked, metadata.encryptionKey, metadata.encryptionKeyMasked, metadata.encryptKey, metadata.encryptKeyMasked, metadata.hasRouteupEncryptionKey) &&
+      hasRegisteredValue(contract.initializationVector, contract.initializationVectorMasked, contract.iv, contract.ivMasked, contract.hasInitializationVector, metadata.initializationVector, metadata.initializationVectorMasked, metadata.iv, metadata.ivMasked, metadata.hasInitializationVector)
+    );
+  }
+
+  function getActivePgProviderNames(account = {}) {
+    const contracts = Array.isArray(account.pgContracts) ? account.pgContracts : [];
+    const ghLegacyActive = Boolean(
+      (String(account.recurringTid || account.txid || '').trim() && hasRegisteredValue(account.recurringKey, account.recurringKeyMasked, account.hasRecurringKey)) ||
+      (String(account.manualTid || '').trim() && hasRegisteredValue(account.manualKey, account.manualKeyMasked, account.hasManualKey))
+    );
+    const ghContractActive = contracts.some(contract =>
+      normalizeProviderName(contract.providerName) === 'GH Payments' && hasContractTidKey(contract)
+    );
+    const routeupActive = contracts.some(contract =>
+      normalizeProviderName(contract.providerName) === '위루트' &&
+      (hasContractTidKey(contract) || hasCompleteRouteupKeys(contract))
+    );
+    const providers = [];
+    if (ghLegacyActive || ghContractActive) providers.push('GH Payments');
+    if (routeupActive) providers.push('위루트');
+    return providers;
+  }
+
+  function renderActivePgBadges(account = {}, esc = fallbackEsc) {
+    const providers = getActivePgProviderNames(account);
+    if (!providers.length) return '<span class="bdg">미활성</span>';
+    return `<span class="account-export-group account-active-pg" aria-label="활성 PG">${providers.map(provider => {
+      const isRouteup = provider === '위루트';
+      return `<span class="bdg ${isRouteup ? 'account-provider-routeup' : 'account-provider-gh'}">${isRouteup ? '위루트' : '건흥'}</span>`;
+    }).join('')}</span>`;
+  }
+
   function renderPgContractGridItems(account = {}, franchise = {}, ctx = {}) {
     if ((ctx.role || '') !== 'hq' && ctx.isHq !== true) return '';
     const contracts = Array.isArray(account.pgContracts) ? account.pgContracts : [];
@@ -125,7 +174,7 @@
     const bdg = typeof ctx.bdg === 'function' ? ctx.bdg : value => `<span class="bdg">${esc(value || '-')}</span>`;
 
     if(!Array.isArray(rows) || !rows.length){
-      return '<tr><td colspan="9" class="emp">검색 결과 없음</td></tr>';
+      return '<tr><td colspan="10" class="emp">검색 결과 없음</td></tr>';
     }
 
     return rows.map(a => `<tr>
@@ -133,6 +182,7 @@
     <td class="accounts-member-id">${esc(a.memberId)}</td>
     <td class="accounts-franchise-name">${esc(a.fname)}</td>
     <td>${esc(a.agency||'-')}</td>
+    <td>${renderActivePgBadges(a, esc)}</td>
     <td>${esc(a.bankName||'-')}</td>
     <td class="admin-mono admin-text-small">${esc(a.accountNo||'미입력')}</td>
     <td>${esc(a.accountHolder||a.owner||'-')}</td>
@@ -172,6 +222,7 @@
       franchiseName: account.fname || account.franchiseName || '',
       deliveryAgency: account.agency || '',
       pgProvider: normalizeProviderName(account.pgProviderName) || 'GH Payments',
+      activePgProviders: getActivePgProviderNames(account).map(provider => provider === 'GH Payments' ? '건흥' : provider).join(', ') || '미활성',
       bankName: account.bankName || '',
       accountNo: account.accountNo || '',
       accountHolder: account.accountHolder || account.owner || '',
@@ -340,6 +391,7 @@
   api.collectAccountFilters = collectAccountFilters;
   api.clearAccountFilterFields = clearAccountFilterFields;
   api.accountExportPendingCount = accountExportPendingCount;
+  api.getActivePgProviderNames = getActivePgProviderNames;
   api.filterAccountRows = filterAccountRows;
   api.buildAccountListExportRows = buildAccountListExportRows;
   api.renderAccountRows = renderAccountRows;

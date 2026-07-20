@@ -12,7 +12,7 @@
 <script src="/admin-assets/js/admin-date-time.js?v=20260715-list-date-time1"></script>
 <script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260715-franchise-export"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
-<script src="/admin-assets/js/admin-accounts.js?v=20260721-pg-migration2"></script>
+<script src="/admin-assets/js/admin-accounts.js?v=20260721-active-pg1"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
 <script src="/admin-assets/js/admin-admins.js?v=20260629-hide-system-admin"></script>
 <script src="/admin-assets/js/admin-pg.js?v=20260705-pg-table-no-order"></script>
@@ -4637,7 +4637,8 @@ async function downloadAllAccountsExcel(button=null){
             {key:'memberId',header:'회원 아이디',width:20},
             {key:'franchiseName',header:'가맹점명',width:24},
             {key:'deliveryAgency',header:'배달대행사',width:18},
-            {key:'pgProvider',header:'PG사',width:16},
+            {key:'pgProvider',header:'지정 PG',width:16},
+            {key:'activePgProviders',header:'활성 PG',width:18},
             {key:'bankName',header:'은행',width:14},
             {key:'accountNo',header:'계좌번호',width:22},
             {key:'accountHolder',header:'예금주명',width:16},

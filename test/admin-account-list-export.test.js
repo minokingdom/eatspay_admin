@@ -38,6 +38,76 @@ test('account list excel rows include pending, approved, and rejected accounts',
   assert.ok(rows.every(row => row.pgProvider === 'GH Payments'));
 });
 
+test('active PG providers require usable credentials and can include both providers', () => {
+  const accounts = loadAccountsModule();
+
+  assert.deepEqual(
+    Array.from(accounts.getActivePgProviderNames({ pgProviderName: '위루트' })),
+    []
+  );
+  assert.deepEqual(
+    Array.from(accounts.getActivePgProviderNames({
+      recurringTid: 'TMN026063',
+      hasRecurringKey: true,
+      pgContracts: [{
+        providerName: '위루트',
+        credentialType: 'routeup',
+        active: true,
+        routeupApiKeyMasked: 'api...key',
+        routeupEncryptionKeyMasked: 'enc...key',
+        initializationVectorMasked: 'iv...key'
+      }]
+    })),
+    ['GH Payments', '위루트']
+  );
+});
+
+test('account rows show every active PG as a provider badge', () => {
+  const accounts = loadAccountsModule();
+  const html = accounts.renderAccountRows([{
+    idx: 0,
+    fid: 101,
+    accountStatus: '승인완료',
+    memberId: 'dual-pg-user',
+    fname: '이중PG가맹점',
+    agency: '배달사A',
+    bankName: '신한은행',
+    accountNo: '1111',
+    accountHolder: '홍길동',
+    recurringTid: 'TMN026063',
+    recurringKeyMasked: 'pk_123...abcd',
+    pgContracts: [{
+      providerName: '위루트',
+      active: true,
+      tid: '4026070013',
+      hasPaymentKey: true
+    }]
+  }]);
+
+  assert.match(html, /account-active-pg/);
+  assert.match(html, /account-provider-gh[^>]*>건흥</);
+  assert.match(html, /account-provider-routeup[^>]*>위루트</);
+  assert.match(accounts.renderAccountRows([]), /colspan="10"/);
+});
+
+test('account list excel separates assigned PG from active PG providers', () => {
+  const accounts = loadAccountsModule();
+  const [row] = accounts.buildAccountListExportRows([{
+    pgProviderName: '위루트',
+    recurringTid: 'TMN026063',
+    hasRecurringKey: true,
+    pgContracts: [{
+      providerName: '위루트',
+      active: true,
+      tid: '4026070013',
+      paymentKeyMasked: 'pay...key'
+    }]
+  }]);
+
+  assert.equal(row.pgProvider, '위루트');
+  assert.equal(row.activePgProviders, '건흥, 위루트');
+});
+
 test('account list download ignores screen filters and exports every account', () => {
   const html = fs.readFileSync(path.join(rootDir, '이츠페이_관리자_시스템_10.html'), 'utf8');
   const start = html.indexOf('async function downloadAllAccountsExcel');
@@ -50,5 +120,7 @@ test('account list download ignores screen filters and exports every account', (
   assert.match(source, /buildAccountListExportRows/);
   assert.match(source, /\/api\/admin\/exports\/settlement\.xlsx/);
   assert.match(source, /name:'출금계좌 목록'/);
+  assert.match(source, /key:'pgProvider',header:'지정 PG'/);
+  assert.match(source, /key:'activePgProviders',header:'활성 PG'/);
   assert.doesNotMatch(source, /collectAccountFilters|getVerifiedAccounts|accountVerifiedForExport|exportApprovedAccounts|exportStatus/);
 });
