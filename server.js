@@ -5194,9 +5194,17 @@ function routeupMerchantLoginId(item = {}, index = 0) {
 
 function routeupMerchantPassword(item = {}, index = 0) {
   if (ROUTEUP_MERCHANT_DEFAULT_PW) return ROUTEUP_MERCHANT_DEFAULT_PW;
-  const digits = `${item.owner_phone || ''}${item.account_no || ''}${item.business_number || ''}`.replace(/[^0-9]/g, '');
+  const digits = `${item.owner_phone || item.phone_num || item.phone || ''}${item.account_no || item.acct_num || ''}${item.business_number || item.businessNumber || ''}`.replace(/[^0-9]/g, '');
   if (digits.length >= 4) return `Ep${digits.slice(-4)}!`;
-  const seed = String(item.id || item.franchise_id || index + 1).replace(/[^0-9A-Za-z]/g, '').slice(-6) || String(index + 1);
+  const stableKey = item.id
+    || item.franchise_id
+    || item.login_id
+    || item.loginId
+    || item.customer_id
+    || item.customerId
+    || item.email
+    || '0000';
+  const seed = String(stableKey).replace(/[^0-9A-Za-z]/g, '').slice(-6).padStart(4, '0') || '0000';
   return `Ep${seed}!`;
 }
 
@@ -5662,9 +5670,18 @@ async function createAccountApprovalMigrationExportBuffer(req) {
 async function sendAccountApprovalMigrationExportWorkbook(req, res) {
   try {
     const result = await createAccountApprovalMigrationExportBuffer(req);
-    const prefix = result.format === 'routeup' ? 'routeup' : 'eatsPay';
+    const exportedAt = Date.now();
+    const filename = result.format === 'routeup'
+      ? `위루트_가맹점_일괄등록_${exportedAt}.xlsx`
+      : `eatsPay_migration_${exportedAt}.xlsx`;
+    const fallbackFilename = result.format === 'routeup'
+      ? `routeup_merchant_batch_${exportedAt}.xlsx`
+      : filename;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${prefix}_migration_${Date.now()}.xlsx"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${fallbackFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    );
     res.setHeader('X-Export-Count', String(result.count));
     return res.status(200).send(result.buffer);
   } catch (err) {

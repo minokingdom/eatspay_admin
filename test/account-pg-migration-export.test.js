@@ -53,6 +53,17 @@ test('admin PG migration downloads are independent from screen filters and verif
   assert.match(source, /format\s*===\s*'routeup'/);
   assert.match(source, /format\s*===\s*'gh'/);
   assert.doesNotMatch(source, /accountExportFilterQuery|collectAccountFilters|exportApprovedAccounts/);
+  assert.match(source, /위루트_가맹점_일괄등록_/);
+});
+
+test('migration export response identifies the Routeup file as 위루트', () => {
+  const server = fs.readFileSync(path.join(rootDir, 'server.js'), 'utf8');
+  const start = server.indexOf('async function sendAccountApprovalMigrationExportWorkbook');
+  const end = server.indexOf('async function verifyRouteupBankAccounts', start);
+  const source = server.slice(start, end);
+
+  assert.match(source, /위루트_가맹점_일괄등록_/);
+  assert.match(source, /filename\*=UTF-8''/);
 });
 
 test('Routeup migration upload sends all approved accounts without marking them exported', () => {

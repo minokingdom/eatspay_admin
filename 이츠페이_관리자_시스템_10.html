@@ -4695,7 +4695,9 @@ async function downloadAllAccountsPgExcel(format='',button=null){
     const a=document.createElement('a');
     const count=Number(res.headers.get('X-Export-Count')||0);
     a.href=url;
-    a.download=`${normalizedFormat==='routeup'?'routeup':'eatsPay'}_migration_${today()}.xlsx`;
+    a.download=normalizedFormat==='routeup'
+      ? `위루트_가맹점_일괄등록_${today()}.xlsx`
+      : `eatsPay_migration_${today()}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
