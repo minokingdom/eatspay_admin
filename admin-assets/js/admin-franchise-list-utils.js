@@ -13,6 +13,10 @@
     }[ch]));
   }
 
+  function formatAdminPhone(value) {
+    return window.EatsAdminPhone?.formatAdminPhone(value) || String(value || '').trim();
+  }
+
   function normalizeProviderName(value = '') {
     const raw = String(value || '').trim();
     const key = raw.replace(/\s+/g, '').toLowerCase();
@@ -548,7 +552,7 @@
       : '';
     return `<div class="card"><div class="ch"><span class="admin-card-heading">기본 정보</span></div><div class="franchise-basic-body">
         ${infoRow('대표자', franchise.owner || '-')}
-        ${infoRow('연락처', franchise.phone || '-')}
+        ${infoRow('연락처', formatAdminPhone(franchise.phone || '-'))}
         ${infoRow('이메일', displayEmail, true)}
         ${infoRow('로그인 ID', loginId)}
         ${infoRow('사업자등록번호', franchise.bizNo || '-')}

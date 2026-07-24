@@ -10,7 +10,8 @@
 <script src="/admin-assets/js/admin-agency-tree.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-franchise-utils.js?v=20260627-admin54"></script>
 <script src="/admin-assets/js/admin-date-time.js?v=20260715-list-date-time1"></script>
-<script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260715-franchise-export"></script>
+<script src="/admin-assets/js/admin-phone-format.js?v=20260725-admin-phone-format1"></script>
+<script src="/admin-assets/js/admin-franchise-list-utils.js?v=20260725-admin-phone-format1"></script>
 <script src="/admin-assets/js/admin-account-utils.js?v=20260711-account-proof-workbench"></script>
 <script src="/admin-assets/js/admin-accounts.js?v=20260721-account-delete1"></script>
 <script src="/admin-assets/js/admin-board.js?v=20260711-announcement-images"></script>
@@ -21,7 +22,7 @@
 <script src="/admin-assets/js/admin-banners.js?v=20260711-popup-preview2"></script>
 <link rel="modulepreload" href="/admin-assets/vendor/fabric.min.mjs?v=7.4.0">
 <script defer src="/admin-assets/js/admin-design-studio-loader.js?v=20260712-ai11"></script>
-<script src="/admin-assets/js/admin-inquiries.js?v=20260701-inquiry-type"></script>
+<script src="/admin-assets/js/admin-inquiries.js?v=20260725-admin-phone-format1"></script>
 <script src="/admin-assets/js/admin-payments.js?v=20260701-ch-payway-absolute-start"></script>
 <script src="/admin-assets/js/admin-pg-settlements.js?v=20260701-pg-auth-code"></script>
 <script src="/admin-assets/js/admin-agency-settlement-calculator.js?v=20260709-agent-fee-scope"></script>
@@ -790,6 +791,7 @@ function renderNav(){
 // ═══ 헬퍼 ═══
 function fmt(n){return Number(n).toLocaleString()+'\uC6D0';}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function formatAdminPhone(value){return window.EatsAdminPhone?.formatAdminPhone(value)||String(value??'').trim();}
 function roleClassKey(role){return String(role?.key||role?.name||'custom').toLowerCase().replace(/[^a-z0-9_-]+/g,'-');}
 function bdg(t){const role=getRoles().find(r=>r.name===t);if(role)return`<span class="bdg role-badge role-badge-${esc(roleClassKey(role))}">${esc(t)}</span>`;const label=t==='롤백'||t==='ROLLED_BACK'?'취소':t;const m={'보이기':'bg','숨기기':'by','승인':'bg','정상승인':'bg','정상 승인':'bg','승인 대기':'by','승인 거절':'br','탈퇴':'br','승인완료':'bg','검증완료':'bg','승인대기':'by','반려':'br','결제완료':'bg','정산대기':'by','확인필요':'by','취소':'br','정산완료':'bg','활성':'bg','비활성':'by','삭제':'br','상담 완료':'bb','상담 대기':'by'};return`<span class="bdg ${m[label]||'bgr'}">${esc(label)}</span>`;}
 function adminActionChip(label,action,attrs='',variant=''){
@@ -3198,7 +3200,7 @@ function franchiseBasicDetailHtml(f){
   const noteRow=role==='hq'?frInfoRow('비고',franchiseNoteInlineHtml(f),true):'';
   return`<div class="card"><div class="ch"><span class="admin-card-heading">기본 정보</span></div><div class="franchise-basic-body">
         ${frInfoRow('대표자',f.owner||'-')}
-        ${frInfoRow('연락처',f.phone||'-')}
+        ${frInfoRow('연락처',formatAdminPhone(f.phone||'-'))}
         ${frInfoRow('이메일',franchiseDisplayEmail(f))}
         ${frInfoRow('로그인 ID',f.loginId||f.customerId||displayMemberId(f.email)||'-')}
         ${frInfoRow('사업자등록번호',f.bizNo||'-')}
@@ -3525,7 +3527,7 @@ function rFr(){
     const lineCount=displayLines.length;
     return`<tr class="franchise-list-row" data-admin-action="fr-detail" data-fr-id="${esc(f.id)}" data-fr-row-id="${esc(f.id)}">
     <td><a class="franchise-type-link franchise-name-link" title="가맹점 상세 보기" href="/admin?franchiseId=${encodeURIComponent(String(f.id||''))}" data-admin-action="fr-detail" data-fr-id="${esc(f.id)}" data-fr-detail-id="${esc(f.id)}"><div class="admin-name-strong">${esc(f.name)}</div><div class="admin-meta-small">${esc(f.loginId||f.customerId||displayMemberId(f.email))}</div></a></td>
-    <td>${esc(f.agency||agencyNameById(f.agencyId)||'-')}</td><td>${esc(f.owner||'-')}</td><td>${esc(f.phone||'-')}</td>
+    <td>${esc(f.agency||agencyNameById(f.agencyId)||'-')}</td><td>${esc(f.owner||'-')}</td><td>${esc(formatAdminPhone(f.phone||'-'))}</td>
     <td class="franchise-date-cell">${esc(f.joinDate||'-')}</td>
     <td class="franchise-stack-cell franchise-stack-cell-sm">${franchiseListDeliveryStack(f,lineCount,displayLines)}</td>
     <td class="franchise-stack-cell">${franchiseListAccountStack(f,lineCount,displayLines)}</td>
@@ -4190,7 +4192,7 @@ function franchiseForm(f={},roDA){const isNew=!f.id;const currentAgencyId=f.agen
   <div class="fr2"><div class="fg"><label class="fl">${isNew?'비밀번호 *':'새 비밀번호'}</label>${adminPwField('fpw',isNew?'초기 비밀번호':'변경할 때만 입력')}<div class="admin-modal-note">${isNew?'초기 로그인 비밀번호입니다.':'비워두면 기존 비밀번호가 유지됩니다.'}</div></div><div class="fg"><label class="fl">사업자등록증</label>${franchiseBizDocFormFile(f)}<input class="admin-hidden-input" id="fbizdoc" type="file" accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.gif,.webp" data-fr-bizdoc-file="1"><div class="admin-modal-note">PDF 또는 사업자등록증 사진 파일을 업로드할 수 있습니다.</div></div></div>
   <div class="fr2"><div class="fg"><label class="fl">상점명 *</label><input class="fi" id="fn" value="${f.name||''}" placeholder="예: 한솥도시락 강남점"></div><div class="fg"><label class="fl">대표자명 *</label><input class="fi" id="fo" value="${f.owner||''}" placeholder="홍길동"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">사업자등록번호 *</label><input class="fi" id="fb2" value="${f.bizNo||''}" placeholder="123-45-67890"></div><div class="fg"><label class="fl">상위대리점</label>${franchiseAgencyTypeFilterHtml()}<select class="admin-hidden-input" id="fagencyid" data-fr-agency-select="1">${agencyOptions(f.agencyId,f.agency)}</select>${franchiseAgencyPickerHtml(f.agencyId,f.agency)}</div></div>
-  <div class="fr2"><div class="fg"><label class="fl">연락처</label><input class="fi" id="fp" value="${f.phone||''}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">상위대리점 영업수수료율 (%)</label><input class="fi" id="ffee" type="number" step="0.01" min="0" max="99.99" value="${currentFee?Number(currentFee).toFixed(2):''}" placeholder="상위대리점 선택 시 표시" readonly aria-readonly="true"><div class="admin-modal-note">본사 기준 건흥 1.98%, 위루트 2.2% 기준입니다.</div></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">연락처</label><input class="fi" id="fp" value="${esc(formatAdminPhone(f.phone||''))}" inputmode="numeric" maxlength="13" autocomplete="tel" data-admin-phone-input="1" placeholder="010-0000-0000"></div><div class="fg"><label class="fl">상위대리점 영업수수료율 (%)</label><input class="fi" id="ffee" type="number" step="0.01" min="0" max="99.99" value="${currentFee?Number(currentFee).toFixed(2):''}" placeholder="상위대리점 선택 시 표시" readonly aria-readonly="true"><div class="admin-modal-note">본사 기준 건흥 1.98%, 위루트 2.2% 기준입니다.</div></div></div>
   <div class="fr2"><div class="fg"><label class="fl">PG사</label><select class="fs" id="fpgprovider">${franchisePgProviderOptions(f.pgProviderId||'')}</select><div class="admin-modal-note">자동 선택은 본사 위루트, 지사·지점 건흥입니다. PG 변경 시 등록 카드는 유지되고 계좌·TID만 현재 PG 승인값을 따릅니다.</div><div class="admin-modal-note" id="fr-pg-fee-note"></div></div><div class="fg"><label class="fl">가맹점 PG 수수료율 (%)</label><input class="fi" id="fpgfee" type="number" step="0.01" value="${initialPgFee.toFixed(2)}" readonly aria-readonly="true"><div class="admin-modal-note">결제·정산 기준 수수료입니다.</div></div></div>
   <div class="fg"><label class="fl">주소</label><div class="franchise-address-line"><input class="fi" id="faddr" value="${f.address||''}" placeholder="도로명주소" readonly><button type="button" class="btn bo" data-admin-action="fr-address-search">주소검색</button></div></div>
   <div class="fg"><label class="fl">상세주소</label><input class="fi" id="fdetailaddr" value="${f.tel||''}" placeholder="동/호수, 층, 기타 상세주소"></div>
@@ -5536,7 +5538,7 @@ function rAg(){
         ${agencyFranchiseTreeNameCell(a.name,parentDepth,{position:franchisePosition})}
         <td class="admin-mono-muted">${esc(a.loginId||a.customerId||'-')}</td>
         <td>${esc(a.owner||a.ceoName||'-')}</td>
-        <td>${esc(a.phone||'-')}</td>
+        <td>${esc(formatAdminPhone(a.phone||'-'))}</td>
         <td>${agencyBadgeName((D.agencies||[]).find(x=>String(x.id)===String(a.parentId||'')))}</td>
         <td>${esc(a.joinDate||'-')}</td>
         <td>${esc(a.lastPaymentDate||'-')}</td>
@@ -5559,7 +5561,7 @@ function rAg(){
       </td>
       ${agencyTreeNameCell(a.name,depth)}
       <td class="admin-mono-muted">${esc(a.loginId||'-')}</td>
-      <td>${esc(a.owner||'-')}</td><td>${esc(a.phone||'-')}</td>
+      <td>${esc(a.owner||'-')}</td><td>${esc(formatAdminPhone(a.phone||'-'))}</td>
       <td>${agencyBadgeName(agencyParent(a))}</td>
       <td>${agencyJoinDate(a)}</td>
       <td>${agencyLatestPaymentDate(a)}</td>
@@ -5653,7 +5655,7 @@ function agForm(a={}){
   <div class="fr2"><div class="fg"><label class="fl">대리점명 *</label><input class="fi" id="an" value="${esc(a.name||'')}" placeholder="예: 강남지사"></div><div class="fg"><label class="fl">유형</label><select class="fs" id="atype" data-ag-type-select="1"><option value="hq" ${type==='hq'?'selected':''}>본사</option><option value="bonbu" ${type==='bonbu'?'selected':''}>본부</option><option value="jisa" ${type==='jisa'?'selected':''}>지사</option><option value="jijum" ${type==='jijum'?'selected':''}>지점</option></select></div></div>
   <div class="fr2"><div class="fg"><label class="fl">로그인 ID</label><input class="fi" id="ai" value="${esc(a.loginId||'')}" placeholder="agency-xxx" autocomplete="username"></div><div class="fg"><label class="fl">비밀번호 ${a.id?'변경':''}</label>${adminPwField('apw',a.id?'변경 시에만 입력':'앱 로그인 비밀번호')}<div class="admin-modal-note">${a.id?'비워두면 기존 비밀번호가 유지됩니다.':'신규 대리점 로그인 비밀번호입니다.'}</div></div></div>
   <div class="fr2"><div class="fg"><label class="fl">상위 대리점</label>${agencyParentTypeFilterHtml()}<select id="aparent" class="admin-hidden-input" data-ag-parent-select="1" data-ag-current-id="${esc(a.id||'')}">${agencyParentOptions(a)}</select>${agencyParentPickerHtml(a,a.parentId,agencyParentName(a))}<div class="admin-modal-note">본사/본부/지사/지점을 필터로 빠르게 선택할 수 있습니다.</div></div><div class="fg"><label class="fl">지역/주소</label><input class="fi" id="ar" value="${esc(a.region||a.address||'')}" placeholder="예: 서울 강남구"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${esc(a.owner||'')}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${esc(a.phone||'')}" placeholder="010-1234-5678"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">대표자명</label><input class="fi" id="ao" value="${esc(a.owner||'')}" placeholder="홍길동"></div><div class="fg"><label class="fl">휴대폰번호</label><input class="fi" id="ap" value="${esc(formatAdminPhone(a.phone||''))}" inputmode="numeric" maxlength="13" autocomplete="tel" data-admin-phone-input="1" placeholder="010-0000-0000"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">수수료율 (%)</label><input class="fi" id="af" type="number" step="0.01" value="${esc(feeValue)}" data-ag-fee-input="1" data-last-suggested-fee="${esc(feeSuggested)}"><div class="admin-modal-note">기본값은 본사 1.98%, 본부 0.5%, 지사 0.4%, 지점 0.1%이며 직접 수정할 수 있습니다.</div></div><div class="fg"><label class="fl">가입 코드</label><div class="ab"><input class="fi" id="ajc" value="${esc(a.joinCode||'')}" placeholder="agency-1024" ${a.id?'':'disabled'}><button type="button" class="btn bo" data-admin-action="ag-join-code-save" data-ag-join-code-id="${esc(a.id||'')}" ${a.id?'':'disabled'}>중복체크 저장</button></div><div class="admin-modal-note">${a.id?'영문 소문자, 숫자, 하이픈만 사용합니다. 가입 URL은 /join/가입코드 입니다.':'생성 후 자동으로 agency-대리점ID 코드가 발급됩니다.'}</div></div></div>
   <div class="fg"><label class="fl">운영 배달대행 플랫폼 (비고 메모)</label><input class="fi" id="agdn" value="${esc(a.deliveryNote||'')}" placeholder="예: 생각대로, 바로고, 딜버 운영 중"></div>
   <div class="dv"></div>
@@ -5853,7 +5855,7 @@ function pgAgDetail(){
       <div class="card"><div class="ch"><b>기본 정보</b></div><div class="admin-info-grid">
         <span class="admin-inline-muted">로그인 ID</span><b class="admin-mono-strong">${esc(ag.loginId||'-')}</b>
         <span class="admin-inline-muted">대표자</span><span>${esc(ag.owner||'-')}</span>
-        <span class="admin-inline-muted">연락처</span><span>${esc(ag.phone||'-')}</span>
+        <span class="admin-inline-muted">연락처</span><span>${esc(formatAdminPhone(ag.phone||'-'))}</span>
         <span class="admin-inline-muted">주소</span><span>${esc(ag.region||ag.address||'-')}</span>
         <span class="admin-inline-muted">영업수수료율</span><b class="tg">${Number(getEffRate(ag)||0).toFixed(2)}%</b>
       </div></div>
@@ -6261,7 +6263,7 @@ async function previewDeliveryAgencyBusinessFile(fileKey,displayName='사업자�
         </div>
         <div class="account-check-grid">
           <div class="account-check-item"><span class="k">대표자</span><span class="v">${esc(f.owner||'-')}</span></div>
-          <div class="account-check-item"><span class="k">연락처</span><span class="v">${esc(f.phone||'-')}</span></div>
+          <div class="account-check-item"><span class="k">연락처</span><span class="v">${esc(formatAdminPhone(f.phone||'-'))}</span></div>
           <div class="account-check-item"><span class="k">이메일</span><span class="v">${franchiseDisplayEmail(f)}</span></div>
           <div class="account-check-item"><span class="k">로그인 ID</span><span class="v">${esc(f.loginId||f.customerId||displayMemberId(f.email)||'-')}</span></div>
           <div class="account-check-item full"><span class="k">사업자등록번호</span><span class="v mono">${esc(f.bizNo||'-')}</span></div>
@@ -6468,7 +6470,7 @@ const inquiriesCtx=()=>({data:D,esc,bdg,adminActionChip});
 function pgInquiries(){return window.EatsAdminInquiries.pgInquiries(inquiriesCtx());}
 function inquiryForm(i={}){const type=i.inquiryType||'가맹점 등록';return`
   <div class="fr2"><div class="fg"><label class="fl">문의 유형 *</label><select class="fs" id="iqt"><option ${type==='가맹점 등록'?'selected':''}>가맹점 등록</option><option ${type==='지점/지사 개설'?'selected':''}>지점/지사 개설</option><option ${type==='배달대행사 제휴'?'selected':''}>배달대행사 제휴</option><option ${type==='기타 문의'?'selected':''}>기타 문의</option></select></div><div class="fg"><label class="fl">성함 / 회사명 *</label><input class="fi" id="iqn" value="${esc(i.name||'')}" placeholder="성함 또는 회사명"></div></div>
-  <div class="fr2"><div class="fg"><label class="fl">연락처 *</label><input class="fi" id="iqp" value="${esc(i.phone||'')}" placeholder="010-1234-5678"></div><div class="fg"><label class="fl">매장/희망지역 *</label><input class="fi" id="iqr" value="${esc(i.region||'')}" placeholder="예: 서울 강남구"></div></div>
+  <div class="fr2"><div class="fg"><label class="fl">연락처 *</label><input class="fi" id="iqp" value="${esc(formatAdminPhone(i.phone||''))}" inputmode="numeric" maxlength="13" autocomplete="tel" data-admin-phone-input="1" placeholder="010-0000-0000"></div><div class="fg"><label class="fl">매장/희망지역 *</label><input class="fi" id="iqr" value="${esc(i.region||'')}" placeholder="예: 서울 강남구"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">현 업종 / 상호명 *</label><input class="fi" id="iqdp" value="${esc(i.deliveryAgency||'')}" placeholder="예: 음식점, 배달대행"></div><div class="fg"><label class="fl">알게된경로 *</label><input class="fi" id="iqh" value="${esc(i.handler||'')}" placeholder="예: 홈페이지, 지인소개, 검색"></div></div>
   <div class="fr2"><div class="fg"><label class="fl">상태</label><select class="fs" id="iqs"><option ${(i.status||'상담 대기')==='상담 대기'?'selected':''}>상담 대기</option><option ${i.status==='상담 완료'?'selected':''}>상담 완료</option></select></div></div>`;}
 function addInquiry(){openM('가맹점/지점 문의 등록',inquiryForm(),adminModalFooter(adminModalButton('취소','data-modal-close="1"'),adminModalButton('저장','data-admin-action="inquiry-save" data-inquiry-id="new"','primary')));}
@@ -6525,7 +6527,7 @@ function pgAdvanceInquiries(){
   <div class="card">
     <div class="ch"><span class="admin-section-head-text">선정산 문의 <span class="tg">${rows.length}건</span></span></div>
     <div class="tw"><table><thead><tr><th>상태</th><th>가맹점</th><th>연락처</th><th>이메일</th><th>배달앱 매출</th><th>카드사 매출</th><th>이용 배달앱</th><th>접수일시</th><th>처리</th></tr></thead><tbody>
-    ${rows.map(i=>`<tr><td>${bdg(i.status||'상담 대기')}</td><td class="admin-text-bold">${esc(i.franchiseName||'-')}</td><td>${esc(i.phone||'-')}</td><td>${esc(i.email||'-')}</td><td>${manwonLabel(i.deliverySalesManwon)}</td><td>${manwonLabel(i.storeSalesManwon)}</td><td>${esc(i.deliveryApps||'-')}</td><td class="payment-date-cell">${window.EatsAdminDateTime.html(i.createdAt||i.date)}</td>
+    ${rows.map(i=>`<tr><td>${bdg(i.status||'상담 대기')}</td><td class="admin-text-bold">${esc(i.franchiseName||'-')}</td><td>${esc(formatAdminPhone(i.phone||'-'))}</td><td>${esc(i.email||'-')}</td><td>${manwonLabel(i.deliverySalesManwon)}</td><td>${manwonLabel(i.storeSalesManwon)}</td><td>${esc(i.deliveryApps||'-')}</td><td class="payment-date-cell">${window.EatsAdminDateTime.html(i.createdAt||i.date)}</td>
     <td><div class="admin-action-group">
       ${['상담 대기','상담중','상담 완료','보류'].map(status=>adminActionChip(status,'advance-inquiry-status',`data-advance-inquiry-id="${esc(i.id)}" data-advance-inquiry-status="${esc(status)}"`,status===i.status?'primary':'')).join('')}
       ${adminActionChip('삭제','advance-inquiry-delete',`data-advance-inquiry-id="${esc(i.id)}"`,'danger')}
