@@ -65,6 +65,14 @@ class EatsPayKakaoBotTests(unittest.TestCase):
             self.assertFalse(result)
             reply.assert_not_called()
 
+    def test_manual_export_link_is_mirrored_to_tid_notify_rooms_once(self):
+        with mock.patch.object(self.bot, "request_export_link", return_value=(True, "ok", {"data": {"count": 2, "fileName": "tid.xlsx", "url": "https://download", "uploadUrl": "https://upload"}})), \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["473042992214661", "380705904900190"]), \
+             mock.patch.object(self.bot, "iris_reply", return_value=200) as reply:
+            self.assertTrue(self.bot.process_webhook({"msg": "!이츠페이", "room": "mino", "json": {"chat_id": "473042992214661", "user_id": "1"}}))
+        self.assertEqual([call.args[0] for call in reply.call_args_list], ["473042992214661", "380705904900190"])
+        self.assertTrue(all("https://download" in call.args[1] for call in reply.call_args_list))
+
     def test_state_write_is_atomic(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"
@@ -96,6 +104,63 @@ class EatsPayKakaoBotTests(unittest.TestCase):
             self.bot.poll_tid_events_once(state)
         write.assert_not_called()
         self.assertEqual(state["last_id"], "event-1")
+
+    def test_completed_tid_batch_generates_next_link_only_once_even_if_zero_repeats(self):
+        state = {"last_id": "event-0"}
+        events = [
+            {"id": "event-1", "batchId": "ACCEXP-BATCH1", "total": 2, "updated": 2, "remainingValidationCount": 0},
+            {"id": "event-2", "batchId": "ACCEXP-BATCH1", "total": 2, "updated": 2, "remainingValidationCount": 0},
+        ]
+        with mock.patch.object(self.bot, "fetch_tid_events", side_effect=[[events[0]], [events[1]]]), \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
+             mock.patch.object(self.bot, "export_command_text", return_value="NEXT LINK") as export_text, \
+             mock.patch.object(self.bot, "iris_reply", return_value=200) as reply, \
+             mock.patch.object(self.bot, "write_state"):
+            self.assertTrue(self.bot.poll_tid_events_once(state))
+            self.assertTrue(self.bot.poll_tid_events_once(state))
+        export_text.assert_called_once_with()
+        self.assertEqual(
+            [call for call in reply.call_args_list if call.args[1] == "NEXT LINK"],
+            [mock.call("tid-room", "NEXT LINK"), mock.call("mobis-room", "NEXT LINK")],
+        )
+        self.assertIn("ACCEXP-BATCH1", state.get("auto_link_completed_batches", []))
+
+    def test_tid_auto_link_retry_resumes_without_creating_another_link(self):
+        event = {"id": "event-1", "batchId": "ACCEXP-BATCH1", "total": 1, "updated": 1, "remainingValidationCount": 0}
+        state = {"last_id": "event-0"}
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(self.bot, "TID_STATE_PATH", Path(tmp) / "tid-state.json"), \
+             mock.patch.object(self.bot, "fetch_tid_events", return_value=[event]), \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
+             mock.patch.object(self.bot, "export_command_text", return_value="NEXT LINK") as export_text, \
+             mock.patch.object(self.bot, "iris_reply", side_effect=[200, 200, 200, None, 200]) as reply:
+            self.assertFalse(self.bot.poll_tid_events_once(state))
+            restarted_state = self.bot.read_state(self.bot.TID_STATE_PATH)
+            self.assertTrue(self.bot.poll_tid_events_once(restarted_state))
+        export_text.assert_called_once_with()
+        self.assertEqual(reply.call_args_list[-1], mock.call("mobis-room", "NEXT LINK"))
+        self.assertEqual(restarted_state["last_id"], "event-1")
+
+    def test_tid_upload_attachment_notifies_source_and_mobis_room(self):
+        payload = {
+            "msg": "eatsPay_ACCEXP-BATCH1.xlsx",
+            "room": "이츠페이_TID 업로드방",
+            "json": {
+                "chat_id": "473042992214661",
+                "type": "18",
+                "nickname": "상대담당자",
+                "attachment": '{"name":"eatsPay_ACCEXP-BATCH1.xlsx","url":"https://talk.kakaocdn.net/file.xlsx"}',
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["473042992214661", "380705904900190"]), \
+             mock.patch.object(self.bot, "PAYLOAD_DIR", Path(tmp)), \
+             mock.patch.object(self.bot, "_upload_excel", return_value={"success": True}), \
+             mock.patch.object(self.bot, "iris_reply", return_value=200) as reply:
+            self.assertTrue(self.bot.process_webhook(payload))
+        mobis_texts = [call.args[1] for call in reply.call_args_list if call.args[0] == "380705904900190"]
+        self.assertTrue(any("상대담당자" in text and "업로드" in text for text in mobis_texts))
+        self.assertTrue(any("서버 업로드 완료" in text for text in mobis_texts))
 
     def test_pollers_are_disabled_by_default(self):
         with mock.patch.dict(os.environ, {}, clear=True):

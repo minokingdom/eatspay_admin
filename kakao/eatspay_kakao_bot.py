@@ -66,6 +66,29 @@ def iris_reply(room, text):
         with urllib.request.urlopen(req, timeout=10) as response: response.read(); return response.status
     except Exception as exc: print(f"[IRIS_REPLY] failed room={room}: {exc}", flush=True); return None
 
+def _unique_rooms(*groups):
+    rooms = []
+    for group in groups:
+        values = group if isinstance(group, (list, tuple, set)) else [group]
+        for room in values:
+            room_id = str(room or "").strip()
+            if room_id and room_id not in rooms: rooms.append(room_id)
+    return rooms
+
+def _sender_name(payload):
+    item = payload.get("json") or {}
+    for value in (payload.get("sender"), payload.get("author"), payload.get("name"), item.get("sender"), item.get("name"), item.get("nickname"), item.get("user_name"), item.get("profile_name")):
+        name = str(value or "").strip()
+        if name: return name
+    return "누군가"
+
+def tid_delivery_rooms(source_room=None):
+    return _unique_rooms(source_room, TID_NOTIFY_ROOMS)
+
+def deliver_tid_text(text, source_room=None):
+    statuses = [iris_reply(room, text) for room in tid_delivery_rooms(source_room)]
+    return bool(statuses) and all(statuses)
+
 def fetch_tid_events(since=""):
     query = "?since=" + urllib.parse.quote(str(since)) if since else ""
     return ((_api_json("/api/internal/kakao/account-approvals/tid-upload-events" + query) or {}).get("data") or {}).get("events") or []
@@ -143,21 +166,57 @@ def process_webhook(payload):
     if not is_eatspay_room(chat_id,room_name) or _dedupe(payload): return False
     for name,url in _excel_candidates(payload):
         PAYLOAD_DIR.mkdir(parents=True,exist_ok=True); (PAYLOAD_DIR/f"txid_payload_{int(time.time())}_{uuid.uuid4().hex[:8]}.json").write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
-        try: _upload_excel(name,url); iris_reply(chat_id,f"✅ TID 엑셀 서버 업로드 완료\n{name}")
-        except Exception as exc: iris_reply(chat_id,f"⚠️ TID 엑셀 처리 실패\n{str(exc)[:300]}")
+        uploader = _sender_name(payload)
+        deliver_tid_text(f"📥 TID 엑셀 업로드 감지\n업로더: {uploader}\n파일: {name}", chat_id)
+        try: _upload_excel(name,url); deliver_tid_text(f"✅ TID 엑셀 서버 업로드 완료\n업로더: {uploader}\n파일: {name}", chat_id)
+        except Exception as exc: deliver_tid_text(f"⚠️ TID 엑셀 처리 실패\n업로더: {uploader}\n파일: {name}\n{str(exc)[:300]}", chat_id)
         return True
-    if message.lower() in {"!이츠페이","!eatspay"}: iris_reply(chat_id,export_command_text()); return True
+    if message.lower() in {"!이츠페이","!eatspay"}: deliver_tid_text(export_command_text(), chat_id); return True
     if message.lower() in {"!업로드","!upload"}: iris_reply(chat_id,"📤 수정한 엑셀 파일을 이 방에 올려주세요. 파일이 감지되면 서버에 자동 반영합니다."); return True
     return False
 
 def poll_tid_events_once(state):
+    progress = state.setdefault("delivery_progress", {})
+    completed_batches = state.setdefault("auto_link_completed_batches", [])
     for event in fetch_tid_events(state.get("last_id", "")):
+        event_id = str(event.get("id") or "")
+        event_progress = progress.setdefault(event_id, {})
         text = format_tid_upload_event(event)
-        statuses = [iris_reply(room, text) for room in TID_NOTIFY_ROOMS]
-        if not statuses or not all(statuses):
-            print(f"[TID_EVENT] delivery failed id={event.get('id')} statuses={statuses}", flush=True)
-            return False
-        state["last_id"] = event.get("id") or state.get("last_id", "")
+        delivered_event_rooms = set(event_progress.get("event_rooms") or [])
+        for room in _unique_rooms(TID_NOTIFY_ROOMS):
+            if room in delivered_event_rooms: continue
+            status = iris_reply(room, text)
+            if not status:
+                print(f"[TID_EVENT] delivery failed id={event_id} room={room}", flush=True)
+                return False
+            delivered_event_rooms.add(room)
+            event_progress["event_rooms"] = sorted(delivered_event_rooms)
+            write_state(TID_STATE_PATH, state)
+
+        batch_id = str(event.get("batchId") or "").strip()
+        try: remaining_count = int(event.get("remainingValidationCount"))
+        except (TypeError, ValueError): remaining_count = None
+        if batch_id and remaining_count == 0 and batch_id not in completed_batches:
+            if not event_progress.get("auto_link_text"):
+                event_progress["auto_link_text"] = export_command_text()
+                write_state(TID_STATE_PATH, state)
+            delivered_link_rooms = set(event_progress.get("auto_link_rooms") or [])
+            for room in _unique_rooms(TID_NOTIFY_ROOMS):
+                if room in delivered_link_rooms: continue
+                status = iris_reply(room, event_progress["auto_link_text"])
+                if not status:
+                    print(f"[TID_AUTO_LINK] delivery failed batch={batch_id} room={room}", flush=True)
+                    return False
+                delivered_link_rooms.add(room)
+                event_progress["auto_link_rooms"] = sorted(delivered_link_rooms)
+                write_state(TID_STATE_PATH, state)
+            completed_batches.append(batch_id)
+            del completed_batches[:-200]
+            write_state(TID_STATE_PATH, state)
+
+        progress.pop(event_id, None)
+        state["last_id"] = event_id or state.get("last_id", "")
+        if not progress: state.pop("delivery_progress", None)
         write_state(TID_STATE_PATH, state)
         print(f"[TID_EVENT] delivered id={state['last_id']} rooms={len(TID_NOTIFY_ROOMS)}", flush=True)
     return True

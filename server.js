@@ -6024,6 +6024,11 @@ function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {
     notFound: Number(data.notFound || 0),
     staleAccount: Number(data.staleAccount || 0),
     ambiguous: Number(data.ambiguous || 0),
+    remainingValidationCount: data.remainingValidationCount !== undefined
+      && data.remainingValidationCount !== null
+      && Number.isFinite(Number(data.remainingValidationCount))
+      ? Number(data.remainingValidationCount)
+      : null,
     targets
   };
   try {
@@ -6048,12 +6053,13 @@ async function handleAccountApprovalTxidUpload(req, res) {
   if (!items.length) {
     return sendError(res, 400, 'NO_TID_ROWS', 'TID/Key를 반영할 행을 찾지 못했습니다.');
   }
-  const batchIdMatch = uploadFileName.match(/(?:eatsPay_|account-approvals-|계좌검증_내보내기_)?(ACCEXP-[A-Za-z0-9]+)/i);
+  const batchIdMatch = uploadFileName.match(/(?:eatsPay_|account-approvals-|계좌검증_내보내기_)?(ACCEXP-[A-Za-z0-9-]+)/i);
   const results = await repo.applyAccountApprovalTxids(items, {
     batchId: batchIdMatch ? batchIdMatch[1] : ''
   });
   await notifyAccountApprovalTxidApplied(results);
   const updated = results.filter(item => item.status === 'UPDATED').length;
+  const remainingValidationCount = await repo.countAccountApprovalExportRows({ exportStatus: 'exported' });
   await recordAuditLog(req, {
     action: 'ACCOUNT_TXID_UPLOAD',
     entityType: 'account_approval_batch',
@@ -6077,9 +6083,10 @@ async function handleAccountApprovalTxidUpload(req, res) {
     },
     force: true
   });
-  return res.status(200).json({
+  const responseBody = {
     success: true,
     data: {
+      batchId: batchIdMatch ? batchIdMatch[1] : '',
       total: results.length,
       updated,
       skipped: results.filter(item => item.status === 'SKIPPED').length,
@@ -6088,9 +6095,18 @@ async function handleAccountApprovalTxidUpload(req, res) {
       notFound: results.filter(item => item.status === 'NOT_FOUND').length,
       staleAccount: results.filter(item => item.status === 'STALE_ACCOUNT').length,
       ambiguous: results.filter(item => item.status === 'AMBIGUOUS').length,
+      remainingValidationCount,
       results
     }
-  });
+  };
+  if (req.recordKakaoTidUploadEvent === true) {
+    appendKakaoTidUploadEvent({
+      batchId: responseBody.data.batchId,
+      fileName: uploadFileName,
+      resultBody: responseBody
+    });
+  }
+  return res.status(200).json(responseBody);
 }
 
 app.post('/api/admin/exports/settlement.xlsx', authenticateAdmin, asyncHandler(async (req, res) => {
@@ -6111,6 +6127,7 @@ app.post('/api/admin/account-approvals/txid-upload', authenticateAdmin, singleUp
 }));
 
 app.post('/api/internal/kakao/account-approvals/txid-upload', authenticateKakaoTxid, singleUpload('file'), asyncHandler(async (req, res) => {
+  req.recordKakaoTidUploadEvent = true;
   return handleAccountApprovalTxidUpload(req, res);
 }));
 
