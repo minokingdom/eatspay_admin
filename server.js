@@ -6043,6 +6043,51 @@ function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {
   }
 }
 
+async function appendKakaoApprovalQueueDrainedEventIfNeeded() {
+  const pendingVerificationResult = await pool.query(`
+    SELECT (
+      (SELECT count(*) FROM account_requests
+       WHERE status = 'PENDING' AND COALESCE(hidden, false) = false)
+      +
+      (SELECT count(*) FROM delivery_accounts
+       WHERE account_status = 'PENDING' AND COALESCE(hidden, false) = false)
+    )::int AS count
+  `);
+  const pendingVerificationCount = Number(pendingVerificationResult.rows[0]?.count || 0);
+  if (pendingVerificationCount !== 0) return null;
+
+  const pendingExportRows = await repo.listAccountApprovalExportRows({ exportStatus: 'pending' });
+  if (!pendingExportRows.length) return null;
+
+  const queueKey = crypto.createHash('sha256')
+    .update(pendingExportRows
+      .map(row => `${row.source || ''}:${row.id || ''}`)
+      .sort()
+      .join('|'))
+    .digest('hex')
+    .slice(0, 24);
+  const events = readKakaoTidUploadEvents();
+  const existing = events.find(event => event?.kind === 'approval_queue_drained' && event?.queueKey === queueKey);
+  if (existing) return existing;
+
+  const event = {
+    id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    createdAt: new Date().toISOString(),
+    kind: 'approval_queue_drained',
+    queueKey,
+    pendingExportCount: pendingExportRows.length
+  };
+  try {
+    events.push(event);
+    fs.mkdirSync(path.dirname(KAKAO_TID_UPLOAD_EVENTS_PATH), { recursive: true });
+    fs.writeFileSync(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON.stringify(events.slice(-200), null, 2));
+    return event;
+  } catch (err) {
+    console.warn('[KAKAO_APPROVAL_QUEUE_EVENT_WRITE_FAILED]', err?.message || err);
+    return null;
+  }
+}
+
 async function handleAccountApprovalTxidUpload(req, res) {
   if (!req.file) {
     return sendError(res, 400, 'FILE_REQUIRED', 'TID/Key 엑셀 파일을 업로드해주세요.');
@@ -7614,6 +7659,7 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
       beforeData: pickDeliveryAccountAuditData(account),
       afterData: pickDeliveryAccountAuditData(updatedAccount)
     });
+    await appendKakaoApprovalQueueDrainedEventIfNeeded();
     return res.status(200).json({
       success: true,
       message: 'Account processed.',
@@ -7734,6 +7780,8 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
       }
     });
   }
+
+  await appendKakaoApprovalQueueDrainedEventIfNeeded();
 
   return res.status(200).json({
     success: true,

@@ -181,22 +181,25 @@ def poll_tid_events_once(state):
     for event in fetch_tid_events(state.get("last_id", "")):
         event_id = str(event.get("id") or "")
         event_progress = progress.setdefault(event_id, {})
-        text = format_tid_upload_event(event)
-        delivered_event_rooms = set(event_progress.get("event_rooms") or [])
-        for room in _unique_rooms(TID_NOTIFY_ROOMS):
-            if room in delivered_event_rooms: continue
-            status = iris_reply(room, text)
-            if not status:
-                print(f"[TID_EVENT] delivery failed id={event_id} room={room}", flush=True)
-                return False
-            delivered_event_rooms.add(room)
-            event_progress["event_rooms"] = sorted(delivered_event_rooms)
-            write_state(TID_STATE_PATH, state)
+        event_kind = str(event.get("kind") or "tid_upload")
+        if event_kind != "approval_queue_drained":
+            text = format_tid_upload_event(event)
+            delivered_event_rooms = set(event_progress.get("event_rooms") or [])
+            for room in _unique_rooms(TID_NOTIFY_ROOMS):
+                if room in delivered_event_rooms: continue
+                status = iris_reply(room, text)
+                if not status:
+                    print(f"[TID_EVENT] delivery failed id={event_id} room={room}", flush=True)
+                    return False
+                delivered_event_rooms.add(room)
+                event_progress["event_rooms"] = sorted(delivered_event_rooms)
+                write_state(TID_STATE_PATH, state)
 
-        batch_id = str(event.get("batchId") or "").strip()
-        try: remaining_count = int(event.get("remainingValidationCount"))
-        except (TypeError, ValueError): remaining_count = None
-        if batch_id and remaining_count == 0 and batch_id not in completed_batches:
+        queue_key = str(event.get("queueKey") or "").strip()
+        try: pending_export_count = int(event.get("pendingExportCount"))
+        except (TypeError, ValueError): pending_export_count = 0
+        completion_key = f"queue:{queue_key}" if queue_key else ""
+        if event_kind == "approval_queue_drained" and completion_key and pending_export_count > 0 and completion_key not in completed_batches:
             if not event_progress.get("auto_link_text"):
                 event_progress["auto_link_text"] = export_command_text()
                 write_state(TID_STATE_PATH, state)
@@ -205,12 +208,12 @@ def poll_tid_events_once(state):
                 if room in delivered_link_rooms: continue
                 status = iris_reply(room, event_progress["auto_link_text"])
                 if not status:
-                    print(f"[TID_AUTO_LINK] delivery failed batch={batch_id} room={room}", flush=True)
+                    print(f"[TID_AUTO_LINK] delivery failed queue={queue_key} room={room}", flush=True)
                     return False
                 delivered_link_rooms.add(room)
                 event_progress["auto_link_rooms"] = sorted(delivered_link_rooms)
                 write_state(TID_STATE_PATH, state)
-            completed_batches.append(batch_id)
+            completed_batches.append(completion_key)
             del completed_batches[:-200]
             write_state(TID_STATE_PATH, state)
 

@@ -105,11 +105,39 @@ class EatsPayKakaoBotTests(unittest.TestCase):
         write.assert_not_called()
         self.assertEqual(state["last_id"], "event-1")
 
-    def test_completed_tid_batch_generates_next_link_only_once_even_if_zero_repeats(self):
+    def test_tid_upload_completion_does_not_generate_next_link(self):
+        state = {"last_id": "event-0"}
+        event = {"id": "event-1", "batchId": "ACCEXP-BATCH1", "total": 2, "updated": 2, "remainingValidationCount": 0}
+        with mock.patch.object(self.bot, "fetch_tid_events", return_value=[event]), \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
+             mock.patch.object(self.bot, "export_command_text", return_value="NEXT LINK") as export_text, \
+             mock.patch.object(self.bot, "iris_reply", return_value=200) as reply, \
+             mock.patch.object(self.bot, "write_state"):
+            self.assertTrue(self.bot.poll_tid_events_once(state))
+        export_text.assert_not_called()
+        self.assertFalse(any(call.args[1] == "NEXT LINK" for call in reply.call_args_list))
+
+    def test_tid_auto_link_retry_resumes_without_creating_another_link(self):
+        event = {"id": "event-1", "kind": "approval_queue_drained", "queueKey": "queue-a", "pendingExportCount": 1}
+        state = {"last_id": "event-0"}
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(self.bot, "TID_STATE_PATH", Path(tmp) / "tid-state.json"), \
+             mock.patch.object(self.bot, "fetch_tid_events", return_value=[event]), \
+             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
+             mock.patch.object(self.bot, "export_command_text", return_value="NEXT LINK") as export_text, \
+             mock.patch.object(self.bot, "iris_reply", side_effect=[200, None, 200]) as reply:
+            self.assertFalse(self.bot.poll_tid_events_once(state))
+            restarted_state = self.bot.read_state(self.bot.TID_STATE_PATH)
+            self.assertTrue(self.bot.poll_tid_events_once(restarted_state))
+        export_text.assert_called_once_with()
+        self.assertEqual(reply.call_args_list[-1], mock.call("mobis-room", "NEXT LINK"))
+        self.assertEqual(restarted_state["last_id"], "event-1")
+
+    def test_drained_approval_queue_generates_link_once_for_same_queue(self):
         state = {"last_id": "event-0"}
         events = [
-            {"id": "event-1", "batchId": "ACCEXP-BATCH1", "total": 2, "updated": 2, "remainingValidationCount": 0},
-            {"id": "event-2", "batchId": "ACCEXP-BATCH1", "total": 2, "updated": 2, "remainingValidationCount": 0},
+            {"id": "event-1", "kind": "approval_queue_drained", "queueKey": "queue-a", "pendingExportCount": 2},
+            {"id": "event-2", "kind": "approval_queue_drained", "queueKey": "queue-a", "pendingExportCount": 2},
         ]
         with mock.patch.object(self.bot, "fetch_tid_events", side_effect=[[events[0]], [events[1]]]), \
              mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
@@ -123,23 +151,7 @@ class EatsPayKakaoBotTests(unittest.TestCase):
             [call for call in reply.call_args_list if call.args[1] == "NEXT LINK"],
             [mock.call("tid-room", "NEXT LINK"), mock.call("mobis-room", "NEXT LINK")],
         )
-        self.assertIn("ACCEXP-BATCH1", state.get("auto_link_completed_batches", []))
-
-    def test_tid_auto_link_retry_resumes_without_creating_another_link(self):
-        event = {"id": "event-1", "batchId": "ACCEXP-BATCH1", "total": 1, "updated": 1, "remainingValidationCount": 0}
-        state = {"last_id": "event-0"}
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(self.bot, "TID_STATE_PATH", Path(tmp) / "tid-state.json"), \
-             mock.patch.object(self.bot, "fetch_tid_events", return_value=[event]), \
-             mock.patch.object(self.bot, "TID_NOTIFY_ROOMS", ["tid-room", "mobis-room"]), \
-             mock.patch.object(self.bot, "export_command_text", return_value="NEXT LINK") as export_text, \
-             mock.patch.object(self.bot, "iris_reply", side_effect=[200, 200, 200, None, 200]) as reply:
-            self.assertFalse(self.bot.poll_tid_events_once(state))
-            restarted_state = self.bot.read_state(self.bot.TID_STATE_PATH)
-            self.assertTrue(self.bot.poll_tid_events_once(restarted_state))
-        export_text.assert_called_once_with()
-        self.assertEqual(reply.call_args_list[-1], mock.call("mobis-room", "NEXT LINK"))
-        self.assertEqual(restarted_state["last_id"], "event-1")
+        self.assertNotIn("✅ 이츠페이 TID 엑셀 서버 반영 완료", [call.args[1] for call in reply.call_args_list])
 
     def test_tid_upload_attachment_notifies_source_and_mobis_room(self):
         payload = {

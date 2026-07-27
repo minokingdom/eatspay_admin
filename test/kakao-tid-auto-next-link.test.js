@@ -21,3 +21,11 @@ test('internal Kakao TID uploads append the same durable upload event as web upl
 test('TID upload keeps the complete hyphenated export batch id', () => {
   assert.match(server, /\(ACCEXP-\[A-Za-z0-9-\]\+\)/);
 });
+
+test('the admin approval endpoint emits a queue-drained event after either account source is processed', () => {
+  assert.match(server, /async function appendKakaoApprovalQueueDrainedEventIfNeeded/);
+  assert.match(server, /kind:\s*'approval_queue_drained'/);
+  assert.match(server, /pendingVerificationCount[^]*pendingExportRows\.length/);
+  const endpoint = server.match(/app\.post\('\/api\/admin\/accounts\/approve'[^]*?\n\}\)\);/)?.[0] || '';
+  assert.equal((endpoint.match(/appendKakaoApprovalQueueDrainedEventIfNeeded\(\)/g) || []).length, 2);
+});
