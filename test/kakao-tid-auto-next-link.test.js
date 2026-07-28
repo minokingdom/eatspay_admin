@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const server = fs.readFileSync(path.resolve(__dirname, '..', 'server.js'), 'utf8');
+const repository = fs.readFileSync(path.resolve(__dirname, '..', 'db', 'repository.js'), 'utf8');
 
 test('TID upload response records the remaining exported validation count', () => {
   assert.match(server, /countAccountApprovalExportRows\(\{\s*exportStatus: 'exported'\s*\}\)/);
@@ -38,4 +39,13 @@ test('Kakao TID events are replaced atomically instead of overwriting a possibly
     server,
     /writeFileSync\(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON\.stringify\(events\.slice\(-200\), null, 2\)\)/
   );
+});
+
+test('approving a repeated account request hides older approved records and keeps the newest record matchable', () => {
+  assert.match(repository, /async hideSupersededApprovedAccountRequests\(requestId\)/);
+  assert.match(repository, /ORDER BY candidate\.submitted_at DESC, candidate\.request_id DESC/);
+  assert.match(repository, /SET active = false, hidden = true/);
+  assert.match(repository, /older\.request_id <> latest\.request_id/);
+  const endpoint = server.match(/app\.post\('\/api\/admin\/accounts\/approve'[^]*?\n\}\)\);/)?.[0] || '';
+  assert.equal((endpoint.match(/hideSupersededApprovedAccountRequests\(updated\.requestId\)/g) || []).length, 1);
 });

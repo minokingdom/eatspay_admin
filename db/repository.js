@@ -3697,6 +3697,38 @@ function createRepository(pool) {
       return attached || request;
     },
 
+    async hideSupersededApprovedAccountRequests(requestId) {
+      const result = await pool.query(
+        `WITH current AS (
+           SELECT franchise_id,
+                  regexp_replace(COALESCE(account_no, assigned_virtual_account->>'accountNumber', ''), '[^0-9A-Za-z]', '', 'g') AS account_no
+           FROM account_requests
+           WHERE request_id = $1 AND status = 'APPROVED'
+         ), latest AS (
+           SELECT candidate.request_id
+           FROM account_requests candidate
+           CROSS JOIN current
+           WHERE candidate.franchise_id = current.franchise_id
+             AND candidate.status = 'APPROVED'
+             AND COALESCE(candidate.hidden, false) = false
+             AND regexp_replace(COALESCE(candidate.account_no, candidate.assigned_virtual_account->>'accountNumber', ''), '[^0-9A-Za-z]', '', 'g') = current.account_no
+           ORDER BY candidate.submitted_at DESC, candidate.request_id DESC
+           LIMIT 1
+         )
+         UPDATE account_requests older
+         SET active = false, hidden = true, updated_at = now()
+         FROM current, latest
+         WHERE older.franchise_id = current.franchise_id
+           AND older.status = 'APPROVED'
+           AND COALESCE(older.hidden, false) = false
+           AND regexp_replace(COALESCE(older.account_no, older.assigned_virtual_account->>'accountNumber', ''), '[^0-9A-Za-z]', '', 'g') = current.account_no
+           AND older.request_id <> latest.request_id
+         RETURNING older.*`,
+        [requestId]
+      );
+      return result.rows.map(toAccountRequest);
+    },
+
     async resetAccountRequestVerification(requestId) {
       const result = await pool.query(
         `UPDATE account_requests

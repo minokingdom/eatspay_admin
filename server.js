@@ -7741,6 +7741,19 @@ app.post('/api/admin/accounts/approve', authenticateAdmin, asyncHandler(async (r
   } else {
     return sendError(res, 400, 'INVALID_ACTION', 'action must be APPROVED or REJECTED.');
   }
+  const supersededRequests = action === 'APPROVED'
+    ? await repo.hideSupersededApprovedAccountRequests(updated.requestId)
+    : [];
+  for (const superseded of supersededRequests) {
+    await recordAuditLog(req, {
+      action: 'ACCOUNT_DELETE',
+      entityType: 'account_request',
+      entityId: superseded.requestId,
+      entityName: superseded.deliveryAgencyName || superseded.franchiseName || '',
+      beforeData: pickAccountRequestAuditData({ ...superseded, active: true, hidden: false }),
+      afterData: pickAccountRequestAuditData(superseded)
+    });
+  }
   await recordAuditLog(req, {
     action: action === 'APPROVED' ? 'ACCOUNT_REQUEST_VERIFY' : 'ACCOUNT_REQUEST_REJECT',
     entityType: 'account_request',
