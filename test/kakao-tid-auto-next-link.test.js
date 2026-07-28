@@ -29,3 +29,13 @@ test('the admin approval endpoint emits a queue-drained event after either accou
   const endpoint = server.match(/app\.post\('\/api\/admin\/accounts\/approve'[^]*?\n\}\)\);/)?.[0] || '';
   assert.equal((endpoint.match(/appendKakaoApprovalQueueDrainedEventIfNeeded\(\)/g) || []).length, 2);
 });
+
+test('Kakao TID events are replaced atomically instead of overwriting a possibly read-only file', () => {
+  assert.match(server, /function writeKakaoTidUploadEvents\(events\)/);
+  assert.match(server, /renameSync\(temporaryPath, KAKAO_TID_UPLOAD_EVENTS_PATH\)/);
+  assert.equal((server.match(/writeKakaoTidUploadEvents\(events\);/g) || []).length, 2);
+  assert.doesNotMatch(
+    server,
+    /writeFileSync\(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON\.stringify\(events\.slice\(-200\), null, 2\)\)/
+  );
+});

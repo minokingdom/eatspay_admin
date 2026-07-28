@@ -6000,6 +6000,17 @@ function readKakaoTidUploadEvents() {
   }
 }
 
+function writeKakaoTidUploadEvents(events) {
+  fs.mkdirSync(path.dirname(KAKAO_TID_UPLOAD_EVENTS_PATH), { recursive: true });
+  const temporaryPath = `${KAKAO_TID_UPLOAD_EVENTS_PATH}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(events.slice(-200), null, 2), { encoding: 'utf8', mode: 0o664 });
+    fs.renameSync(temporaryPath, KAKAO_TID_UPLOAD_EVENTS_PATH);
+  } finally {
+    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+  }
+}
+
 function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {} } = {}) {
   const data = resultBody?.data || {};
   const results = Array.isArray(data.results) ? data.results : [];
@@ -6034,8 +6045,7 @@ function appendKakaoTidUploadEvent({ batchId = '', fileName = '', resultBody = {
   try {
     const events = readKakaoTidUploadEvents();
     events.push(event);
-    fs.mkdirSync(path.dirname(KAKAO_TID_UPLOAD_EVENTS_PATH), { recursive: true });
-    fs.writeFileSync(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON.stringify(events.slice(-200), null, 2));
+    writeKakaoTidUploadEvents(events);
     return event;
   } catch (err) {
     console.warn('[KAKAO_TID_EVENT_WRITE_FAILED]', err?.message || err);
@@ -6079,8 +6089,7 @@ async function appendKakaoApprovalQueueDrainedEventIfNeeded() {
   };
   try {
     events.push(event);
-    fs.mkdirSync(path.dirname(KAKAO_TID_UPLOAD_EVENTS_PATH), { recursive: true });
-    fs.writeFileSync(KAKAO_TID_UPLOAD_EVENTS_PATH, JSON.stringify(events.slice(-200), null, 2));
+    writeKakaoTidUploadEvents(events);
     return event;
   } catch (err) {
     console.warn('[KAKAO_APPROVAL_QUEUE_EVENT_WRITE_FAILED]', err?.message || err);
